@@ -1,0 +1,4 @@
+tags
+*.o
+lavfi-preview
+imgui.ini
