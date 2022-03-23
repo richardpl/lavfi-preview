@@ -228,10 +228,32 @@ static void draw_frame(int ret, GLuint *texture, bool *p_open)
         if (ImGui::IsWindowFocused()) {
             if (ImGui::IsKeyReleased(ImGuiKey_Space))
                 paused = !paused;
-            framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
+            framestep = ImGui::IsKeyDown(ImGuiKey_Period);
         }
 
         ImGui::Image((void*)(intptr_t)*texture, ImVec2(filter_frame->width, filter_frame->height));
+        if (ImGui::IsItemHovered() && ImGui::IsKeyDown(ImGuiKey_Z)) {
+            ImGuiIO& io = ImGui::GetIO();
+            ImVec2 pos = ImGui::GetCursorScreenPos();
+            ImGui::BeginTooltip();
+            float my_tex_w = (float)filter_frame->width;
+            float my_tex_h = (float)filter_frame->height;
+            ImVec4 tint_col   = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // No tint
+            ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
+            float region_sz = 32.0f;
+            float region_x = io.MousePos.x - pos.x - region_sz * 0.5f;
+            float region_y = io.MousePos.y - pos.y - region_sz * 0.5f;
+            static float zoom = 4.f;
+            zoom = av_clipf(zoom + io.MouseWheel * 0.3f, 1.5f, 12.f);
+            if (region_x < 0.0f) { region_x = 0.0f; }
+            else if (region_x > my_tex_w - region_sz) { region_x = my_tex_w - region_sz; }
+            if (region_y < 0.0f) { region_y = 0.0f; }
+            else if (region_y > my_tex_h - region_sz) { region_y = my_tex_h - region_sz; }
+            ImVec2 uv0 = ImVec2((region_x) / my_tex_w, (region_y) / my_tex_h);
+            ImVec2 uv1 = ImVec2((region_x + region_sz) / my_tex_w, (region_y + region_sz) / my_tex_h);
+            ImGui::Image((void*)(intptr_t)*texture, ImVec2(region_sz * zoom, region_sz * zoom), uv0, uv1, tint_col, border_col);
+            ImGui::EndTooltip();
+        }
         ImGui::End();
     }
 }
@@ -493,7 +515,7 @@ static void show_commands(bool *p_open)
                                             value_storage[opt_index].inited = 1;
                                         }
                                         value = value_storage[opt_index].u.dbl;
-                                        if (ImGui::SliderScalar(opt->name, ImGuiDataType_Double, &value, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, 1.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
                                             value_storage[opt_index].u.dbl = value;
                                         }
                                     }
@@ -509,7 +531,7 @@ static void show_commands(bool *p_open)
                                             value_storage[opt_index].inited = 1;
                                         }
                                         value = value_storage[opt_index].u.flt;
-                                        if (ImGui::SliderFloat(opt->name, &value, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp))
+                                        if (ImGui::DragFloat(opt->name, &value, fmin, fmax, ImGuiSliderFlags_AlwaysClamp))
                                             value_storage[opt_index].u.flt = value;
                                     }
                                     break;
@@ -776,6 +798,16 @@ static void show_filters_list(bool *p_open)
                                     }
                                     break;
                                 case AV_OPT_TYPE_DOUBLE:
+                                    {
+                                        double value;
+
+                                        if (av_opt_get_double(av_class, opt->name, 0, &value))
+                                            break;
+                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, 1.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                            av_opt_set_double(av_class, opt->name, value, 0);
+                                        }
+                                    }
+                                    break;
                                 case AV_OPT_TYPE_FLOAT:
                                     {
                                         double value;
@@ -786,7 +818,7 @@ static void show_filters_list(bool *p_open)
                                         if (av_opt_get_double(av_class, opt->name, 0, &value))
                                             break;
                                         fvalue = value;
-                                        if (ImGui::SliderFloat(opt->name, &fvalue, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                        if (ImGui::DragFloat(opt->name, &fvalue, fmin, fmax, ImGuiSliderFlags_AlwaysClamp)) {
                                             value = fvalue;
                                             av_opt_set_double(av_class, opt->name, value, 0);
                                         }
