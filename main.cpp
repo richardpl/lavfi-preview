@@ -516,7 +516,7 @@ static void show_commands(bool *p_open)
                                                 value_storage[opt_index].u.i32 = value;
                                             }
                                         } else {
-                                            if (ImGui::DragInt(opt->name, &value, imin, imax)) {
+                                            if (ImGui::DragInt(opt->name, &value, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
                                                 value_storage[opt_index].u.i32 = value;
                                             }
                                         }
@@ -533,7 +533,7 @@ static void show_commands(bool *p_open)
                                             value_storage[opt_index].inited = 1;
                                         }
                                         value = value_storage[opt_index].u.i64;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &imin, &imax)) {
+                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &imin, &imax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
                                             value_storage[opt_index].u.i64 = value;
                                         }
                                     }
@@ -549,7 +549,7 @@ static void show_commands(bool *p_open)
                                             value_storage[opt_index].inited = 1;
                                         }
                                         value = value_storage[opt_index].u.u64;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax)) {
+                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
                                             value_storage[opt_index].u.u64 = value;
                                         }
                                     }
@@ -579,7 +579,7 @@ static void show_commands(bool *p_open)
                                             value_storage[opt_index].inited = 1;
                                         }
                                         value = value_storage[opt_index].u.flt;
-                                        if (ImGui::DragFloat(opt->name, &value, fmin, fmax, ImGuiSliderFlags_AlwaysClamp))
+                                        if (ImGui::DragFloat(opt->name, &value, 1.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp))
                                             value_storage[opt_index].u.flt = value;
                                     }
                                     break;
@@ -601,29 +601,19 @@ static void show_commands(bool *p_open)
                                             case AV_OPT_TYPE_FLAGS:
                                             case AV_OPT_TYPE_BOOL:
                                             case AV_OPT_TYPE_INT:
-                                                {
-                                                    snprintf(arg, sizeof(arg) - 1, "%d", value_storage[idx].u.i32);
-                                                }
+                                                snprintf(arg, sizeof(arg) - 1, "%d", value_storage[idx].u.i32);
                                                 break;
                                             case AV_OPT_TYPE_INT64:
-                                                {
-                                                    snprintf(arg, sizeof(arg) - 1, "%ld", value_storage[idx].u.i64);
-                                                }
+                                                snprintf(arg, sizeof(arg) - 1, "%ld", value_storage[idx].u.i64);
                                                 break;
                                             case AV_OPT_TYPE_UINT64:
-                                                {
-                                                    snprintf(arg, sizeof(arg) - 1, "%lu", value_storage[idx].u.u64);
-                                                }
+                                                snprintf(arg, sizeof(arg) - 1, "%lu", value_storage[idx].u.u64);
                                                 break;
                                             case AV_OPT_TYPE_DOUBLE:
-                                                {
-                                                    snprintf(arg, sizeof(arg) - 1, "%f", value_storage[idx].u.dbl);
-                                                }
+                                                snprintf(arg, sizeof(arg) - 1, "%f", value_storage[idx].u.dbl);
                                                 break;
                                             case AV_OPT_TYPE_FLOAT:
-                                                {
-                                                    snprintf(arg, sizeof(arg) - 1, "%f", value_storage[idx].u.flt);
-                                                }
+                                                snprintf(arg, sizeof(arg) - 1, "%f", value_storage[idx].u.flt);
                                                 break;
                                             default:
                                                 break;
@@ -801,12 +791,26 @@ static void show_filters_list(bool *p_open)
                                         int64_t smax = max;
                                         if (av_opt_get_int(av_class, opt->name, 0, &value))
                                             break;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &smin, &smax)) {
+                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &smin, &smax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
                                             av_opt_set_int(av_class, opt->name, value, 0);
                                         }
                                     }
                                     break;
                                 case AV_OPT_TYPE_UINT64:
+                                    {
+                                        int64_t value;
+                                        uint64_t uvalue;
+                                        uint64_t umin = min;
+                                        uint64_t umax = max;
+                                        if (av_opt_get_int(av_class, opt->name, 0, &value))
+                                            break;
+                                        uvalue = value;
+                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
+                                            value = uvalue;
+                                            av_opt_set_int(av_class, opt->name, value, 0);
+                                        }
+                                    }
+                                    break;
                                     break;
                                 case AV_OPT_TYPE_FLAGS:
                                 case AV_OPT_TYPE_BOOL:
@@ -838,7 +842,7 @@ static void show_filters_list(bool *p_open)
                                                 av_opt_set_int(av_class, opt->name, value, 0);
                                             }
                                         } else {
-                                            if (ImGui::DragInt(opt->name, &ivalue, imin, imax)) {
+                                            if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
                                                 value = ivalue;
                                                 av_opt_set_int(av_class, opt->name, value, 0);
                                             }
@@ -866,7 +870,7 @@ static void show_filters_list(bool *p_open)
                                         if (av_opt_get_double(av_class, opt->name, 0, &value))
                                             break;
                                         fvalue = value;
-                                        if (ImGui::DragFloat(opt->name, &fvalue, fmin, fmax, ImGuiSliderFlags_AlwaysClamp)) {
+                                        if (ImGui::DragFloat(opt->name, &fvalue, 1.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
                                             value = fvalue;
                                             av_opt_set_double(av_class, opt->name, value, 0);
                                         }
