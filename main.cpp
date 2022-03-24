@@ -3,6 +3,9 @@
 // If you are new to Dear ImGui, read documentation from the docs/ folder + read the top of imgui.cpp.
 // Read online: https://github.com/ocornut/imgui/tree/master/docs
 
+#include <queue>
+#include <thread>
+
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -11,6 +14,7 @@
 #include <GLES2/gl2.h>
 #endif
 #include <GLFW/glfw3.h> // Will drag system OpenGL headers
+#include <unistd.h>
 
 extern "C" {
 #include <libavutil/avutil.h>
@@ -70,11 +74,42 @@ AVFilterGraph *filter_graph = NULL;
 AVFilterGraph *probe_graph = NULL;
 AVFilterInOut *outputs = NULL;
 AVFilterInOut *inputs = NULL;
-AVFrame *filter_frame = NULL;
 char *graphdump_text = NULL;
 GLuint frame_texture;
 
+std::queue<AVFrame *> filter_frames;
+std::thread video_sink_thread;
+
 const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGB0, AV_PIX_FMT_NONE };
+
+static void worker_thread(AVFilterContext *ctx)
+{
+    int ret;
+
+    while (ctx) {
+        if (need_filters_reinit)
+            break;
+
+        if (!paused || framestep) {
+            AVFrame *filter_frame = av_frame_alloc();
+
+            if (filter_frames.size() <= 2) {
+                ret = av_buffersink_get_frame_flags(ctx, filter_frame, 0);
+                if (ret < 0 && ret != AVERROR(EAGAIN))
+                    break;
+            }
+
+            filter_frames.push(filter_frame);
+            while (filter_frames.size() > 2) {
+                AVFrame *pop_frame = filter_frames.front();
+                filter_frames.pop();
+                av_frame_free(&pop_frame);
+            }
+        } else {
+            usleep(10000);
+        }
+    }
+}
 
 static int filters_setup()
 {
@@ -84,6 +119,10 @@ static int filters_setup()
 
     if (need_filters_reinit == 0)
         return 0;
+
+    if (video_sink_thread.joinable())
+        video_sink_thread.join();
+
     if (nb_all_filters <= 0)
         return 0;
     if (!filters_options[0].filter_name)
@@ -91,6 +130,7 @@ static int filters_setup()
     need_filters_reinit = 0;
 
     buffersink_ctx = NULL;
+
     av_freep(&graphdump_text);
     avfilter_inout_free(&outputs);
     avfilter_inout_free(&inputs);
@@ -185,41 +225,49 @@ static int filters_setup()
     show_buffersink_window = true;
     show_dumpgraph_window = true;
 
-    printf("%s\n", avfilter_graph_dump(filter_graph, NULL));
-    return 0;
-
 error:
 
-    avfilter_inout_free(&outputs);
-    avfilter_inout_free(&inputs);
-    avfilter_graph_free(&filter_graph);
-    buffersink_ctx = NULL;
-    nb_all_filters = 0;
+    if (ret < 0) {
+        avfilter_inout_free(&outputs);
+        avfilter_inout_free(&inputs);
+        avfilter_graph_free(&filter_graph);
+        buffersink_ctx = NULL;
+        nb_all_filters = 0;
 
-    return ret;
+        return ret;
+    }
+
+    std::thread sink_thread(worker_thread, buffersink_ctx);
+    video_sink_thread.swap(sink_thread);
+
+    return 0;
 }
 
-static bool load_frame(GLuint *out_texture)
+static bool load_frame(GLuint *out_texture, int *width, int *height, AVFrame *frame)
 {
-    if (!filter_frame)
+    if (!frame)
         return false;
+
+    *width  = frame->width;
+    *height = frame->height;
 
     glBindTexture(GL_TEXTURE_2D, *out_texture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, filter_frame->linesize[0] / 4);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, filter_frame->width, filter_frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, filter_frame->data[0]);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->linesize[0] / 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->data[0]);
 
     return true;
 }
 
-static void draw_frame(int ret, GLuint *texture, bool *p_open)
+static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_frame)
 {
-    if (ret < 0 || !*p_open) {
+    int width, height;
+
+    if (ret < 0 || !*p_open || !new_frame)
         return;
-    }
-    ret = load_frame(texture);
-    if (ret && filter_frame) {
+    ret = load_frame(texture, &width, &height, new_frame);
+    if (ret) {
         if (!ImGui::Begin("filtergraph output", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::End();
             return;
@@ -228,16 +276,16 @@ static void draw_frame(int ret, GLuint *texture, bool *p_open)
         if (ImGui::IsWindowFocused()) {
             if (ImGui::IsKeyReleased(ImGuiKey_Space))
                 paused = !paused;
-            framestep = ImGui::IsKeyDown(ImGuiKey_Period);
+            framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
         }
 
-        ImGui::Image((void*)(intptr_t)*texture, ImVec2(filter_frame->width, filter_frame->height));
+        ImGui::Image((void*)(intptr_t)*texture, ImVec2(width, height));
         if (ImGui::IsItemHovered() && ImGui::IsKeyDown(ImGuiKey_Z)) {
             ImGuiIO& io = ImGui::GetIO();
             ImVec2 pos = ImGui::GetCursorScreenPos();
             ImGui::BeginTooltip();
-            float my_tex_w = (float)filter_frame->width;
-            float my_tex_h = (float)filter_frame->height;
+            float my_tex_w = (float)width;
+            float my_tex_h = (float)height;
             ImVec4 tint_col   = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // No tint
             ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
             float region_sz = 32.0f;
@@ -1027,9 +1075,13 @@ int main(int, char**)
 
         if (show_buffersink_window == false) {
             if (filter_graph) {
-                avfilter_graph_free(&filter_graph);
+                need_filters_reinit = 1;
+                if (video_sink_thread.joinable())
+                    video_sink_thread.join();
                 buffersink_ctx = NULL;
                 nb_all_filters = 0;
+                avfilter_graph_free(&filter_graph);
+                need_filters_reinit = 0;
             }
         }
 
@@ -1037,23 +1089,13 @@ int main(int, char**)
         if (ret < 0)
             break;
 
-        if (!filter_frame)
-            filter_frame = av_frame_alloc();
-
-        if (buffersink_ctx) {
-            if (!paused || framestep) {
-                av_frame_unref(filter_frame);
-                ret = av_buffersink_get_frame_flags(buffersink_ctx, filter_frame, 0);
-            }
-        } else {
-            ret = -1;
-        }
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        draw_frame(ret, &texture, &show_buffersink_window);
+        AVFrame *render_frame = filter_frames.empty() ? NULL : filter_frames.front();
+        draw_frame(ret, &texture, &show_buffersink_window, render_frame);
         if (show_filters_list_window)
             show_filters_list(&show_filters_list_window);
         if (show_commands_window)
@@ -1073,16 +1115,21 @@ int main(int, char**)
         glfwSwapBuffers(window);
     }
 
+    need_filters_reinit = 1;
+    if (video_sink_thread.joinable())
+        video_sink_thread.join();
+
     av_freep(&graphdump_text);
-    av_frame_free(&filter_frame);
+
+    avfilter_graph_free(&filter_graph);
+    avfilter_graph_free(&probe_graph);
+
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
     glfwDestroyWindow(window);
     glfwTerminate();
-    avfilter_graph_free(&filter_graph);
-    avfilter_graph_free(&probe_graph);
 
     return ret;
 }
