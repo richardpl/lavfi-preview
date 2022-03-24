@@ -35,8 +35,8 @@ typedef struct ValueStorage {
         int64_t i64;
         uint64_t u64;
         double dbl;
-        const char *str;
         AVRational q;
+        char *str;
     } u;
 } ValueStorage;
 
@@ -474,6 +474,7 @@ static void show_commands(bool *p_open)
                                 case AV_OPT_TYPE_FLOAT:
                                 case AV_OPT_TYPE_INT64:
                                 case AV_OPT_TYPE_UINT64:
+                                case AV_OPT_TYPE_STRING:
                                     if (ImGui::Button("Send")) {
                                         pressed = opt_index;
                                     }
@@ -583,6 +584,19 @@ static void show_commands(bool *p_open)
                                             value_storage[opt_index].u.flt = value;
                                     }
                                     break;
+                                case AV_OPT_TYPE_STRING:
+                                    {
+                                        char string[1024];
+
+                                        if (!value_storage[opt_index].inited) {
+                                            value_storage[opt_index].u.str = (char *)ptr;
+                                            value_storage[opt_index].inited = 1;
+                                        }
+                                        strncpy(string, value_storage[opt_index].u.str, sizeof(string));
+                                        if (ImGui::InputText(opt->name, string, sizeof(string)))
+                                            memcpy(value_storage[opt_index].u.str, string, sizeof(string));
+                                    }
+                                    break;
                                 default:
                                     break;
                             }
@@ -614,6 +628,9 @@ static void show_commands(bool *p_open)
                                                 break;
                                             case AV_OPT_TYPE_FLOAT:
                                                 snprintf(arg, sizeof(arg) - 1, "%f", value_storage[idx].u.flt);
+                                                break;
+                                            case AV_OPT_TYPE_STRING:
+                                                snprintf(arg, FFMIN(sizeof(arg), strlen(value_storage[idx].u.str)), "%s", value_storage[idx].u.str);
                                                 break;
                                             default:
                                                 break;
