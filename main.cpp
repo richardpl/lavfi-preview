@@ -1115,7 +1115,7 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        AVFrame *render_frame = filter_frames.empty() ? NULL : filter_frames.front();
+        AVFrame *render_frame = filter_frames.empty() ? NULL : filter_frames.back();
         draw_frame(ret, &texture, &show_buffersink_window, render_frame);
         if (show_filters_list_window)
             show_filters_list(&show_filters_list_window);
