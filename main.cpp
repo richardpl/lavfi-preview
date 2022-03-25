@@ -5,6 +5,7 @@
 
 #include <queue>
 #include <thread>
+#include <mutex>
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -86,6 +87,7 @@ GLuint frame_texture;
 
 std::queue<AVFrame *> filter_frames;
 std::thread video_sink_thread;
+std::mutex filter_frames_mutex;
 
 const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGB0, AV_PIX_FMT_NONE };
 
@@ -98,10 +100,13 @@ static void worker_thread(AVFilterContext *ctx)
             break;
 
         if (!paused || framestep) {
+            filter_frames_mutex.lock();
             if (filter_frames.size() <= 2) {
-                AVFrame *filter_frame = av_frame_alloc();
+                AVFrame *filter_frame;
                 int64_t start, end;
 
+                filter_frames_mutex.unlock();
+                filter_frame = av_frame_alloc();
                 start = av_gettime_relative();
                 ret = av_buffersink_get_frame_flags(ctx, filter_frame, 0);
                 end = av_gettime_relative();
@@ -110,6 +115,7 @@ static void worker_thread(AVFilterContext *ctx)
                 if (ret < 0 && ret != AVERROR(EAGAIN))
                     break;
 
+                filter_frames_mutex.lock();
                 filter_frames.push(filter_frame);
                 framestep = false;
             }
@@ -119,6 +125,7 @@ static void worker_thread(AVFilterContext *ctx)
                 filter_frames.pop();
                 av_frame_free(&pop_frame);
             }
+            filter_frames_mutex.unlock();
         } else {
             usleep(10000);
         }
@@ -497,7 +504,7 @@ static void show_commands(bool *p_open)
                         int opt_index = 0;
 
                         if (is_opened && clean_storage) {
-                            memset(value_storage, 0, 64 * sizeof(*value_storage));
+                            memset(value_storage, 0, sizeof(filters_options[n].value_storage));
                             clean_storage = 0;
                         }
 
@@ -1165,6 +1172,7 @@ int main(int, char**)
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
+        AVFrame *render_frame;
         // Poll and handle events (inputs, window resize, etc.)
         // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
         // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application.
@@ -1193,8 +1201,10 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        AVFrame *render_frame = filter_frames.empty() ? NULL : filter_frames.back();
+        filter_frames_mutex.lock();
+        render_frame = filter_frames.empty() ? NULL : filter_frames.back();
         draw_frame(ret, &texture, &show_buffersink_window, render_frame);
+        filter_frames_mutex.unlock();
         if (show_filters_list_window)
             show_filters_list(&show_filters_list_window);
         if (show_commands_window)
