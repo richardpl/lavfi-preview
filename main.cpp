@@ -899,11 +899,19 @@ static void show_filters_list(bool *p_open)
                                         if (av_opt_get_int(av_class, opt->name, 0, &value))
                                             break;
                                         ivalue = value;
-                                        if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
-                                            value = ivalue;
-                                            av_opt_set_int(av_class, opt->name, value, 0);
+                                        if (imax < INT_MAX/2 && imin > INT_MIN/2) {
+                                            if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
+                                                value = ivalue;
+                                                av_opt_set_int(av_class, opt->name, value, 0);
+                                            }
+                                        } else {
+                                            if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
+                                                value = ivalue;
+                                                av_opt_set_int(av_class, opt->name, value, 0);
+                                            }
                                         }
                                     }
+                                    break;
                                 case AV_OPT_TYPE_INT:
                                     {
                                         int64_t value;
