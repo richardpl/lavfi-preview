@@ -98,7 +98,7 @@ static void worker_thread(AVFilterContext *ctx, AVRational rate, std::queue<AVFr
         if (need_filters_reinit)
             break;
 
-        if (!paused || framestep) {
+        if ((!paused || frames->size() == 0) || framestep) {
             mutex->lock();
             if (frames->size() <= 2) {
                 AVFrame *filter_frame;
