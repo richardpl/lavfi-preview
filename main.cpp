@@ -840,12 +840,16 @@ static void show_filters_list(bool *p_open)
                 if (filter->priv_class && filter->priv_class->option && probe_ctx) {
                     if (ImGui::TreeNode("Options")) {
                         const AVOption *opt = NULL;
+                        int last_offset = -1;
                         double min, max;
                         void *av_class;
                         int index = 0;
 
                         av_class = probe_ctx->priv;
                         while ((opt = av_opt_next(&filter->priv_class, opt))) {
+                            if (last_offset == opt->offset)
+                                continue;
+                            last_offset = opt->offset;
                             if (!query_ranges((void *)&filter->priv_class, opt, &min, &max))
                                 continue;
                             switch (opt->type) {
