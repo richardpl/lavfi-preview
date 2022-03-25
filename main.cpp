@@ -1195,6 +1195,8 @@ int main(int, char**)
                 if (video_sink_thread.joinable())
                     video_sink_thread.join();
                 buffersink_ctx = NULL;
+                for (int i = 0; i < nb_all_filters; i++)
+                    av_freep(&filters_options[i].filter_name);
                 nb_all_filters = 0;
                 avfilter_graph_free(&filter_graph);
                 need_filters_reinit = 0;
@@ -1239,6 +1241,8 @@ int main(int, char**)
 
     av_freep(&graphdump_text);
 
+    for (int i = 0; i < nb_all_filters; i++)
+        av_freep(&filters_options[i].filter_name);
     avfilter_graph_free(&filter_graph);
     avfilter_graph_free(&probe_graph);
 
