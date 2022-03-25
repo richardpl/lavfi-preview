@@ -103,6 +103,7 @@ static void worker_thread(AVFilterContext *ctx)
                     break;
 
                 filter_frames.push(filter_frame);
+                framestep = false;
             }
 
             while (filter_frames.size() > 2) {
@@ -317,7 +318,7 @@ static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_fram
         if (ImGui::IsWindowFocused()) {
             if (ImGui::IsKeyReleased(ImGuiKey_Space))
                 paused = !paused;
-            framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
+            framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
             if (ImGui::IsKeyReleased(ImGuiKey_O))
                 show_osd = !show_osd;
         }
