@@ -357,6 +357,8 @@ static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_fram
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
             paused = !paused;
         framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
+        if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift)
+            show_buffersink_window = false;
         if (ImGui::IsKeyReleased(ImGuiKey_O))
             show_osd = !show_osd;
     }
