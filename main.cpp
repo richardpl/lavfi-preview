@@ -91,7 +91,7 @@ std::mutex filter_frames_mutex;
 
 const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGB0, AV_PIX_FMT_NONE };
 
-static void worker_thread(AVFilterContext *ctx)
+static void worker_thread(AVFilterContext *ctx, AVRational rate, std::queue<AVFrame *> *frames, std::mutex *mutex)
 {
     int ret;
 
@@ -100,36 +100,45 @@ static void worker_thread(AVFilterContext *ctx)
             break;
 
         if (!paused || framestep) {
-            filter_frames_mutex.lock();
-            if (filter_frames.size() <= 2) {
+            mutex->lock();
+            if (frames->size() <= 2) {
                 AVFrame *filter_frame;
                 int64_t start, end;
 
-                filter_frames_mutex.unlock();
+                mutex->unlock();
                 filter_frame = av_frame_alloc();
                 start = av_gettime_relative();
                 ret = av_buffersink_get_frame_flags(ctx, filter_frame, 0);
                 end = av_gettime_relative();
                 if (end > start)
-                    speed = 1000000. * av_q2d(av_inv_q(buffersink_frame_rate)) / (end - start);
+                    speed = 1000000. * av_q2d(av_inv_q(rate)) / (end - start);
                 if (ret < 0 && ret != AVERROR(EAGAIN))
                     break;
 
-                filter_frames_mutex.lock();
-                filter_frames.push(filter_frame);
+                mutex->lock();
+                frames->push(filter_frame);
                 framestep = false;
             }
 
-            while (filter_frames.size() > 2) {
-                AVFrame *pop_frame = filter_frames.front();
-                filter_frames.pop();
+            while (frames->size() > 2) {
+                AVFrame *pop_frame = frames->front();
+                frames->pop();
                 av_frame_free(&pop_frame);
             }
-            filter_frames_mutex.unlock();
+            mutex->unlock();
         } else {
             usleep(10000);
         }
     }
+
+    mutex->lock();
+    while (frames->size() > 0) {
+        AVFrame *pop_frame = frames->front();
+
+        frames->pop();
+        av_frame_free(&pop_frame);
+    }
+    mutex->unlock();
 }
 
 static int filters_setup()
@@ -260,7 +269,7 @@ error:
 
     buffersink_time_base = av_buffersink_get_time_base(buffersink_ctx);
     buffersink_frame_rate = av_buffersink_get_frame_rate(buffersink_ctx);
-    std::thread sink_thread(worker_thread, buffersink_ctx);
+    std::thread sink_thread(worker_thread, buffersink_ctx, buffersink_frame_rate, &filter_frames, &filter_frames_mutex);
     video_sink_thread.swap(sink_thread);
 
     return 0;
