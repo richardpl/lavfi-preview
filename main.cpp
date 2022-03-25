@@ -65,6 +65,7 @@ bool show_commands_window = true;
 bool show_osd = true;
 
 bool framestep = false;
+bool fullscreen = false;
 bool paused = false;
 int width = 1280;
 int height = 720;
@@ -274,11 +275,8 @@ error:
     return 0;
 }
 
-static bool load_frame(GLuint *out_texture, int *width, int *height, AVFrame *frame)
+static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *frame)
 {
-    if (!frame)
-        return false;
-
     *width  = frame->width;
     *height = frame->height;
 
@@ -287,8 +285,6 @@ static bool load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->linesize[0] / 4);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->data[0]);
-
-    return true;
 }
 
 static void draw_osd(bool *p_open, int64_t pts)
@@ -328,53 +324,79 @@ static void draw_osd(bool *p_open, int64_t pts)
 
 static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_frame)
 {
-    int width, height;
+    ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
+    int width, height, style = 0;
 
     if (ret < 0 || !*p_open || !new_frame)
         return;
-    ret = load_frame(texture, &width, &height, new_frame);
-    if (ret) {
-        if (!ImGui::Begin("filtergraph output", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::End();
-            return;
-        }
 
-        if (ImGui::IsWindowFocused()) {
-            if (ImGui::IsKeyReleased(ImGuiKey_Space))
-                paused = !paused;
-            framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
-            if (ImGui::IsKeyReleased(ImGuiKey_O))
-                show_osd = !show_osd;
-        }
+    load_frame(texture, &width, &height, new_frame);
+    if (fullscreen) {
+        const ImGuiViewport *viewport = ImGui::GetMainViewport();
 
-        ImGui::Image((void*)(intptr_t)*texture, ImVec2(width, height));
-        if (show_osd)
-            draw_osd(&show_osd, new_frame->pts);
+        ImGui::SetNextWindowPos(viewport->Pos);
+        ImGui::SetNextWindowSize(viewport->Size);
 
-        if (ImGui::IsItemHovered() && ImGui::IsKeyDown(ImGuiKey_Z)) {
-            ImGuiIO& io = ImGui::GetIO();
-            ImVec2 pos = ImGui::GetCursorScreenPos();
-            ImGui::BeginTooltip();
-            float my_tex_w = (float)width;
-            float my_tex_h = (float)height;
-            ImVec4 tint_col   = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // No tint
-            ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
-            float region_sz = 32.0f;
-            float region_x = io.MousePos.x - pos.x - region_sz * 0.5f;
-            float region_y = io.MousePos.y - pos.y - region_sz * 0.5f;
-            static float zoom = 4.f;
-            zoom = av_clipf(zoom + io.MouseWheel * 0.3f, 1.5f, 12.f);
-            if (region_x < 0.0f) { region_x = 0.0f; }
-            else if (region_x > my_tex_w - region_sz) { region_x = my_tex_w - region_sz; }
-            if (region_y < 0.0f) { region_y = 0.0f; }
-            else if (region_y > my_tex_h - region_sz) { region_y = my_tex_h - region_sz; }
-            ImVec2 uv0 = ImVec2((region_x) / my_tex_w, (region_y) / my_tex_h);
-            ImVec2 uv1 = ImVec2((region_x + region_sz) / my_tex_w, (region_y + region_sz) / my_tex_h);
-            ImGui::Image((void*)(intptr_t)*texture, ImVec2(region_sz * zoom, region_sz * zoom), uv0, uv1, tint_col, border_col);
-            ImGui::EndTooltip();
-        }
-        ImGui::End();
+        flags |= ImGuiWindowFlags_NoDecoration;
+        flags |= ImGuiWindowFlags_NoTitleBar;
+        flags |= ImGuiWindowFlags_NoMove;
+        flags |= ImGuiWindowFlags_NoResize;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        style = 1;
     }
+
+    if (!ImGui::Begin("filtergraph output", p_open, flags)) {
+        ImGui::End();
+        return;
+    }
+
+    if (ImGui::IsWindowFocused()) {
+        if (ImGui::IsKeyReleased(ImGuiKey_F))
+            fullscreen = !fullscreen;
+        if (ImGui::IsKeyReleased(ImGuiKey_Space))
+            paused = !paused;
+        framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
+        if (ImGui::IsKeyReleased(ImGuiKey_O))
+            show_osd = !show_osd;
+    }
+
+    if (fullscreen)
+        ImGui::GetWindowDrawList()->AddImage((void*)(intptr_t)*texture, ImVec2(0.f, 0.f),
+                                             ImGui::GetWindowSize(),
+                                             ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), IM_COL32_WHITE);
+    else
+        ImGui::Image((void*)(intptr_t)*texture, ImVec2(width, height));
+
+    if (style)
+        ImGui::PopStyleVar();
+
+    if (show_osd)
+        draw_osd(&show_osd, new_frame->pts);
+
+    if (ImGui::IsItemHovered() && ImGui::IsKeyDown(ImGuiKey_Z)) {
+        ImGuiIO& io = ImGui::GetIO();
+        ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImGui::BeginTooltip();
+        float my_tex_w = (float)width;
+        float my_tex_h = (float)height;
+        ImVec4 tint_col   = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // No tint
+        ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
+        float region_sz = 32.0f;
+        float region_x = io.MousePos.x - pos.x - region_sz * 0.5f;
+        float region_y = io.MousePos.y - pos.y - region_sz * 0.5f;
+        static float zoom = 4.f;
+        zoom = av_clipf(zoom + io.MouseWheel * 0.3f, 1.5f, 12.f);
+        if (region_x < 0.0f) { region_x = 0.0f; }
+        else if (region_x > my_tex_w - region_sz) { region_x = my_tex_w - region_sz; }
+        if (region_y < 0.0f) { region_y = 0.0f; }
+        else if (region_y > my_tex_h - region_sz) { region_y = my_tex_h - region_sz; }
+        ImVec2 uv0 = ImVec2((region_x) / my_tex_w, (region_y) / my_tex_h);
+        ImVec2 uv1 = ImVec2((region_x + region_sz) / my_tex_w, (region_y + region_sz) / my_tex_h);
+        ImGui::Image((void*)(intptr_t)*texture, ImVec2(region_sz * zoom, region_sz * zoom), uv0, uv1, tint_col, border_col);
+        ImGui::EndTooltip();
+    }
+    ImGui::End();
 }
 
 static bool query_ranges(void *obj, const AVOption *opt,
