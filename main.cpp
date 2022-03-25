@@ -23,7 +23,7 @@ extern "C" {
 #include <libavutil/dict.h>
 #include <libavutil/opt.h>
 #include <libavutil/parseutils.h>
-#include <libavutil/timestamp.h>
+#include <libavutil/time.h>
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
 #include <libavformat/avformat.h>
@@ -55,6 +55,8 @@ static void glfw_error_callback(int error, const char* description)
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
+double speed = 1.f;
+
 bool show_filters_list_window = true;
 bool show_buffersink_window = true;
 bool show_dumpgraph_window = true;
@@ -72,6 +74,7 @@ AVFilterContext *new_filters[1024] = { NULL };
 int nb_all_filters = 0;
 AVFilterContext *buffersink_ctx = NULL;
 AVRational buffersink_time_base;
+AVRational buffersink_frame_rate;
 AVFilterContext *filter_ctx = NULL;
 AVFilterContext *probe_ctx = NULL;
 AVFilterGraph *filter_graph = NULL;
@@ -97,8 +100,13 @@ static void worker_thread(AVFilterContext *ctx)
         if (!paused || framestep) {
             if (filter_frames.size() <= 2) {
                 AVFrame *filter_frame = av_frame_alloc();
+                int64_t start, end;
 
+                start = av_gettime_relative();
                 ret = av_buffersink_get_frame_flags(ctx, filter_frame, 0);
+                end = av_gettime_relative();
+                if (end > start)
+                    speed = 1000000. * av_q2d(av_inv_q(buffersink_frame_rate)) / (end - start);
                 if (ret < 0 && ret != AVERROR(EAGAIN))
                     break;
 
@@ -244,6 +252,7 @@ error:
     }
 
     buffersink_time_base = av_buffersink_get_time_base(buffersink_ctx);
+    buffersink_frame_rate = av_buffersink_get_frame_rate(buffersink_ctx);
     std::thread sink_thread(worker_thread, buffersink_ctx);
     video_sink_thread.swap(sink_thread);
 
@@ -267,7 +276,7 @@ static bool load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     return true;
 }
 
-static void draw_osd(bool *p_open, const char *time_string)
+static void draw_osd(bool *p_open, int64_t pts)
 {
     const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
                                           ImGuiWindowFlags_AlwaysAutoResize |
@@ -295,7 +304,10 @@ static void draw_osd(bool *p_open, const char *time_string)
     }
 
     ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
-    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: %s", time_string);
+    if (pts == AV_NOPTS_VALUE)
+        ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: ?.?? \t SPEED: %.5f", speed);
+    else
+        ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: %.5f \t SPEED: %.5f", av_q2d(buffersink_time_base) * pts, speed);
     ImGui::End();
 }
 
@@ -307,9 +319,6 @@ static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_fram
         return;
     ret = load_frame(texture, &width, &height, new_frame);
     if (ret) {
-        char timestring[AV_TS_MAX_STRING_SIZE];
-        char *string;
-
         if (!ImGui::Begin("filtergraph output", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::End();
             return;
@@ -324,9 +333,8 @@ static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_fram
         }
 
         ImGui::Image((void*)(intptr_t)*texture, ImVec2(width, height));
-        string = av_ts_make_time_string(timestring, new_frame->pts, &buffersink_time_base);
         if (show_osd)
-            draw_osd(&show_osd, string);
+            draw_osd(&show_osd, new_frame->pts);
 
         if (ImGui::IsItemHovered() && ImGui::IsKeyDown(ImGuiKey_Z)) {
             ImGuiIO& io = ImGui::GetIO();
