@@ -663,6 +663,7 @@ static void show_commands(bool *p_open)
                                         if (!value_storage[opt_index].inited) {
                                             if (av_opt_get(ctx->priv, opt->name, 0, &str))
                                                 break;
+                                            av_freep(&value_storage[opt_index].u.str);
                                             value_storage[opt_index].u.str = av_strdup((char *)str);
                                             value_storage[opt_index].inited = 1;
                                         }
@@ -708,6 +709,8 @@ static void show_commands(bool *p_open)
                                                 break;
                                             case AV_OPT_TYPE_STRING:
                                                 snprintf(arg, FFMIN(sizeof(arg) - 1, strlen((const char *)value_storage[idx].u.str)) + 1, "%s", value_storage[idx].u.str);
+                                                av_freep(&value_storage[idx].u.str);
+                                                value_storage[idx].inited = 0;
                                                 break;
                                             default:
                                                 break;
