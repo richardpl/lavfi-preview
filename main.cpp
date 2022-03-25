@@ -658,14 +658,17 @@ static void show_commands(bool *p_open)
                                 case AV_OPT_TYPE_STRING:
                                     {
                                         char string[1024] = { 0 };
+                                        uint8_t *str = NULL;
 
                                         if (!value_storage[opt_index].inited) {
-                                            av_freep(&value_storage[opt_index].u.str);
-                                            value_storage[opt_index].u.str = av_strdup((char *)ptr);
+                                            if (av_opt_get(ctx->priv, opt->name, 0, &str))
+                                                break;
+                                            value_storage[opt_index].u.str = av_strdup((char *)str);
                                             value_storage[opt_index].inited = 1;
                                         }
-                                        strncpy(string, value_storage[opt_index].u.str, sizeof(string));
-                                        if (ImGui::InputText(opt->name, string, sizeof(string))) {
+
+                                        memcpy(string, value_storage[opt_index].u.str, FFMIN(sizeof(string) - 1, strlen(value_storage[opt_index].u.str)));
+                                        if (ImGui::InputText(opt->name, string, sizeof(string) - 1)) {
                                             av_freep(&value_storage[opt_index].u.str);
                                             value_storage[opt_index].u.str = av_strdup(string);
                                         }
@@ -704,7 +707,7 @@ static void show_commands(bool *p_open)
                                                 snprintf(arg, sizeof(arg) - 1, "%f", value_storage[idx].u.flt);
                                                 break;
                                             case AV_OPT_TYPE_STRING:
-                                                snprintf(arg, FFMIN(sizeof(arg) - 1, strlen(value_storage[idx].u.str)) + 1, "%s", value_storage[idx].u.str);
+                                                snprintf(arg, FFMIN(sizeof(arg) - 1, strlen((const char *)value_storage[idx].u.str)) + 1, "%s", value_storage[idx].u.str);
                                                 break;
                                             default:
                                                 break;
