@@ -68,7 +68,6 @@ bool framestep = false;
 bool paused = false;
 int width = 1280;
 int height = 720;
-AVFilter *ifilter = NULL;
 int need_filters_reinit = 1;
 FiltersOptions filters_options[1024] = { { NULL, NULL, NULL, NULL, { 0, 0 } } };
 AVFilterContext *new_filters[1024] = { NULL };
