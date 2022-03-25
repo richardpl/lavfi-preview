@@ -876,6 +876,18 @@ static void show_filters_list(bool *p_open)
                                         }
                                     }
                                     break;
+                                case AV_OPT_TYPE_DURATION:
+                                    {
+                                        int64_t value;
+                                        double dvalue;
+                                        if (av_opt_get_int(av_class, opt->name, 0, &value))
+                                            break;
+                                        dvalue = value / 1000000.0;
+                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &dvalue, 1, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                            value = dvalue * 1000000.0;
+                                            av_opt_set_int(av_class, opt->name, value, 0);
+                                        }
+                                    }
                                     break;
                                 case AV_OPT_TYPE_FLAGS:
                                 case AV_OPT_TYPE_BOOL:
@@ -1007,8 +1019,6 @@ static void show_filters_list(bool *p_open)
                                 case AV_OPT_TYPE_PIXEL_FMT:
                                     break;
                                 case AV_OPT_TYPE_SAMPLE_FMT:
-                                    break;
-                                case AV_OPT_TYPE_DURATION:
                                     break;
                                 case AV_OPT_TYPE_COLOR:
                                     {
