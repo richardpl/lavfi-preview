@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include <stdio.h>
@@ -22,6 +23,7 @@ extern "C" {
 #include <libavutil/dict.h>
 #include <libavutil/opt.h>
 #include <libavutil/parseutils.h>
+#include <libavutil/timestamp.h>
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
 #include <libavformat/avformat.h>
@@ -57,6 +59,7 @@ bool show_filters_list_window = true;
 bool show_buffersink_window = true;
 bool show_dumpgraph_window = true;
 bool show_commands_window = true;
+bool show_osd = true;
 
 bool framestep = false;
 bool paused = false;
@@ -68,6 +71,7 @@ FiltersOptions filters_options[1024] = { NULL, NULL, { 0 } };
 AVFilterContext *new_filters[1024] = { NULL };
 int nb_all_filters = 0;
 AVFilterContext *buffersink_ctx = NULL;
+AVRational buffersink_time_base;
 AVFilterContext *filter_ctx = NULL;
 AVFilterContext *probe_ctx = NULL;
 AVFilterGraph *filter_graph = NULL;
@@ -91,15 +95,16 @@ static void worker_thread(AVFilterContext *ctx)
             break;
 
         if (!paused || framestep) {
-            AVFrame *filter_frame = av_frame_alloc();
-
             if (filter_frames.size() <= 2) {
+                AVFrame *filter_frame = av_frame_alloc();
+
                 ret = av_buffersink_get_frame_flags(ctx, filter_frame, 0);
                 if (ret < 0 && ret != AVERROR(EAGAIN))
                     break;
+
+                filter_frames.push(filter_frame);
             }
 
-            filter_frames.push(filter_frame);
             while (filter_frames.size() > 2) {
                 AVFrame *pop_frame = filter_frames.front();
                 filter_frames.pop();
@@ -237,6 +242,7 @@ error:
         return ret;
     }
 
+    buffersink_time_base = av_buffersink_get_time_base(buffersink_ctx);
     std::thread sink_thread(worker_thread, buffersink_ctx);
     video_sink_thread.swap(sink_thread);
 
@@ -260,6 +266,38 @@ static bool load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     return true;
 }
 
+static void draw_osd(bool *p_open, const char *time_string)
+{
+    const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
+                                          ImGuiWindowFlags_AlwaysAutoResize |
+                                          ImGuiWindowFlags_NoSavedSettings |
+                                          ImGuiWindowFlags_NoNav |
+                                          ImGuiWindowFlags_NoMouseInputs |
+                                          ImGuiWindowFlags_NoMove;
+    const int corner = 0;
+    const float PAD_X = 10.0f;
+    const float PAD_Y = 20.0f;
+
+    ImVec2 work_pos = ImGui::GetWindowPos();
+    ImVec2 work_size = ImGui::GetWindowSize();
+    ImVec2 window_pos, window_pos_pivot;
+    window_pos.x = (corner & 1) ? (work_pos.x + work_size.x - PAD_X) : (work_pos.x + PAD_X);
+    window_pos.y = (corner & 2) ? (work_pos.y + work_size.y - PAD_Y) : (work_pos.y + PAD_Y);
+    window_pos_pivot.x = (corner & 1) ? 1.0f : 0.0f;
+    window_pos_pivot.y = (corner & 2) ? 1.0f : 0.0f;
+    ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+    ImGui::SetNextWindowBgAlpha(0.77f);
+
+    if (!ImGui::Begin("##OSD", p_open, window_flags)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: %s", time_string);
+    ImGui::End();
+}
+
 static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_frame)
 {
     int width, height;
@@ -268,6 +306,9 @@ static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_fram
         return;
     ret = load_frame(texture, &width, &height, new_frame);
     if (ret) {
+        char timestring[AV_TS_MAX_STRING_SIZE];
+        char *string;
+
         if (!ImGui::Begin("filtergraph output", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::End();
             return;
@@ -277,9 +318,15 @@ static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_fram
             if (ImGui::IsKeyReleased(ImGuiKey_Space))
                 paused = !paused;
             framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
+            if (ImGui::IsKeyReleased(ImGuiKey_O))
+                show_osd = !show_osd;
         }
 
         ImGui::Image((void*)(intptr_t)*texture, ImVec2(width, height));
+        string = av_ts_make_time_string(timestring, new_frame->pts, &buffersink_time_base);
+        if (show_osd)
+            draw_osd(&show_osd, string);
+
         if (ImGui::IsItemHovered() && ImGui::IsKeyDown(ImGuiKey_Z)) {
             ImGuiIO& io = ImGui::GetIO();
             ImVec2 pos = ImGui::GetCursorScreenPos();
