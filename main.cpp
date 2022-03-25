@@ -88,7 +88,7 @@ std::queue<AVFrame *> filter_frames;
 std::thread video_sink_thread;
 std::mutex filter_frames_mutex;
 
-const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGB0, AV_PIX_FMT_NONE };
+const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
 
 static void worker_thread(AVFilterContext *ctx, AVRational rate, std::queue<AVFrame *> *frames, std::mutex *mutex)
 {
