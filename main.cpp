@@ -70,7 +70,7 @@ int width = 1280;
 int height = 720;
 AVFilter *ifilter = NULL;
 int need_filters_reinit = 1;
-FiltersOptions filters_options[1024] = { NULL, NULL, { 0 } };
+FiltersOptions filters_options[1024] = { { NULL, NULL, NULL, NULL, { 0, 0 } } };
 AVFilterContext *new_filters[1024] = { NULL };
 int nb_all_filters = 0;
 AVFilterContext *buffersink_ctx = NULL;
@@ -486,7 +486,7 @@ static void show_commands(bool *p_open)
             const AVFilterContext *ctx = filter_graph->filters[n];
             const bool is_selected = selected_filter == n;
             static bool is_opened = false;
-            static int clean_storage = true;
+            static bool clean_storage = true;
 
             if (!imgui_filter.PassFilter(ctx->filter->name))
                 continue;
@@ -513,7 +513,7 @@ static void show_commands(bool *p_open)
                         int opt_index = 0;
 
                         if (is_opened && clean_storage) {
-                            memset(value_storage, 0, sizeof(filters_options[n].value_storage));
+                            memset(value_storage, 0, sizeof(*value_storage));
                             clean_storage = 0;
                         }
 
@@ -658,15 +658,18 @@ static void show_commands(bool *p_open)
                                     break;
                                 case AV_OPT_TYPE_STRING:
                                     {
-                                        char string[1024];
+                                        char string[1024] = { 0 };
 
                                         if (!value_storage[opt_index].inited) {
-                                            value_storage[opt_index].u.str = (char *)ptr;
+                                            av_freep(&value_storage[opt_index].u.str);
+                                            value_storage[opt_index].u.str = av_strdup((char *)ptr);
                                             value_storage[opt_index].inited = 1;
                                         }
                                         strncpy(string, value_storage[opt_index].u.str, sizeof(string));
-                                        if (ImGui::InputText(opt->name, string, sizeof(string)))
-                                            memcpy(value_storage[opt_index].u.str, string, sizeof(string));
+                                        if (ImGui::InputText(opt->name, string, sizeof(string))) {
+                                            av_freep(&value_storage[opt_index].u.str);
+                                            value_storage[opt_index].u.str = av_strdup(string);
+                                        }
                                     }
                                     break;
                                 default:
@@ -702,7 +705,7 @@ static void show_commands(bool *p_open)
                                                 snprintf(arg, sizeof(arg) - 1, "%f", value_storage[idx].u.flt);
                                                 break;
                                             case AV_OPT_TYPE_STRING:
-                                                snprintf(arg, FFMIN(sizeof(arg), strlen(value_storage[idx].u.str)), "%s", value_storage[idx].u.str);
+                                                snprintf(arg, FFMIN(sizeof(arg) - 1, strlen(value_storage[idx].u.str)) + 1, "%s", value_storage[idx].u.str);
                                                 break;
                                             default:
                                                 break;
@@ -758,7 +761,7 @@ static void show_dumpgraph(bool *p_open)
         ImGui::End();
         return;
     }
-    ImGui::Text(graphdump_text);
+    ImGui::Text("%s", graphdump_text);
     ImGui::End();
 }
 
