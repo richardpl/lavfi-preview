@@ -63,13 +63,13 @@ bool show_buffersink_window = true;
 bool show_dumpgraph_window = true;
 bool show_commands_window = true;
 bool show_osd = true;
-
+bool need_filters_reinit = true;
 bool framestep = false;
 bool fullscreen = false;
 bool paused = false;
+
 int width = 1280;
 int height = 720;
-int need_filters_reinit = 1;
 FiltersOptions filters_options[1024] = { { NULL, NULL, NULL, NULL, { 0, 0 } } };
 AVFilterContext *new_filters[1024] = { NULL };
 int nb_all_filters = 0;
@@ -147,7 +147,7 @@ static int filters_setup()
     const AVFilter *buffersink;
     int ret, i;
 
-    if (need_filters_reinit == 0)
+    if (need_filters_reinit == false)
         return 0;
 
     if (video_sink_thread.joinable())
@@ -157,7 +157,7 @@ static int filters_setup()
         return 0;
     if (!filters_options[0].filter_name)
         return 0;
-    need_filters_reinit = 0;
+    need_filters_reinit = false;
 
     buffersink_ctx = NULL;
 
@@ -263,7 +263,6 @@ error:
         avfilter_graph_free(&filter_graph);
         buffersink_ctx = NULL;
         nb_all_filters = 0;
-
         return ret;
     }
 
@@ -325,12 +324,12 @@ static void draw_osd(bool *p_open, int64_t pts)
     ImGui::End();
 }
 
-static void draw_frame(int ret, GLuint *texture, bool *p_open, AVFrame *new_frame)
+static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame)
 {
     ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
     int width, height, style = 0;
 
-    if (ret < 0 || !*p_open || !new_frame)
+    if (!*p_open || !new_frame)
         return;
 
     load_frame(texture, &width, &height, new_frame);
@@ -888,7 +887,7 @@ static void show_filters_list(bool *p_open)
                             break;
                         }
                         nb_all_filters++;
-                        need_filters_reinit = 1;
+                        need_filters_reinit = true;
                         avfilter_graph_free(&probe_graph);
                         probe_ctx = NULL;
                     }
@@ -1166,7 +1165,6 @@ static void show_filters_list(bool *p_open)
 int main(int, char**)
 {
     GLuint texture;
-    int ret;
 
     // Setup window
     glfwSetErrorCallback(glfw_error_callback);
@@ -1233,7 +1231,7 @@ int main(int, char**)
 
         if (show_buffersink_window == false) {
             if (filter_graph) {
-                need_filters_reinit = 1;
+                need_filters_reinit = true;
                 if (video_sink_thread.joinable())
                     video_sink_thread.join();
                 buffersink_ctx = NULL;
@@ -1245,13 +1243,11 @@ int main(int, char**)
                 }
                 nb_all_filters = 0;
                 avfilter_graph_free(&filter_graph);
-                need_filters_reinit = 0;
+                need_filters_reinit = false;
             }
         }
 
-        ret = filters_setup();
-        if (ret < 0)
-            break;
+        filters_setup();
 
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
@@ -1260,7 +1256,7 @@ int main(int, char**)
 
         filter_frames_mutex.lock();
         render_frame = filter_frames.empty() ? NULL : filter_frames.back();
-        draw_frame(ret, &texture, &show_buffersink_window, render_frame);
+        draw_frame(&texture, &show_buffersink_window, render_frame);
         filter_frames_mutex.unlock();
         if (show_filters_list_window)
             show_filters_list(&show_filters_list_window);
@@ -1281,7 +1277,7 @@ int main(int, char**)
         glfwSwapBuffers(window);
     }
 
-    need_filters_reinit = 1;
+    need_filters_reinit = true;
     if (video_sink_thread.joinable())
         video_sink_thread.join();
 
@@ -1299,5 +1295,5 @@ int main(int, char**)
     glfwDestroyWindow(window);
     glfwTerminate();
 
-    return ret;
+    return 0;
 }
