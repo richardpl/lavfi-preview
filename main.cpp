@@ -691,7 +691,7 @@ static void show_commands(bool *p_open)
                                             if (av_opt_get(ctx->priv, opt->name, 0, &str))
                                                 break;
                                             av_freep(&value_storage[opt_index].u.str);
-                                            value_storage[opt_index].u.str = av_strdup((char *)str);
+                                            value_storage[opt_index].u.str = (char *)str;
                                             value_storage[opt_index].inited = 1;
                                         }
 
@@ -1031,8 +1031,10 @@ static void show_filters_list(bool *p_open)
 
                                         if (av_opt_get(av_class, opt->name, 0, &str))
                                             break;
-                                        if (str)
+                                        if (str) {
                                             memcpy(new_str, str, strlen((const char *)str));
+                                            av_freep(&str);
+                                        }
                                         if (ImGui::InputText(opt->name, new_str, IM_ARRAYSIZE(new_str))) {
                                             av_opt_set(av_class, opt->name, new_str, 0);
                                         }
@@ -1095,11 +1097,13 @@ static void show_filters_list(bool *p_open)
                                     {
                                         float col[4] = { 0.4f, 0.7f, 0.0f, 0.5f };
                                         unsigned icol[4] = { 0 };
+                                        char new_str[16] = { 0 };
                                         uint8_t *old_str = NULL;
 
                                         if (av_opt_get(av_class, opt->name, 0, &old_str))
                                             break;
                                         sscanf((const char *)old_str, "0x%02x%02x%02x%02X", &icol[0], &icol[1], &icol[2], &icol[3]);
+                                        av_freep(&old_str);
                                         col[0] = icol[0] / 255.f;
                                         col[1] = icol[1] / 255.f;
                                         col[2] = icol[2] / 255.f;
@@ -1111,7 +1115,8 @@ static void show_filters_list(bool *p_open)
                                         icol[1] = col[1] * 255.f;
                                         icol[2] = col[2] * 255.f;
                                         icol[3] = col[3] * 255.f;
-                                        av_opt_set(av_class, opt->name, av_asprintf("0x%02x%02x%02x%02x", icol[0], icol[1], icol[2], icol[3]), AV_DICT_DONT_STRDUP_VAL);
+                                        snprintf(new_str, sizeof(new_str), "0x%02x%02x%02x%02x", icol[0], icol[1], icol[2], icol[3]);
+                                        av_opt_set(av_class, opt->name, new_str, 0);
                                     }
                                     break;
                                 case AV_OPT_TYPE_CHLAYOUT:
@@ -1139,8 +1144,10 @@ static void show_filters_list(bool *p_open)
                                 ImGui::TreePop();
                                 continue;
                             }
-                            if (str)
+                            if (str) {
                                 memcpy(new_str, str, strlen((const char *)str));
+                                av_freep(&str);
+                            }
                             if (ImGui::InputText("Enable", new_str, IM_ARRAYSIZE(new_str))) {
                                 av_opt_set(av_class, "enable", new_str, 0);
                             }
@@ -1230,8 +1237,12 @@ int main(int, char**)
                 if (video_sink_thread.joinable())
                     video_sink_thread.join();
                 buffersink_ctx = NULL;
-                for (int i = 0; i < nb_all_filters; i++)
+                for (int i = 0; i < nb_all_filters; i++) {
                     av_freep(&filters_options[i].filter_name);
+                    av_freep(&filters_options[i].filter_label);
+                    av_freep(&filters_options[i].ctx_options);
+                    av_freep(&filters_options[i].filter_options);
+                }
                 nb_all_filters = 0;
                 avfilter_graph_free(&filter_graph);
                 need_filters_reinit = 0;
