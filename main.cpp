@@ -1,16 +1,14 @@
-// Dear ImGui: standalone example application for GLFW + OpenGL 3, using programmable pipeline
-// (GLFW is a cross-platform general purpose library for handling windows, inputs, OpenGL/Vulkan/Metal graphics context creation, etc.)
-// If you are new to Dear ImGui, read documentation from the docs/ folder + read the top of imgui.cpp.
-// Read online: https://github.com/ocornut/imgui/tree/master/docs
-
 #include <queue>
 #include <thread>
 #include <mutex>
+#include <vector>
 
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
+#include "imnodes.h"
+
 #include <stdio.h>
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <GLES2/gl2.h>
@@ -30,8 +28,13 @@ extern "C" {
 #include <libavformat/avformat.h>
 }
 
-typedef struct ValueStorage {
-    int inited;
+typedef struct Edge2Pad {
+    unsigned node;
+    int is_output;
+    unsigned pad_index;
+} Edge2Pad;
+
+typedef struct OptStorage {
     union {
         int i32;
         float flt;
@@ -41,212 +44,235 @@ typedef struct ValueStorage {
         AVRational q;
         char *str;
     } u;
-} ValueStorage;
+} OptStorage;
 
-typedef struct FiltersOptions {
+typedef struct BufferSink {
+    char *label;
+    AVFilterContext *ctx;
+    AVRational time_base;
+    AVRational frame_rate;
+    AVFrame *tmp_frame;
+    std::queue<AVFrame *> frames;
+    double speed;
+    bool fullscreen;
+    bool show_osd;
+    bool have_window_pos;
+    ImVec2 window_pos;
+    GLuint texture;
+} BufferSink;
+
+typedef struct FilterNode {
+    int id;
+    ImVec2 pos;
+    int edge;
+    bool colapsed;
+    const AVFilter *filter;
     char *filter_name;
     char *filter_label;
     char *ctx_options;
     char *filter_options;
-    ValueStorage value_storage[64];
-} FiltersOptions;
+    AVFilterContext *probe;
+    AVFilterGraph   *probe_graph;
+    AVFilterContext *ctx;
+
+    std::vector<OptStorage> opt_storage;
+} FilterNode;
 
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
-double speed = 1.f;
-
-bool show_filters_list_window = true;
 bool show_buffersink_window = true;
 bool show_dumpgraph_window = true;
 bool show_commands_window = true;
-bool show_osd = true;
+bool show_filtergraph_editor_window = true;
 bool need_filters_reinit = true;
 bool framestep = false;
-bool fullscreen = false;
-bool paused = false;
+bool paused = true;
 
 int width = 1280;
 int height = 720;
-FiltersOptions filters_options[1024] = { { NULL, NULL, NULL, NULL, { 0, 0 } } };
-AVFilterContext *new_filters[1024] = { NULL };
-int nb_all_filters = 0;
-AVFilterContext *buffersink_ctx = NULL;
-AVRational buffersink_time_base;
-AVRational buffersink_frame_rate;
-AVFilterContext *filter_ctx = NULL;
-AVFilterContext *probe_ctx = NULL;
 AVFilterGraph *filter_graph = NULL;
-AVFilterGraph *probe_graph = NULL;
-AVFilterInOut *outputs = NULL;
-AVFilterInOut *inputs = NULL;
 char *graphdump_text = NULL;
-GLuint frame_texture;
 
-std::queue<AVFrame *> filter_frames;
-std::thread video_sink_thread;
-std::mutex filter_frames_mutex;
+ImNodesEditorContext *node_editor_context;
 
-const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
+std::vector<BufferSink> buffer_sinks;
+std::vector<std::mutex> mutexes;
+std::vector<std::thread> video_sink_threads;
+std::vector<FilterNode> filter_nodes;
+std::vector<std::pair<int, int>> filter_links;
+std::vector<std::pair<int, enum AVMediaType>> edge2type;
+std::vector<Edge2Pad> edge2pad;
 
-static void worker_thread(AVFilterContext *ctx, AVRational rate, std::queue<AVFrame *> *frames, std::mutex *mutex)
+static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
+
+static void worker_thread(BufferSink *sink, std::mutex *mutex)
 {
     int ret;
 
-    while (ctx) {
+    while (sink->ctx) {
         if (need_filters_reinit)
             break;
 
-        if ((!paused || frames->size() == 0) || framestep) {
+        mutex->lock();
+        if (sink->frames.size() < 1) {
+            AVFrame *filter_frame;
+            int64_t start, end;
+
+            mutex->unlock();
+
+            filter_frame = sink->tmp_frame;
+            start = av_gettime_relative();
+            ret = av_buffersink_get_frame_flags(sink->ctx, filter_frame, 0);
+            end = av_gettime_relative();
+            if (end > start)
+                sink->speed = 1000000. * av_q2d(av_inv_q(sink->frame_rate)) / (end - start);
+            if (ret < 0 && ret != AVERROR(EAGAIN))
+                break;
+
             mutex->lock();
-            if (frames->size() <= 2) {
-                AVFrame *filter_frame;
-                int64_t start, end;
-
-                mutex->unlock();
-                filter_frame = av_frame_alloc();
-                start = av_gettime_relative();
-                ret = av_buffersink_get_frame_flags(ctx, filter_frame, 0);
-                end = av_gettime_relative();
-                if (end > start)
-                    speed = 1000000. * av_q2d(av_inv_q(rate)) / (end - start);
-                if (ret < 0 && ret != AVERROR(EAGAIN))
-                    break;
-
-                mutex->lock();
-                frames->push(filter_frame);
-                framestep = false;
-            }
-
-            while (frames->size() > 2) {
-                AVFrame *pop_frame = frames->front();
-                frames->pop();
-                av_frame_free(&pop_frame);
-            }
+            sink->frames.push(filter_frame);
             mutex->unlock();
         } else {
+            mutex->unlock();
             usleep(10000);
         }
     }
 
     mutex->lock();
-    while (frames->size() > 0) {
-        AVFrame *pop_frame = frames->front();
+    while (sink->frames.size() > 0)
+        sink->frames.pop();
 
-        frames->pop();
-        av_frame_free(&pop_frame);
-    }
+    av_freep(&sink->label);
+    av_frame_free(&sink->tmp_frame);
+    glDeleteTextures(1, &sink->texture);
+
     mutex->unlock();
 }
 
 static int filters_setup()
 {
     const AVFilter *new_filter;
-    const AVFilter *buffersink;
-    int ret, i;
+    int ret;
 
     if (need_filters_reinit == false)
         return 0;
 
-    if (video_sink_thread.joinable())
-        video_sink_thread.join();
-
-    if (nb_all_filters <= 0)
-        return 0;
-    if (!filters_options[0].filter_name)
-        return 0;
-    need_filters_reinit = false;
-
-    buffersink_ctx = NULL;
-
-    av_freep(&graphdump_text);
-    avfilter_inout_free(&outputs);
-    avfilter_inout_free(&inputs);
-    avfilter_graph_free(&filter_graph);
-
-    buffersink = avfilter_get_by_name("buffersink");
-    if (!buffersink) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot find buffersink\n");
-        ret = AVERROR(ENOSYS);
-        goto error;
+    for (unsigned i = 0; i < video_sink_threads.size(); i++) {
+        if (video_sink_threads[i].joinable())
+            video_sink_threads[i].join();
     }
 
-    outputs = avfilter_inout_alloc();
-    inputs  = avfilter_inout_alloc();
+    need_filters_reinit = false;
+
+    if (filter_nodes.size() == 0)
+        return 0;
+
+    buffer_sinks.clear();
+    video_sink_threads.clear();
+    mutexes.clear();
+
+    av_freep(&graphdump_text);
+
+    avfilter_graph_free(&filter_graph);
+
     filter_graph = avfilter_graph_alloc();
-    if (!outputs || !inputs || !filter_graph) {
+    if (!filter_graph) {
         av_log(NULL, AV_LOG_ERROR, "Cannot allocate graph\n");
         ret = AVERROR(ENOMEM);
         goto error;
     }
 
-    ret = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out",
-                                       NULL, NULL, filter_graph);
-    if (ret < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot create buffer sink\n");
-        goto error;
-    }
+    for (unsigned i = 0; i < filter_nodes.size(); i++) {
+        AVFilterContext *filter_ctx;
 
-    ret = av_opt_set_int_list(buffersink_ctx, "pix_fmts", pix_fmts,
-                              AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
-    if (ret < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot set output pixel format\n");
-        goto error;
-    }
-
-    for (i = 0; i < nb_all_filters; i++) {
-        new_filter = avfilter_get_by_name(filters_options[i].filter_name);
+        new_filter = filter_nodes[i].filter;
         if (!new_filter) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot [%d] get filter by name: %s\n", i, filters_options[i].filter_name);
+            av_log(NULL, AV_LOG_ERROR, "Cannot [%d] get filter by name: %s.\n", i, filter_nodes[i].filter_name);
             ret = AVERROR(ENOSYS);
             goto error;
         }
 
-        filter_ctx = avfilter_graph_alloc_filter(filter_graph, new_filter, filters_options[i].filter_label);
+        filter_ctx = avfilter_graph_alloc_filter(filter_graph, new_filter, filter_nodes[i].filter_label);
         if (!filter_ctx) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot allocate filter context\n");
+            av_log(NULL, AV_LOG_ERROR, "Cannot allocate filter context.\n");
             ret = AVERROR(ENOMEM);
             goto error;
         }
 
         av_opt_set_defaults(filter_ctx);
-        new_filters[i] = filter_ctx;
 
-        ret = av_opt_set_from_string(filter_ctx, filters_options[i].ctx_options, NULL, "=", ":");
+        if (!strcmp(filter_ctx->filter->name, "buffersink")) {
+            BufferSink new_sink;
+
+            new_sink.ctx = filter_ctx;
+            new_sink.fullscreen = false;
+            new_sink.show_osd = false;
+            ret = av_opt_set_int_list(filter_ctx, "pix_fmts", pix_fmts,
+                                      AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_ERROR, "Cannot set output pixel format.\n");
+                goto error;
+            }
+
+            buffer_sinks.push_back(new_sink);
+        }
+
+        filter_nodes[i].ctx = filter_ctx;
+
+        av_freep(&filter_nodes[i].ctx_options);
+        ret = av_opt_serialize(filter_nodes[i].probe, 0, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
+                               &filter_nodes[i].ctx_options, '=', ':');
         if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Error setting filter ctx options\n");
+            av_log(NULL, AV_LOG_ERROR, "Cannot serialize filter ctx options.\n");
             goto error;
         }
 
-        ret = av_opt_set_from_string(filter_ctx->priv, filters_options[i].filter_options, NULL, "=", ":");
+        av_freep(&filter_nodes[i].filter_options);
+        ret = av_opt_serialize(filter_nodes[i].probe->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
+                               &filter_nodes[i].filter_options, '=', ':');
+        if (ret < 0)
+            av_log(NULL, AV_LOG_WARNING, "Cannot serialize filter private options.\n");
+
+        ret = av_opt_set_from_string(filter_ctx, filter_nodes[i].ctx_options, NULL, "=", ":");
         if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Error setting filter priv options\n");
+            av_log(NULL, AV_LOG_ERROR, "Error setting filter ctx options.\n");
+            goto error;
+        }
+
+        ret = av_opt_set_from_string(filter_ctx->priv, filter_nodes[i].filter_options, NULL, "=", ":");
+        if (ret < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Error setting filter private options.\n");
             goto error;
         }
 
         ret = avfilter_init_str(filter_ctx, NULL);
         if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot init str for filter\n");
+            av_log(NULL, AV_LOG_ERROR, "Cannot init str for filter.\n");
             goto error;
         }
     }
 
-    if ((ret = avfilter_link(new_filters[nb_all_filters - 1], 0, buffersink_ctx, 0)) < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot link last filter with sink\n");
-        goto error;
-    }
+    for (unsigned i = 0; i < filter_links.size(); i++) {
+        const std::pair<int, int> p = filter_links[i];
+        int x = edge2pad[p.first].node;
+        int y = edge2pad[p.second].node;
+        unsigned x_pad = edge2pad[p.first].pad_index;
+        unsigned y_pad = edge2pad[p.second].pad_index;
 
-    for (i = nb_all_filters - 1; i > 0; i--) {
-        if ((ret = avfilter_link(new_filters[i-1], 0, new_filters[i], 0)) < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot link filters\n");
+        if (!edge2pad[p.first].is_output)
+            ;
+
+        if ((ret = avfilter_link(filter_nodes[x].ctx, x_pad, filter_nodes[y].ctx, y_pad)) < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Cannot link filters.\n");
             goto error;
         }
     }
 
     if ((ret = avfilter_graph_config(filter_graph, NULL)) < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot configure graph\n");
+        av_log(NULL, AV_LOG_ERROR, "Cannot configure graph.\n");
         goto error;
     }
 
@@ -257,19 +283,25 @@ static int filters_setup()
 
 error:
 
-    if (ret < 0) {
-        avfilter_inout_free(&outputs);
-        avfilter_inout_free(&inputs);
-        avfilter_graph_free(&filter_graph);
-        buffersink_ctx = NULL;
-        nb_all_filters = 0;
+    if (ret < 0)
         return ret;
-    }
 
-    buffersink_time_base = av_buffersink_get_time_base(buffersink_ctx);
-    buffersink_frame_rate = av_buffersink_get_frame_rate(buffersink_ctx);
-    std::thread sink_thread(worker_thread, buffersink_ctx, buffersink_frame_rate, &filter_frames, &filter_frames_mutex);
-    video_sink_thread.swap(sink_thread);
+    std::vector<std::mutex> mutex_list(buffer_sinks.size());
+    mutexes.swap(mutex_list);
+
+    std::vector<std::thread> thread_list(buffer_sinks.size());
+    video_sink_threads.swap(thread_list);
+
+    for (unsigned i = 0; i < buffer_sinks.size(); i++) {
+        buffer_sinks[i].label = av_asprintf("FilterGraph Output %d", i);
+        buffer_sinks[i].tmp_frame = av_frame_alloc();
+        buffer_sinks[i].time_base = av_buffersink_get_time_base(buffer_sinks[i].ctx);
+        buffer_sinks[i].frame_rate = av_buffersink_get_frame_rate(buffer_sinks[i].ctx);
+        glGenTextures(1, &buffer_sinks[i].texture);
+        std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i]);
+
+        video_sink_threads[i].swap(sink_thread);
+    }
 
     return 0;
 }
@@ -286,7 +318,7 @@ static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->data[0]);
 }
 
-static void draw_osd(bool *p_open, int64_t pts)
+static void draw_osd(bool *p_open, int64_t pts, BufferSink *sink)
 {
     const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
                                           ImGuiWindowFlags_AlwaysAutoResize |
@@ -314,17 +346,18 @@ static void draw_osd(bool *p_open, int64_t pts)
     }
 
     ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
-    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: %.5f", av_q2d(buffersink_time_base) * pts);
+    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: %.5f", av_q2d(sink->time_base) * pts);
     ImGui::SameLine();
-    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "SPEED: %.5f", speed);
+    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "SPEED: %.5f", sink->speed);
     ImGui::SameLine();
     ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "FPS: %d/%d (%.5f)",
-                       buffersink_frame_rate.num,
-                       buffersink_frame_rate.den, av_q2d(buffersink_frame_rate));
+                       sink->frame_rate.num,
+                       sink->frame_rate.den, av_q2d(sink->frame_rate));
     ImGui::End();
 }
 
-static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame)
+static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
+                       BufferSink *sink)
 {
     ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
     int width, height, style = 0;
@@ -333,8 +366,10 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame)
         return;
 
     load_frame(texture, &width, &height, new_frame);
-    if (fullscreen) {
+    if (sink->fullscreen) {
         const ImGuiViewport *viewport = ImGui::GetMainViewport();
+
+        sink->have_window_pos = true;
 
         ImGui::SetNextWindowPos(viewport->Pos);
         ImGui::SetNextWindowSize(viewport->Size);
@@ -346,37 +381,48 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame)
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         style = 1;
+    } else {
+        if (sink->have_window_pos == true) {
+            ImGui::SetNextWindowPos(sink->window_pos);
+            sink->have_window_pos = false;
+        }
     }
 
-    if (!ImGui::Begin("filtergraph output", p_open, flags)) {
+    if (!ImGui::Begin(sink->label, p_open, flags)) {
         ImGui::End();
         return;
     }
 
+    if (sink->fullscreen == false)
+        sink->window_pos = ImGui::GetWindowPos();
+
     if (ImGui::IsWindowFocused()) {
         if (ImGui::IsKeyReleased(ImGuiKey_F))
-            fullscreen = !fullscreen;
+            sink->fullscreen = !sink->fullscreen;
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
             paused = !paused;
         framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
+        if (framestep)
+            paused = true;
         if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift)
             show_buffersink_window = false;
         if (ImGui::IsKeyReleased(ImGuiKey_O))
-            show_osd = !show_osd;
+            sink->show_osd = !sink->show_osd;
     }
 
-    if (fullscreen)
+    if (sink->fullscreen) {
         ImGui::GetWindowDrawList()->AddImage((void*)(intptr_t)*texture, ImVec2(0.f, 0.f),
                                              ImGui::GetWindowSize(),
                                              ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), IM_COL32_WHITE);
-    else
+    } else {
         ImGui::Image((void*)(intptr_t)*texture, ImVec2(width, height));
+    }
 
     if (style)
         ImGui::PopStyleVar();
 
-    if (show_osd)
-        draw_osd(&show_osd, new_frame->pts);
+    if (sink->show_osd)
+        draw_osd(&sink->show_osd, new_frame->pts, sink);
 
     if (ImGui::IsItemHovered() && ImGui::IsKeyDown(ImGuiKey_Z)) {
         ImGuiIO& io = ImGui::GetIO();
@@ -463,6 +509,16 @@ static bool is_source_filter(const AVFilter *filter)
     return true;
 }
 
+static bool is_sink_filter(const AVFilter *filter)
+{
+    if ((avfilter_filter_pad_count(filter, 0)  > 0  ||  (filter->flags & AVFILTER_FLAG_DYNAMIC_INPUTS)) &&
+        (avfilter_filter_pad_count(filter, 1) == 0  && !(filter->flags & AVFILTER_FLAG_DYNAMIC_OUTPUTS))) {
+        return true;
+    }
+
+    return false;
+}
+
 static bool is_source_audio_filter(const AVFilter *filter)
 {
     if (is_source_filter(filter)) {
@@ -491,15 +547,583 @@ static bool is_source_video_filter(const AVFilter *filter)
     return false;
 }
 
+static bool is_sink_audio_filter(const AVFilter *filter)
+{
+    if (is_sink_filter(filter)) {
+        for (unsigned i = 0; i < avfilter_filter_pad_count(filter, 0); i++) {
+            if (avfilter_pad_get_type(filter->inputs, i) != AVMEDIA_TYPE_AUDIO)
+                return false;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+static bool is_sink_video_filter(const AVFilter *filter)
+{
+    if (is_sink_filter(filter)) {
+        for (unsigned i = 0; i < avfilter_filter_pad_count(filter, 0); i++) {
+            if (avfilter_pad_get_type(filter->inputs, i) != AVMEDIA_TYPE_VIDEO)
+                return false;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+static bool is_complex_filter(const AVFilter *filter)
+{
+    if (!is_sink_filter(filter) && !is_source_filter(filter) && !is_simple_filter(filter))
+        return true;
+    return false;
+}
+
+static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
+{
+    FilterNode node;
+
+    if (ImGui::MenuItem(filter->name)) {
+        node.filter = filter;
+        node.id = filter_nodes.size();
+        node.filter_name = av_strdup(filter->name);
+        node.filter_label = av_asprintf("%s%d", filter->name, node.id);
+        node.filter_options = NULL;
+        node.ctx_options = NULL;
+        node.probe_graph = NULL;
+        node.probe = NULL;
+        node.ctx = NULL;
+        node.pos = click_pos;
+        node.colapsed = false;
+
+        filter_nodes.push_back(node);
+    }
+
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", filter->description);
+}
+
+static void draw_node_options(FilterNode *node)
+{
+    AVFilterContext *probe_ctx;
+    AVFilterGraph *probe_graph;
+    const AVOption *opt = NULL;
+    int last_offset = -1;
+    double min, max;
+    void *av_class;
+    int index = 0;
+
+    if (!node->probe_graph)
+        node->probe_graph = avfilter_graph_alloc();
+    probe_graph = node->probe_graph;
+    if (!probe_graph)
+        return;
+
+    if (!node->probe)
+        node->probe = avfilter_graph_alloc_filter(probe_graph, node->filter, "probe");
+    probe_ctx = node->probe;
+    if (!probe_ctx)
+        return;
+
+    av_class = probe_ctx->priv;
+    if (!node->colapsed && !ImGui::Button("Options"))
+        return;
+
+    node->colapsed = true;
+    if (node->colapsed && ImGui::Button("Close")) {
+        node->colapsed = false;
+        return;
+    }
+
+    ImGui::SameLine();
+    if (node->colapsed && ImGui::Button("Remove")) {
+        av_freep(&node->filter_name);
+        av_freep(&node->filter_label);
+        av_freep(&node->filter_options);
+        av_freep(&node->ctx_options);
+        if (!node->probe_graph)
+            av_freep(&node->probe);
+        avfilter_graph_free(&node->probe_graph);
+        node->probe = NULL;
+        node->ctx = NULL;
+        filter_nodes.erase(filter_nodes.begin() + node->id);
+        node->colapsed = false;
+        return;
+    }
+
+    if (!ImGui::BeginListBox("##List of Filter Options", ImVec2(300, 100)))
+        return;
+
+    while ((opt = av_opt_next(&node->filter->priv_class, opt))) {
+        if (last_offset == opt->offset)
+            continue;
+        last_offset = opt->offset;
+        if (!query_ranges((void *)&node->filter->priv_class, opt, &min, &max))
+            continue;
+        switch (opt->type) {
+            case AV_OPT_TYPE_INT64:
+                {
+                    int64_t value;
+                    int64_t smin = min;
+                    int64_t smax = max;
+                    if (av_opt_get_int(av_class, opt->name, 0, &value))
+                        break;
+                    if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &smin, &smax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
+                        av_opt_set_int(av_class, opt->name, value, 0);
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_UINT64:
+                {
+                    int64_t value;
+                    uint64_t uvalue;
+                    uint64_t umin = min;
+                    uint64_t umax = max;
+                    if (av_opt_get_int(av_class, opt->name, 0, &value))
+                        break;
+                    uvalue = value;
+                    if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
+                        value = uvalue;
+                        av_opt_set_int(av_class, opt->name, value, 0);
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_DURATION:
+                {
+                    int64_t value;
+                    double dvalue;
+                    if (av_opt_get_int(av_class, opt->name, 0, &value))
+                        break;
+                    dvalue = value / 1000000.0;
+                    if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &dvalue, 1, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                        value = dvalue * 1000000.0;
+                        av_opt_set_int(av_class, opt->name, value, 0);
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_FLAGS:
+            case AV_OPT_TYPE_BOOL:
+                {
+                    int64_t value;
+                    int ivalue;
+                    int imin = min;
+                    int imax = max;
+                    if (av_opt_get_int(av_class, opt->name, 0, &value))
+                        break;
+                    ivalue = value;
+                    if (imax < INT_MAX/2 && imin > INT_MIN/2) {
+                        if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
+                            value = ivalue;
+                            av_opt_set_int(av_class, opt->name, value, 0);
+                        }
+                    } else {
+                        if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
+                            value = ivalue;
+                            av_opt_set_int(av_class, opt->name, value, 0);
+                        }
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_INT:
+                {
+                    int64_t value;
+                    int ivalue;
+                    int imin = min;
+                    int imax = max;
+                    if (av_opt_get_int(av_class, opt->name, 0, &value))
+                        break;
+                    ivalue = value;
+                    if (imax < INT_MAX/2 && imin > INT_MIN/2) {
+                        if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
+                            value = ivalue;
+                            av_opt_set_int(av_class, opt->name, value, 0);
+                        }
+                    } else {
+                        if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
+                            value = ivalue;
+                            av_opt_set_int(av_class, opt->name, value, 0);
+                        }
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_DOUBLE:
+                {
+                    double value;
+
+                    if (av_opt_get_double(av_class, opt->name, 0, &value))
+                        break;
+                    if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, 1.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                        av_opt_set_double(av_class, opt->name, value, 0);
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_FLOAT:
+                {
+                    double value;
+                    float fvalue;
+                    float fmin = min;
+                    float fmax = max;
+
+                    if (av_opt_get_double(av_class, opt->name, 0, &value))
+                        break;
+                    fvalue = value;
+                    if (ImGui::DragFloat(opt->name, &fvalue, 1.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                        value = fvalue;
+                        av_opt_set_double(av_class, opt->name, value, 0);
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_STRING:
+                {
+                    char new_str[1024] = {0};
+                    uint8_t *str = NULL;
+
+                    if (av_opt_get(av_class, opt->name, 0, &str))
+                        break;
+                    if (str) {
+                        memcpy(new_str, str, strlen((const char *)str));
+                        av_freep(&str);
+                    }
+                    if (ImGui::InputText(opt->name, new_str, IM_ARRAYSIZE(new_str))) {
+                        av_opt_set(av_class, opt->name, new_str, 0);
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_RATIONAL:
+                {
+                    AVRational rate = (AVRational){ 0, 0 };
+                    int irate[2] = { 0, 0 };
+
+                    if (rate.num == 0 && rate.den == 0)
+                        av_opt_get_q(av_class, opt->name, 0, &rate);
+                    irate[0] = rate.num;
+                    irate[1] = rate.den;
+                    if (ImGui::DragInt2(opt->name, irate, 1, -8192, 8192)) {
+                        rate.num = irate[0];
+                        rate.den = irate[1];
+                        av_opt_set_q(av_class, opt->name, rate, 0);
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_BINARY:
+                break;
+            case AV_OPT_TYPE_DICT:
+                break;
+            case AV_OPT_TYPE_IMAGE_SIZE:
+                {
+                    int size[2] = {0,0};
+
+                    av_opt_get_image_size(av_class, opt->name, 0, &size[0], &size[1]);
+                    if (ImGui::DragInt2(opt->name, size, 1, 1, 4096)) {
+                        av_opt_set_image_size(av_class, opt->name, size[0], size[1], 0);
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_VIDEO_RATE:
+                {
+                    AVRational rate = (AVRational){ 0, 0 };
+                    int irate[2] = { 0, 0 };
+                    char rate_str[256];
+
+                    if (rate.num == 0 && rate.den == 0) {
+                        if (av_opt_get_video_rate(av_class, opt->name, 0, &rate))
+                            av_parse_video_rate(&rate, opt->default_val.str);
+                    }
+                    irate[0] = rate.num;
+                    irate[1] = rate.den;
+                    if (ImGui::DragInt2(opt->name, irate, 1, -8192, 8192)) {
+                        rate.num = irate[0];
+                        rate.den = irate[1];
+                        if (av_opt_set_video_rate(av_class, opt->name, rate, 0)) {
+                            snprintf(rate_str, sizeof(rate_str), "%d/%d", rate.num, rate.den);
+                            av_opt_set(av_class, opt->name, rate_str, 0);
+                        }
+                    }
+                }
+                break;
+            case AV_OPT_TYPE_PIXEL_FMT:
+                break;
+            case AV_OPT_TYPE_SAMPLE_FMT:
+                break;
+            case AV_OPT_TYPE_COLOR:
+                {
+                    float col[4] = { 0.4f, 0.7f, 0.0f, 0.5f };
+                    unsigned icol[4] = { 0 };
+                    char new_str[16] = { 0 };
+                    uint8_t *old_str = NULL;
+
+                    if (av_opt_get(av_class, opt->name, 0, &old_str))
+                        break;
+                    sscanf((const char *)old_str, "0x%02x%02x%02x%02X", &icol[0], &icol[1], &icol[2], &icol[3]);
+                    av_freep(&old_str);
+                    col[0] = icol[0] / 255.f;
+                    col[1] = icol[1] / 255.f;
+                    col[2] = icol[2] / 255.f;
+                    col[3] = icol[3] / 255.f;
+                    ImGui::PushID(index++);
+                    ImGui::ColorEdit4("color", col, ImGuiColorEditFlags_NoDragDrop);
+                    ImGui::PopID();
+                    icol[0] = col[0] * 255.f;
+                    icol[1] = col[1] * 255.f;
+                    icol[2] = col[2] * 255.f;
+                    icol[3] = col[3] * 255.f;
+                    snprintf(new_str, sizeof(new_str), "0x%02x%02x%02x%02x", icol[0], icol[1], icol[2], icol[3]);
+                    av_opt_set(av_class, opt->name, new_str, 0);
+                }
+                break;
+            case AV_OPT_TYPE_CHLAYOUT:
+                break;
+            case AV_OPT_TYPE_CONST:
+                break;
+            default:
+                break;
+        }
+
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", opt->help);
+    }
+
+    ImGui::EndListBox();
+}
+
+static void show_filtergraph_editor(bool *p_open)
+{
+    int edge = 0;
+
+    if (!ImGui::Begin("FilterGraph Editor", p_open, 0)) {
+        ImGui::End();
+        return;
+    }
+
+    ImNodes::EditorContextSet(node_editor_context);
+
+    edge2pad.clear();
+    edge2type.clear();
+
+    ImNodes::BeginNodeEditor();
+
+    if (ImGui::IsKeyReleased(ImGuiKey_Enter) && ImGui::GetIO().KeyCtrl)
+        need_filters_reinit = true;
+
+    const bool open_popup = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        ImNodes::IsEditorHovered() && (ImGui::IsKeyReleased(ImGuiKey_A) || ImGui::IsMouseReleased(ImGuiMouseButton_Right));
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 8.f));
+    if (!ImGui::IsAnyItemHovered() && open_popup) {
+        ImGui::OpenPopup("Add Filter");
+    }
+
+    if (ImGui::BeginPopup("Add Filter")) {
+        const ImVec2 click_pos = ImGui::GetMousePosOnOpeningCurrentPopup();
+
+        if (ImGui::BeginMenu("Source Filters")) {
+            if (ImGui::BeginMenu("Video Source Filters")) {
+                const AVFilter *filter = NULL;
+                void *iterator = NULL;
+
+                while ((filter = av_filter_iterate(&iterator))) {
+                    if (!is_source_video_filter(filter))
+                        continue;
+
+                    handle_nodeitem(filter, click_pos);
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Audio Source Filters")) {
+                const AVFilter *filter = NULL;
+                void *iterator = NULL;
+
+                while ((filter = av_filter_iterate(&iterator))) {
+                    if (!is_source_audio_filter(filter))
+                        continue;
+
+                    handle_nodeitem(filter, click_pos);
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Simple Filters")) {
+            if (ImGui::BeginMenu("Simple Video Filters")) {
+                const AVFilter *filter = NULL;
+                void *iterator = NULL;
+
+                while ((filter = av_filter_iterate(&iterator))) {
+                    if (!is_simple_video_filter(filter))
+                        continue;
+
+                    handle_nodeitem(filter, click_pos);
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Simple Audio Filters")) {
+                const AVFilter *filter = NULL;
+                void *iterator = NULL;
+
+                while ((filter = av_filter_iterate(&iterator))) {
+                    if (!is_simple_audio_filter(filter))
+                        continue;
+
+                    handle_nodeitem(filter, click_pos);
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Complex Filters")) {
+            const AVFilter *filter = NULL;
+            void *iterator = NULL;
+
+            while ((filter = av_filter_iterate(&iterator))) {
+                if (!is_complex_filter(filter))
+                    continue;
+
+                handle_nodeitem(filter, click_pos);
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Sink Filters")) {
+            if (ImGui::BeginMenu("Video Sink Filters")) {
+                const AVFilter *filter = NULL;
+                void *iterator = NULL;
+
+                while ((filter = av_filter_iterate(&iterator))) {
+                    if (!is_sink_video_filter(filter))
+                        continue;
+
+                    handle_nodeitem(filter, click_pos);
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Audio Sink Filters")) {
+                const AVFilter *filter = NULL;
+                void *iterator = NULL;
+
+                while ((filter = av_filter_iterate(&iterator))) {
+                    if (!is_sink_audio_filter(filter))
+                        continue;
+
+                    handle_nodeitem(filter, click_pos);
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+
+    for (unsigned i = 0; i < filter_nodes.size(); i++) {
+        FilterNode *filter_node = &filter_nodes[i];
+
+        filter_node->edge = edge;
+        edge2type.push_back(std::make_pair(edge, AVMEDIA_TYPE_UNKNOWN));
+        edge2pad.push_back(Edge2Pad { 0, 0, 0 });
+        ImNodes::SetNodeGridSpacePos(edge, filter_node->pos);
+        ImNodes::SnapNodeToGrid(edge);
+        ImNodes::SetNodeDraggable(edge, true);
+        ImNodes::BeginNode(edge++);
+        ImNodes::BeginNodeTitleBar();
+        ImGui::TextUnformatted(filter_node->filter_name);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\n%s", filter_node->filter_label, filter_node->filter->description);
+        ImNodes::EndNodeTitleBar();
+        draw_node_options(filter_node);
+        if (!filter_node->probe) {
+            ImNodes::EndNode();
+            continue;
+        }
+
+        AVFilterContext *filter_ctx = filter_node->ctx ? filter_node->ctx : filter_node->probe;
+
+        for (unsigned j = 0; j < filter_ctx->nb_inputs; j++) {
+            enum AVMediaType media_type;
+
+            media_type = avfilter_pad_get_type(filter_ctx->input_pads, j);
+            if (media_type == AVMEDIA_TYPE_VIDEO) {
+                ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(  0, 255, 255, 255));
+            } else {
+                ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255, 255,   0, 255));
+            }
+            edge2type.push_back(std::make_pair(edge, media_type));
+            edge2pad.push_back(Edge2Pad { i, 0, j });
+            ImNodes::BeginInputAttribute(edge++);
+            ImGui::Text("%s", avfilter_pad_get_name(filter_ctx->input_pads, j));
+            ImNodes::EndInputAttribute();
+            ImNodes::PopColorStyle();
+        }
+
+        for (unsigned j = 0; j < filter_ctx->nb_outputs; j++) {
+            enum AVMediaType media_type;
+
+            media_type = avfilter_pad_get_type(filter_ctx->output_pads, j);
+            if (media_type == AVMEDIA_TYPE_VIDEO) {
+                ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(  0, 255, 255, 255));
+            } else {
+                ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255, 255,   0, 255));
+            }
+            edge2type.push_back(std::make_pair(edge, media_type));
+            edge2pad.push_back(Edge2Pad { i, 1, j });
+            ImNodes::BeginOutputAttribute(edge++);
+            ImGui::Text("%s", avfilter_pad_get_name(filter_ctx->output_pads, j));
+            ImNodes::EndOutputAttribute();
+            ImNodes::PopColorStyle();
+        }
+
+        ImNodes::EndNode();
+    }
+
+    for (unsigned i = 0; i < filter_links.size(); i++) {
+        const std::pair<int, int> p = filter_links[i];
+        ImNodes::Link(i, p.first, p.second);
+    }
+
+    ImNodes::MiniMap(0.2f, ImNodesMiniMapLocation_BottomRight);
+    ImNodes::EndNodeEditor();
+
+    int start_attr, end_attr;
+    if (ImNodes::IsLinkCreated(&start_attr, &end_attr)) {
+        enum AVMediaType first  = edge2type[start_attr].second;
+        enum AVMediaType second = edge2type[end_attr].second;
+
+        if (first == second)
+            filter_links.push_back(std::make_pair(start_attr, end_attr));
+    }
+
+    int link_id;
+    if (ImNodes::IsLinkDestroyed(&link_id))
+        filter_links.erase(filter_links.begin() + link_id);
+
+    const int num_selected = ImNodes::NumSelectedLinks();
+    if (num_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X)) {
+        static std::vector<int> selected_links;
+
+        selected_links.resize(static_cast<size_t>(num_selected));
+        ImNodes::GetSelectedLinks(selected_links.data());
+
+        for (const int edge_id : selected_links)
+            filter_links.erase(filter_links.begin() + edge_id);
+    }
+
+    ImGui::End();
+}
+
 static void show_commands(bool *p_open)
 {
     static unsigned selected_filter = -1;
     static unsigned toggle_filter = UINT_MAX;
 
-    if (!filter_graph)
+    if (!filter_graph ||
+        (buffer_sinks.size() != mutexes.size() ||
+         buffer_sinks.size() == 0))
         return;
 
-    if (!ImGui::Begin("Filters Commands", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (!ImGui::Begin("Filter Commands", p_open, 0)) {
         ImGui::End();
         return;
     }
@@ -507,8 +1131,8 @@ static void show_commands(bool *p_open)
         static ImGuiTextFilter imgui_filter;
 
         imgui_filter.Draw();
-        for (unsigned n = 0; n < filter_graph->nb_filters; n++) {
-            const AVFilterContext *ctx = filter_graph->filters[n];
+        for (unsigned n = 0; n < filter_nodes.size(); n++) {
+            const AVFilterContext *ctx = filter_nodes[n].ctx;
             const bool is_selected = selected_filter == n;
             static bool is_opened = false;
             static bool clean_storage = true;
@@ -524,43 +1148,36 @@ static void show_commands(bool *p_open)
                 ImGui::SetTooltip("%s", ctx->name);
             }
 
-            if (ImGui::IsItemClicked() || ImGui::IsItemActivated()) {
+            if (ImGui::IsItemClicked() && ImGui::IsItemActive()) {
                 selected_filter = n;
-                is_opened = !is_opened;
+                is_opened = true;
             }
 
             if (is_opened && selected_filter == n) {
                 if (ctx->filter->process_command) {
-                    ValueStorage *value_storage = filters_options[n].value_storage;
                     if (ImGui::TreeNode("Commands")) {
+                        std::vector<OptStorage> opt_storage = filter_nodes[n].opt_storage;
                         const AVOption *opt = NULL;
-                        static int pressed = -1;
-                        int opt_index = 0;
+                        unsigned opt_index = 0;
 
                         if (is_opened && clean_storage) {
-                            memset(value_storage, 0, sizeof(*value_storage));
-                            clean_storage = 0;
+                            opt_storage.clear();
+                            clean_storage = false;
                         }
 
                         while ((opt = av_opt_next(ctx->priv, opt))) {
                             double min, max;
                             void *ptr;
 
-                            if (!(opt->flags & AV_OPT_FLAG_RUNTIME_PARAM)) {
-                                opt_index++;
+                            if (!(opt->flags & AV_OPT_FLAG_RUNTIME_PARAM))
                                 continue;
-                            }
 
-                            if (!query_ranges((void *)&ctx->filter->priv_class, opt, &min, &max)) {
-                                opt_index++;
+                            if (!query_ranges((void *)&ctx->filter->priv_class, opt, &min, &max))
                                 continue;
-                            }
 
                             ptr = av_opt_ptr(ctx->filter->priv_class, ctx->priv, opt->name);
-                            if (!ptr) {
-                                opt_index++;
+                            if (!ptr)
                                 continue;
-                            }
 
                             ImGui::PushID(opt_index);
                             switch (opt->type) {
@@ -573,7 +1190,34 @@ static void show_commands(bool *p_open)
                                 case AV_OPT_TYPE_UINT64:
                                 case AV_OPT_TYPE_STRING:
                                     if (ImGui::Button("Send")) {
-                                        pressed = opt_index;
+                                        char arg[1024] = { 0 };
+
+                                        switch (opt->type) {
+                                            case AV_OPT_TYPE_FLAGS:
+                                            case AV_OPT_TYPE_BOOL:
+                                            case AV_OPT_TYPE_INT:
+                                                snprintf(arg, sizeof(arg) - 1, "%d", opt_storage[opt_index].u.i32);
+                                                break;
+                                            case AV_OPT_TYPE_INT64:
+                                                snprintf(arg, sizeof(arg) - 1, "%ld", opt_storage[opt_index].u.i64);
+                                                break;
+                                            case AV_OPT_TYPE_UINT64:
+                                                snprintf(arg, sizeof(arg) - 1, "%lu", opt_storage[opt_index].u.u64);
+                                                break;
+                                            case AV_OPT_TYPE_DOUBLE:
+                                                snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.dbl);
+                                                break;
+                                            case AV_OPT_TYPE_FLOAT:
+                                                snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.flt);
+                                                break;
+                                            case AV_OPT_TYPE_STRING:
+                                                snprintf(arg, strlen(opt_storage[opt_index].u.str) + 1, "%s", opt_storage[opt_index].u.str);
+                                                break;
+                                            default:
+                                                break;
+                                        }
+
+                                        avfilter_graph_send_command(filter_graph, ctx->name, opt->name, arg, NULL, 0, 0);
                                     }
                                     ImGui::SameLine();
                                 default:
@@ -588,13 +1232,16 @@ static void show_commands(bool *p_open)
                                         int imin = min;
                                         int imax = max;
 
-                                        if (!value_storage[opt_index].inited) {
-                                            value_storage[opt_index].u.i32 = *(int *)ptr;
-                                            value_storage[opt_index].inited = 1;
+                                        if (opt_storage.size() <= opt_index) {
+                                            OptStorage new_opt;
+
+                                            new_opt.u.i32 = *(int *)ptr;
+                                            opt_storage.push_back(new_opt);
                                         }
-                                        value = value_storage[opt_index].u.i32;
+
+                                        value = opt_storage[opt_index].u.i32;
                                         if (ImGui::SliderInt(opt->name, &value, imin, imax)) {
-                                            value_storage[opt_index].u.i32 = value;
+                                            opt_storage[opt_index].u.i32 = value;
                                         }
                                     }
                                     break;
@@ -604,18 +1251,20 @@ static void show_commands(bool *p_open)
                                         int imin = min;
                                         int imax = max;
 
-                                        if (!value_storage[opt_index].inited) {
-                                            value_storage[opt_index].u.i32 = *(int *)ptr;
-                                            value_storage[opt_index].inited = 1;
+                                        if (opt_storage.size() <= opt_index) {
+                                            OptStorage new_opt;
+
+                                            new_opt.u.i32 = *(int *)ptr;
+                                            opt_storage.push_back(new_opt);
                                         }
-                                        value = value_storage[opt_index].u.i32;
+                                        value = opt_storage[opt_index].u.i32;
                                         if (imax < INT_MAX/2 && imin > INT_MIN/2) {
                                             if (ImGui::SliderInt(opt->name, &value, imin, imax)) {
-                                                value_storage[opt_index].u.i32 = value;
+                                                opt_storage[opt_index].u.i32 = value;
                                             }
                                         } else {
                                             if (ImGui::DragInt(opt->name, &value, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
-                                                value_storage[opt_index].u.i32 = value;
+                                                opt_storage[opt_index].u.i32 = value;
                                             }
                                         }
                                     }
@@ -626,13 +1275,15 @@ static void show_commands(bool *p_open)
                                         int64_t imin = min;
                                         int64_t imax = max;
 
-                                        if (!value_storage[opt_index].inited) {
-                                            value_storage[opt_index].u.i64 = *(int64_t *)ptr;
-                                            value_storage[opt_index].inited = 1;
+                                        if (opt_storage.size() <= opt_index) {
+                                            OptStorage new_opt;
+
+                                            new_opt.u.i64 = *(int64_t *)ptr;
+                                            opt_storage.push_back(new_opt);
                                         }
-                                        value = value_storage[opt_index].u.i64;
+                                        value = opt_storage[opt_index].u.i64;
                                         if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &imin, &imax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
-                                            value_storage[opt_index].u.i64 = value;
+                                            opt_storage[opt_index].u.i64 = value;
                                         }
                                     }
                                     break;
@@ -642,13 +1293,15 @@ static void show_commands(bool *p_open)
                                         uint64_t umin = min;
                                         uint64_t umax = max;
 
-                                        if (!value_storage[opt_index].inited) {
-                                            value_storage[opt_index].u.u64 = *(uint64_t *)ptr;
-                                            value_storage[opt_index].inited = 1;
+                                        if (opt_storage.size() <= opt_index) {
+                                            OptStorage new_opt;
+
+                                            new_opt.u.u64 = *(uint64_t *)ptr;
+                                            opt_storage.push_back(new_opt);
                                         }
-                                        value = value_storage[opt_index].u.u64;
+                                        value = opt_storage[opt_index].u.u64;
                                         if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
-                                            value_storage[opt_index].u.u64 = value;
+                                            opt_storage[opt_index].u.u64 = value;
                                         }
                                     }
                                     break;
@@ -656,13 +1309,15 @@ static void show_commands(bool *p_open)
                                     {
                                         double value = *(double *)ptr;
 
-                                        if (!value_storage[opt_index].inited) {
-                                            value_storage[opt_index].u.dbl = *(double *)ptr;
-                                            value_storage[opt_index].inited = 1;
+                                        if (opt_storage.size() <= opt_index) {
+                                            OptStorage new_opt;
+
+                                            new_opt.u.dbl = *(double *)ptr;
+                                            opt_storage.push_back(new_opt);
                                         }
-                                        value = value_storage[opt_index].u.dbl;
+                                        value = opt_storage[opt_index].u.dbl;
                                         if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, 1.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                                            value_storage[opt_index].u.dbl = value;
+                                            opt_storage[opt_index].u.dbl = value;
                                         }
                                     }
                                     break;
@@ -672,13 +1327,15 @@ static void show_commands(bool *p_open)
                                         float fmin = min;
                                         float value;
 
-                                        if (!value_storage[opt_index].inited) {
-                                            value_storage[opt_index].u.flt = *(float *)ptr;
-                                            value_storage[opt_index].inited = 1;
+                                        if (opt_storage.size() <= opt_index) {
+                                            OptStorage new_opt;
+
+                                            new_opt.u.flt = *(float *)ptr;
+                                            opt_storage.push_back(new_opt);
                                         }
-                                        value = value_storage[opt_index].u.flt;
+                                        value = opt_storage[opt_index].u.flt;
                                         if (ImGui::DragFloat(opt->name, &value, 1.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp))
-                                            value_storage[opt_index].u.flt = value;
+                                            opt_storage[opt_index].u.flt = value;
                                     }
                                     break;
                                 case AV_OPT_TYPE_STRING:
@@ -686,18 +1343,19 @@ static void show_commands(bool *p_open)
                                         char string[1024] = { 0 };
                                         uint8_t *str = NULL;
 
-                                        if (!value_storage[opt_index].inited) {
-                                            if (av_opt_get(ctx->priv, opt->name, 0, &str))
-                                                break;
-                                            av_freep(&value_storage[opt_index].u.str);
-                                            value_storage[opt_index].u.str = (char *)str;
-                                            value_storage[opt_index].inited = 1;
+                                        if (opt_storage.size() <= opt_index) {
+                                            OptStorage new_opt;
+
+                                            av_opt_get(ctx->priv, opt->name, 0, &str);
+                                            new_opt.u.str = (char *)str;
+                                            opt_storage.push_back(new_opt);
                                         }
 
-                                        memcpy(string, value_storage[opt_index].u.str, FFMIN(sizeof(string) - 1, strlen(value_storage[opt_index].u.str)));
+                                        if (opt_storage[opt_index].u.str)
+                                            memcpy(string, opt_storage[opt_index].u.str, FFMIN(sizeof(string) - 1, strlen(opt_storage[opt_index].u.str)));
                                         if (ImGui::InputText(opt->name, string, sizeof(string) - 1)) {
-                                            av_freep(&value_storage[opt_index].u.str);
-                                            value_storage[opt_index].u.str = av_strdup(string);
+                                            av_freep(&opt_storage[opt_index].u.str);
+                                            opt_storage[opt_index].u.str = av_strdup(string);
                                         }
                                     }
                                     break;
@@ -707,53 +1365,13 @@ static void show_commands(bool *p_open)
 
                             if (ImGui::IsItemHovered())
                                 ImGui::SetTooltip("%s", opt->help);
+
                             opt_index++;
-                            if (pressed >= 0) {
-                                const AVOption *opt = NULL;
-                                int idx = 0;
-                                while ((opt = av_opt_next(ctx->priv, opt))) {
-                                    if (idx == pressed) {
-                                        char arg[1024] = { 0 };
-
-                                        switch (opt->type) {
-                                            case AV_OPT_TYPE_FLAGS:
-                                            case AV_OPT_TYPE_BOOL:
-                                            case AV_OPT_TYPE_INT:
-                                                snprintf(arg, sizeof(arg) - 1, "%d", value_storage[idx].u.i32);
-                                                break;
-                                            case AV_OPT_TYPE_INT64:
-                                                snprintf(arg, sizeof(arg) - 1, "%ld", value_storage[idx].u.i64);
-                                                break;
-                                            case AV_OPT_TYPE_UINT64:
-                                                snprintf(arg, sizeof(arg) - 1, "%lu", value_storage[idx].u.u64);
-                                                break;
-                                            case AV_OPT_TYPE_DOUBLE:
-                                                snprintf(arg, sizeof(arg) - 1, "%f", value_storage[idx].u.dbl);
-                                                break;
-                                            case AV_OPT_TYPE_FLOAT:
-                                                snprintf(arg, sizeof(arg) - 1, "%f", value_storage[idx].u.flt);
-                                                break;
-                                            case AV_OPT_TYPE_STRING:
-                                                snprintf(arg, FFMIN(sizeof(arg) - 1, strlen((const char *)value_storage[idx].u.str)) + 1, "%s", value_storage[idx].u.str);
-                                                av_freep(&value_storage[idx].u.str);
-                                                value_storage[idx].inited = 0;
-                                                break;
-                                            default:
-                                                break;
-                                        }
-
-                                        avfilter_graph_send_command(filter_graph, ctx->name, opt->name, arg, NULL, 0, 0);
-                                        pressed = -1;
-                                        break;
-                                    }
-                                    idx++;
-                                }
-
-                                pressed = -1;
-                            }
 
                             ImGui::PopID();
                         }
+
+                        filter_nodes[n].opt_storage = opt_storage;
 
                         ImGui::TreePop();
                     }
@@ -788,7 +1406,7 @@ static void show_dumpgraph(bool *p_open)
     if (!graphdump_text || !filter_graph)
         return;
 
-    if (!ImGui::Begin("Graph Dump", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (!ImGui::Begin("FilterGraph Dump", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::End();
         return;
     }
@@ -796,376 +1414,8 @@ static void show_dumpgraph(bool *p_open)
     ImGui::End();
 }
 
-static void show_filters_list(bool *p_open)
-{
-    static int selected_filter = -2;
-    static int prev_selected_filter = -1;
-    if (!ImGui::Begin("Filters List", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::End();
-        return;
-    }
-    if (ImGui::BeginListBox("##Filters", ImVec2(400, 300))) {
-        static ImGuiTextFilter imgui_filter;
-        const AVFilter *filter;
-        void *iterator = NULL;
-        int n = 0;
-
-        imgui_filter.Draw();
-        while ((filter = av_filter_iterate(&iterator))) {
-            const bool is_selected = selected_filter == n;
-            static bool is_opened = false;
-
-            if (nb_all_filters <= 0) {
-                if (!is_source_video_filter(filter)) {
-                    continue;
-                }
-            } else {
-                if (!is_simple_video_filter(filter))
-                    continue;
-            }
-            if (!imgui_filter.PassFilter(filter->name))
-                continue;
-
-            if (ImGui::Selectable(filter->name, is_selected))
-                selected_filter = n;
-
-            if (is_selected)
-                ImGui::SetItemDefaultFocus();
-
-            if (ImGui::IsItemActive() || ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", filter->description);
-            if (ImGui::IsItemClicked() || ImGui::IsItemActivated()) {
-                selected_filter = n;
-                is_opened = !is_opened;
-            }
-            if (is_opened && selected_filter == n) {
-                const bool pressed = ImGui::Button("Insert");
-                ImGui::SameLine();
-                if (prev_selected_filter != selected_filter) {
-                    prev_selected_filter = selected_filter;
-                    avfilter_graph_free(&probe_graph);
-                    if (!probe_graph) {
-                        probe_graph = avfilter_graph_alloc();
-                        if (!probe_graph)
-                            continue;
-                        probe_ctx = avfilter_graph_alloc_filter(probe_graph, filter, "probe");
-                    }
-                    if (!probe_ctx)
-                        continue;
-                    av_opt_set_defaults(probe_ctx);
-                }
-                if (pressed) {
-                    is_opened = 0;
-                    if (probe_ctx) {
-                        int ret;
-                        filters_options[nb_all_filters].filter_name = av_strdup(probe_ctx->filter->name);
-                        if (!filters_options[nb_all_filters].filter_name) {
-                            av_log(NULL, AV_LOG_ERROR, "Cannot set filter name\n");
-                            break;
-                        }
-
-                        filters_options[nb_all_filters].filter_label = av_asprintf("%s%d", probe_ctx->filter->name, nb_all_filters);
-                        if (!filters_options[nb_all_filters].filter_label) {
-                            av_log(NULL, AV_LOG_ERROR, "Cannot set filter label\n");
-                            break;
-                        }
-
-                        ret = av_opt_serialize(probe_ctx, 0, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
-                                               &filters_options[nb_all_filters].ctx_options, '=', ':');
-                        if (ret < 0) {
-                            av_freep(&filters_options[nb_all_filters].filter_name);
-                            av_log(NULL, AV_LOG_ERROR, "Cannot serialize ctx options\n");
-                            break;
-                        }
-
-                        ret = av_opt_serialize(probe_ctx->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
-                                               &filters_options[nb_all_filters].filter_options, '=', ':');
-                        if (ret < 0) {
-                            av_freep(&filters_options[nb_all_filters].filter_name);
-                            av_freep(&filters_options[nb_all_filters].ctx_options);
-                            av_log(NULL, AV_LOG_ERROR, "Cannot serialize options\n");
-                            break;
-                        }
-                        nb_all_filters++;
-                        need_filters_reinit = true;
-                        avfilter_graph_free(&probe_graph);
-                        probe_ctx = NULL;
-                    }
-                    selected_filter = -2;
-                    prev_selected_filter = -1;
-                    continue;
-                }
-                if (filter->priv_class && filter->priv_class->option && probe_ctx) {
-                    if (ImGui::TreeNode("Options")) {
-                        const AVOption *opt = NULL;
-                        int last_offset = -1;
-                        double min, max;
-                        void *av_class;
-                        int index = 0;
-
-                        av_class = probe_ctx->priv;
-                        while ((opt = av_opt_next(&filter->priv_class, opt))) {
-                            if (last_offset == opt->offset)
-                                continue;
-                            last_offset = opt->offset;
-                            if (!query_ranges((void *)&filter->priv_class, opt, &min, &max))
-                                continue;
-                            switch (opt->type) {
-                                case AV_OPT_TYPE_INT64:
-                                    {
-                                        int64_t value;
-                                        int64_t smin = min;
-                                        int64_t smax = max;
-                                        if (av_opt_get_int(av_class, opt->name, 0, &value))
-                                            break;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &smin, &smax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
-                                            av_opt_set_int(av_class, opt->name, value, 0);
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_UINT64:
-                                    {
-                                        int64_t value;
-                                        uint64_t uvalue;
-                                        uint64_t umin = min;
-                                        uint64_t umax = max;
-                                        if (av_opt_get_int(av_class, opt->name, 0, &value))
-                                            break;
-                                        uvalue = value;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
-                                            value = uvalue;
-                                            av_opt_set_int(av_class, opt->name, value, 0);
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_DURATION:
-                                    {
-                                        int64_t value;
-                                        double dvalue;
-                                        if (av_opt_get_int(av_class, opt->name, 0, &value))
-                                            break;
-                                        dvalue = value / 1000000.0;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &dvalue, 1, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                                            value = dvalue * 1000000.0;
-                                            av_opt_set_int(av_class, opt->name, value, 0);
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_FLAGS:
-                                case AV_OPT_TYPE_BOOL:
-                                    {
-                                        int64_t value;
-                                        int ivalue;
-                                        int imin = min;
-                                        int imax = max;
-                                        if (av_opt_get_int(av_class, opt->name, 0, &value))
-                                            break;
-                                        ivalue = value;
-                                        if (imax < INT_MAX/2 && imin > INT_MIN/2) {
-                                            if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
-                                                value = ivalue;
-                                                av_opt_set_int(av_class, opt->name, value, 0);
-                                            }
-                                        } else {
-                                            if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
-                                                value = ivalue;
-                                                av_opt_set_int(av_class, opt->name, value, 0);
-                                            }
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_INT:
-                                    {
-                                        int64_t value;
-                                        int ivalue;
-                                        int imin = min;
-                                        int imax = max;
-                                        if (av_opt_get_int(av_class, opt->name, 0, &value))
-                                            break;
-                                        ivalue = value;
-                                        if (imax < INT_MAX/2 && imin > INT_MIN/2) {
-                                            if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
-                                                value = ivalue;
-                                                av_opt_set_int(av_class, opt->name, value, 0);
-                                            }
-                                        } else {
-                                            if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
-                                                value = ivalue;
-                                                av_opt_set_int(av_class, opt->name, value, 0);
-                                            }
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_DOUBLE:
-                                    {
-                                        double value;
-
-                                        if (av_opt_get_double(av_class, opt->name, 0, &value))
-                                            break;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, 1.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                                            av_opt_set_double(av_class, opt->name, value, 0);
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_FLOAT:
-                                    {
-                                        double value;
-                                        float fvalue;
-                                        float fmin = min;
-                                        float fmax = max;
-
-                                        if (av_opt_get_double(av_class, opt->name, 0, &value))
-                                            break;
-                                        fvalue = value;
-                                        if (ImGui::DragFloat(opt->name, &fvalue, 1.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                                            value = fvalue;
-                                            av_opt_set_double(av_class, opt->name, value, 0);
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_STRING:
-                                    {
-                                        char new_str[1024] = {0};
-                                        uint8_t *str = NULL;
-
-                                        if (av_opt_get(av_class, opt->name, 0, &str))
-                                            break;
-                                        if (str) {
-                                            memcpy(new_str, str, strlen((const char *)str));
-                                            av_freep(&str);
-                                        }
-                                        if (ImGui::InputText(opt->name, new_str, IM_ARRAYSIZE(new_str))) {
-                                            av_opt_set(av_class, opt->name, new_str, 0);
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_RATIONAL:
-                                    {
-                                        AVRational rate = (AVRational){ 0, 0 };
-                                        int irate[2] = { 0, 0 };
-
-                                        if (rate.num == 0 && rate.den == 0)
-                                            av_opt_get_q(av_class, opt->name, 0, &rate);
-                                        irate[0] = rate.num;
-                                        irate[1] = rate.den;
-                                        if (ImGui::DragInt2(opt->name, irate, 1, -8192, 8192)) {
-                                            rate.num = irate[0];
-                                            rate.den = irate[1];
-                                            av_opt_set_q(av_class, opt->name, rate, 0);
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_BINARY:
-                                    break;
-                                case AV_OPT_TYPE_DICT:
-                                    break;
-                                case AV_OPT_TYPE_IMAGE_SIZE:
-                                    {
-                                        int size[2] = {0,0};
-
-                                        av_opt_get_image_size(av_class, opt->name, 0, &size[0], &size[1]);
-                                        if (ImGui::DragInt2(opt->name, size, 1, 1, 4096)) {
-                                            av_opt_set_image_size(av_class, opt->name, size[0], size[1], 0);
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_VIDEO_RATE:
-                                    {
-                                        AVRational rate = (AVRational){ 0, 0 };
-                                        int irate[2] = { 0, 0 };
-
-                                        if (rate.num == 0 && rate.den == 0) {
-                                            if (av_opt_get_video_rate(av_class, opt->name, 0, &rate))
-                                                av_parse_video_rate(&rate, opt->default_val.str);
-                                        }
-                                        irate[0] = rate.num;
-                                        irate[1] = rate.den;
-                                        if (ImGui::DragInt2(opt->name, irate, 1, -8192, 8192)) {
-                                            rate.num = irate[0];
-                                            rate.den = irate[1];
-                                            if (av_opt_set_video_rate(av_class, opt->name, rate, 0))
-                                                av_opt_set(av_class, opt->name, av_asprintf("%d/%d", rate.num, rate.den), AV_DICT_DONT_STRDUP_VAL);
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_PIXEL_FMT:
-                                    break;
-                                case AV_OPT_TYPE_SAMPLE_FMT:
-                                    break;
-                                case AV_OPT_TYPE_COLOR:
-                                    {
-                                        float col[4] = { 0.4f, 0.7f, 0.0f, 0.5f };
-                                        unsigned icol[4] = { 0 };
-                                        char new_str[16] = { 0 };
-                                        uint8_t *old_str = NULL;
-
-                                        if (av_opt_get(av_class, opt->name, 0, &old_str))
-                                            break;
-                                        sscanf((const char *)old_str, "0x%02x%02x%02x%02X", &icol[0], &icol[1], &icol[2], &icol[3]);
-                                        av_freep(&old_str);
-                                        col[0] = icol[0] / 255.f;
-                                        col[1] = icol[1] / 255.f;
-                                        col[2] = icol[2] / 255.f;
-                                        col[3] = icol[3] / 255.f;
-                                        ImGui::PushID(index++);
-                                        ImGui::ColorEdit4("color", col, ImGuiColorEditFlags_NoDragDrop);
-                                        ImGui::PopID();
-                                        icol[0] = col[0] * 255.f;
-                                        icol[1] = col[1] * 255.f;
-                                        icol[2] = col[2] * 255.f;
-                                        icol[3] = col[3] * 255.f;
-                                        snprintf(new_str, sizeof(new_str), "0x%02x%02x%02x%02x", icol[0], icol[1], icol[2], icol[3]);
-                                        av_opt_set(av_class, opt->name, new_str, 0);
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_CHLAYOUT:
-                                    break;
-                                case AV_OPT_TYPE_CONST:
-                                    break;
-                                default:
-                                    break;
-                            }
-
-                            if (ImGui::IsItemHovered())
-                                ImGui::SetTooltip("%s", opt->help);
-                        }
-                        ImGui::TreePop();
-                    }
-
-                    if (filter->flags & AVFILTER_FLAG_SUPPORT_TIMELINE) {
-                        if (ImGui::TreeNode("Timeline")) {
-                            char new_str[128] = {0};
-                            uint8_t *str = NULL;
-                            void *av_class;
-
-                            av_class = probe_ctx;
-                            if (av_opt_get(av_class, "enable", 0, &str)) {
-                                ImGui::TreePop();
-                                continue;
-                            }
-                            if (str) {
-                                memcpy(new_str, str, strlen((const char *)str));
-                                av_freep(&str);
-                            }
-                            if (ImGui::InputText("Enable", new_str, IM_ARRAYSIZE(new_str))) {
-                                av_opt_set(av_class, "enable", new_str, 0);
-                            }
-                            ImGui::TreePop();
-                        }
-                    }
-                }
-            }
-            n++;
-        }
-        ImGui::EndListBox();
-    }
-    ImGui::End();
-}
-
 int main(int, char**)
 {
-    GLuint texture;
-
     // Setup window
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
@@ -1188,6 +1438,12 @@ int main(int, char**)
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImNodes::CreateContext();
+
+    node_editor_context = ImNodes::EditorContextCreate();
+    if (node_editor_context == NULL)
+        return 1;
+
     ImGuiIO& io = ImGui::GetIO(); (void)io;
 
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
@@ -1217,11 +1473,9 @@ int main(int, char**)
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
     //IM_ASSERT(font != NULL);
     // Our state
-    glGenTextures(1, &texture);
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
-        AVFrame *render_frame;
         // Poll and handle events (inputs, window resize, etc.)
         // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
         // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application.
@@ -1232,17 +1486,16 @@ int main(int, char**)
         if (show_buffersink_window == false) {
             if (filter_graph) {
                 need_filters_reinit = true;
-                if (video_sink_thread.joinable())
-                    video_sink_thread.join();
-                buffersink_ctx = NULL;
-                for (int i = 0; i < nb_all_filters; i++) {
-                    av_freep(&filters_options[i].filter_name);
-                    av_freep(&filters_options[i].filter_label);
-                    av_freep(&filters_options[i].ctx_options);
-                    av_freep(&filters_options[i].filter_options);
+
+                for (unsigned i = 0; i < video_sink_threads.size(); i++) {
+                    if (video_sink_threads[i].joinable())
+                        video_sink_threads[i].join();
                 }
-                nb_all_filters = 0;
+
                 avfilter_graph_free(&filter_graph);
+                for (unsigned i = 0; i < filter_nodes.size(); i++)
+                    filter_nodes[i].ctx = NULL;
+
                 need_filters_reinit = false;
             }
         }
@@ -1254,16 +1507,28 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        filter_frames_mutex.lock();
-        render_frame = filter_frames.empty() ? NULL : filter_frames.back();
-        draw_frame(&texture, &show_buffersink_window, render_frame);
-        filter_frames_mutex.unlock();
-        if (show_filters_list_window)
-            show_filters_list(&show_filters_list_window);
+        if (mutexes.size() == buffer_sinks.size()) {
+            for (unsigned i = 0; i < buffer_sinks.size(); i++) {
+                BufferSink *sink = &buffer_sinks[i];
+                AVFrame *render_frame;
+
+                mutexes[i].lock();
+                render_frame = sink->frames.empty() ? NULL : sink->frames.front();
+                draw_frame(&sink->texture, &show_buffersink_window, render_frame, sink);
+                if (sink->frames.size() > 0 && (!paused || framestep)) {
+                    sink->frames.pop();
+                    av_frame_unref(render_frame);
+                }
+                mutexes[i].unlock();
+            }
+        }
+
         if (show_commands_window)
             show_commands(&show_commands_window);
         if (show_dumpgraph_window)
             show_dumpgraph(&show_dumpgraph_window);
+        if (show_filtergraph_editor_window)
+            show_filtergraph_editor(&show_filtergraph_editor_window);
 
         // Rendering
         ImGui::Render();
@@ -1278,18 +1543,34 @@ int main(int, char**)
     }
 
     need_filters_reinit = true;
-    if (video_sink_thread.joinable())
-        video_sink_thread.join();
+    for (unsigned i = 0; i < video_sink_threads.size(); i++) {
+        if (video_sink_threads[i].joinable())
+            video_sink_threads[i].join();
+    }
+
+    for (unsigned i = 0; i < filter_nodes.size(); i++) {
+        FilterNode *node = &filter_nodes[i];
+
+        av_freep(&node->filter_name);
+        av_freep(&node->filter_label);
+        if (!node->probe_graph)
+            av_freep(&node->probe);
+        avfilter_graph_free(&node->probe_graph);
+        node->probe = NULL;
+        node->ctx = NULL;
+    }
+
+    filter_nodes.clear();
 
     av_freep(&graphdump_text);
 
-    for (int i = 0; i < nb_all_filters; i++)
-        av_freep(&filters_options[i].filter_name);
     avfilter_graph_free(&filter_graph);
-    avfilter_graph_free(&probe_graph);
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
+    ImNodes::EditorContextFree(node_editor_context);
+    node_editor_context = NULL;
+    ImNodes::DestroyContext();
     ImGui::DestroyContext();
 
     glfwDestroyWindow(window);

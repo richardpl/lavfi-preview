@@ -14,16 +14,19 @@
 #CXX = g++
 #CXX = clang++
 
+PKG_CONFIG_PATH = /usr/local/lib/pkgconfig
 EXE = lavfi-preview
-IMGUI_DIR = imgui/
+IMGUI_DIR = imgui
+IMNODES_DIR = imnodes
 SOURCES = main.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp
 SOURCES += $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
+SOURCES += $(IMNODES_DIR)/imnodes.cpp
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
 UNAME_S := $(shell uname -s)
 LINUX_GL_LIBS = -lGL
 
-CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
+CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR)
 CXXFLAGS += -g -Wall -Wformat
 LIBS =
 
@@ -32,21 +35,21 @@ LIBS =
 ##---------------------------------------------------------------------
 
 ifeq ($(UNAME_S), Linux) #LINUX
-	LIBS += $(LINUX_GL_LIBS) `pkg-config --shared --libs glfw3`
-	LIBS += `pkg-config --shared --libs libavutil`
-	LIBS += `pkg-config --shared --libs libavcodec`
-	LIBS += `pkg-config --shared --libs libavformat`
-	LIBS += `pkg-config --shared --libs libswresample`
-	LIBS += `pkg-config --shared --libs libswscale`
-	LIBS += `pkg-config --shared --libs libavfilter`
+	LIBS += $(LINUX_GL_LIBS) `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs glfw3`
+	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libavutil`
+	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libavcodec`
+	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libavformat`
+	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libswresample`
+	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libswscale`
+	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libavfilter`
 
-	CXXFLAGS += `pkg-config --cflags glfw3`
-	CXXFLAGS += `pkg-config --cflags libavutil`
-	CXXFLAGS += `pkg-config --cflags libavcodec`
-	CXXFLAGS += `pkg-config --cflags libavformat`
-	CXXFLAGS += `pkg-config --cflags libswresample`
-	CXXFLAGS += `pkg-config --cflags libswscale`
-	CXXFLAGS += `pkg-config --cflags libavfilter`
+	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags glfw3`
+	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libavutil`
+	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libavcodec`
+	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libavformat`
+	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libswresample`
+	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libswscale`
+	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libavfilter`
 	CFLAGS = $(CXXFLAGS)
 endif
 
@@ -61,6 +64,9 @@ endif
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 %.o:$(IMGUI_DIR)/backends/%.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+%.o:$(IMNODES_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 all: $(EXE)
