@@ -315,10 +315,13 @@ static void draw_osd(bool *p_open, int64_t pts)
     }
 
     ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
-    if (pts == AV_NOPTS_VALUE)
-        ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: ?.?? \t SPEED: %.5f", speed);
-    else
-        ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: %.5f \t SPEED: %.5f", av_q2d(buffersink_time_base) * pts, speed);
+    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: %.5f", av_q2d(buffersink_time_base) * pts);
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "SPEED: %.5f", speed);
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "FPS: %d/%d (%.5f)",
+                       buffersink_frame_rate.num,
+                       buffersink_frame_rate.den, av_q2d(buffersink_frame_rate));
     ImGui::End();
 }
 
