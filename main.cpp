@@ -325,6 +325,7 @@ static void draw_osd(bool *p_open, int64_t pts, BufferSink *sink)
                                           ImGuiWindowFlags_NoSavedSettings |
                                           ImGuiWindowFlags_NoNav |
                                           ImGuiWindowFlags_NoMouseInputs |
+                                          ImGuiWindowFlags_NoFocusOnAppearing |
                                           ImGuiWindowFlags_NoMove;
     const int corner = 0;
     const float PAD_X = 10.0f;
@@ -339,13 +340,14 @@ static void draw_osd(bool *p_open, int64_t pts, BufferSink *sink)
     window_pos_pivot.y = (corner & 2) ? 1.0f : 0.0f;
     ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
     ImGui::SetNextWindowBgAlpha(0.77f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 
     if (!ImGui::Begin("##OSD", p_open, window_flags)) {
         ImGui::End();
+        ImGui::PopStyleVar();
         return;
     }
 
-    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
     ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: %.5f", av_q2d(sink->time_base) * pts);
     ImGui::SameLine();
     ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "SPEED: %.5f", sink->speed);
@@ -354,6 +356,7 @@ static void draw_osd(bool *p_open, int64_t pts, BufferSink *sink)
                        sink->frame_rate.num,
                        sink->frame_rate.den, av_q2d(sink->frame_rate));
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
