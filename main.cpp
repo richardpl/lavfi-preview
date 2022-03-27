@@ -1,4 +1,3 @@
-#include <queue>
 #include <thread>
 #include <mutex>
 #include <vector>
@@ -52,9 +51,10 @@ typedef struct BufferSink {
     AVFilterContext *ctx;
     AVRational time_base;
     AVRational frame_rate;
-    AVFrame *tmp_frame;
-    std::queue<AVFrame *> frames;
+    AVFrame *a_frame;
+    AVFrame *b_frame;
     double speed;
+    bool uploaded_frame;
     bool fullscreen;
     bool show_osd;
     bool have_window_pos;
@@ -119,36 +119,38 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex)
             break;
 
         mutex->lock();
-        if (sink->frames.size() < 1) {
+        while (!sink->uploaded_frame) {
             AVFrame *filter_frame;
             int64_t start, end;
 
             mutex->unlock();
 
-            filter_frame = sink->tmp_frame;
+            av_frame_unref(sink->a_frame);
+            filter_frame = sink->a_frame;
             start = av_gettime_relative();
             ret = av_buffersink_get_frame_flags(sink->ctx, filter_frame, 0);
             end = av_gettime_relative();
             if (end > start)
                 sink->speed = 1000000. * av_q2d(av_inv_q(sink->frame_rate)) / (end - start);
-            if (ret < 0 && ret != AVERROR(EAGAIN))
+            if (ret < 0 && ret != AVERROR(EAGAIN)) {
+                mutex->lock();
                 break;
+            }
 
             mutex->lock();
-            sink->frames.push(filter_frame);
-            mutex->unlock();
-        } else {
-            mutex->unlock();
-            usleep(10000);
+            sink->uploaded_frame = true;
         }
+        mutex->unlock();
+
+        if (paused)
+            usleep(10000);
     }
 
     mutex->lock();
-    while (sink->frames.size() > 0)
-        sink->frames.pop();
 
     av_freep(&sink->label);
-    av_frame_free(&sink->tmp_frame);
+    av_frame_free(&sink->a_frame);
+    av_frame_free(&sink->b_frame);
     glDeleteTextures(1, &sink->texture);
 
     mutex->unlock();
@@ -210,12 +212,13 @@ static int filters_setup()
             BufferSink new_sink;
 
             new_sink.ctx = filter_ctx;
+            new_sink.uploaded_frame = false;
             new_sink.fullscreen = false;
             new_sink.show_osd = false;
             ret = av_opt_set_int_list(filter_ctx, "pix_fmts", pix_fmts,
                                       AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR, "Cannot set output pixel format.\n");
+                av_log(NULL, AV_LOG_ERROR, "Cannot set buffersink output pixel format.\n");
                 goto error;
             }
 
@@ -297,7 +300,8 @@ error:
     for (unsigned i = 0; i < buffer_sinks.size(); i++) {
         buffer_sinks[i].id = i;
         buffer_sinks[i].label = av_asprintf("FilterGraph Output %d", i);
-        buffer_sinks[i].tmp_frame = av_frame_alloc();
+        buffer_sinks[i].a_frame = av_frame_alloc();
+        buffer_sinks[i].b_frame = av_frame_alloc();
         buffer_sinks[i].time_base = av_buffersink_get_time_base(buffer_sinks[i].ctx);
         buffer_sinks[i].frame_rate = av_buffersink_get_frame_rate(buffer_sinks[i].ctx);
         glGenTextures(1, &buffer_sinks[i].texture);
@@ -1542,11 +1546,16 @@ int main(int, char**)
                 AVFrame *render_frame;
 
                 mutexes[i].lock();
-                render_frame = sink->frames.empty() ? NULL : sink->frames.front();
+                render_frame = sink->uploaded_frame == false ? sink->b_frame : sink->a_frame;
+                mutexes[i].unlock();
                 draw_frame(&sink->texture, &show_buffersink_window, render_frame, sink);
-                if (sink->frames.size() > 0 && (!paused || framestep)) {
-                    sink->frames.pop();
-                    av_frame_unref(render_frame);
+                mutexes[i].lock();
+                if (sink->uploaded_frame == true && (!paused || framestep)) {
+                    AVFrame *tmp = sink->b_frame;
+
+                    sink->b_frame = sink->a_frame;
+                    sink->a_frame = tmp;
+                    sink->uploaded_frame = false;
                 }
                 mutexes[i].unlock();
             }
