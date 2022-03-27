@@ -351,13 +351,12 @@ static void draw_osd(bool *p_open, int64_t pts, BufferSink *sink)
         return;
     }
 
-    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "TIME: %.5f", av_q2d(sink->time_base) * pts);
+    ImGui::Text("TIME: %.5f", av_q2d(sink->time_base) * pts);
     ImGui::SameLine();
-    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "SPEED: %.5f", sink->speed);
+    ImGui::Text("SPEED: %.5f", sink->speed);
     ImGui::SameLine();
-    ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.8f), "FPS: %d/%d (%.5f)",
-                       sink->frame_rate.num,
-                       sink->frame_rate.den, av_q2d(sink->frame_rate));
+    ImGui::Text("FPS: %d/%d (%.5f)", sink->frame_rate.num,
+                sink->frame_rate.den, av_q2d(sink->frame_rate));
     ImGui::End();
     ImGui::PopStyleVar();
 }
@@ -1024,6 +1023,22 @@ static void show_filtergraph_editor(bool *p_open)
                     handle_nodeitem(filter, click_pos);
                 }
                 ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Visual Color Style")) {
+            if (ImGui::MenuItem("Classic")) {
+                ImGui::StyleColorsClassic();
+                ImNodes::StyleColorsClassic();
+            }
+            if (ImGui::MenuItem("Dark")) {
+                ImGui::StyleColorsDark();
+                ImNodes::StyleColorsDark();
+            }
+            if (ImGui::MenuItem("Light")) {
+                ImGui::StyleColorsLight();
+                ImNodes::StyleColorsLight();
             }
             ImGui::EndMenu();
         }
