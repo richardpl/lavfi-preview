@@ -213,6 +213,7 @@ static int filters_setup()
 
             new_sink.ctx = filter_ctx;
             new_sink.uploaded_frame = false;
+            new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
             new_sink.show_osd = false;
             ret = av_opt_set_int_list(filter_ctx, "pix_fmts", pix_fmts,
