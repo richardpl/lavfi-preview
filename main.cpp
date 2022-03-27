@@ -47,6 +47,7 @@ typedef struct OptStorage {
 } OptStorage;
 
 typedef struct BufferSink {
+    unsigned id;
     char *label;
     AVFilterContext *ctx;
     AVRational time_base;
@@ -83,6 +84,7 @@ static void glfw_error_callback(int error, const char* description)
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
+unsigned focus_buffersink_window = -1;
 bool show_buffersink_window = true;
 bool show_dumpgraph_window = true;
 bool show_commands_window = true;
@@ -293,6 +295,7 @@ error:
     video_sink_threads.swap(thread_list);
 
     for (unsigned i = 0; i < buffer_sinks.size(); i++) {
+        buffer_sinks[i].id = i;
         buffer_sinks[i].label = av_asprintf("FilterGraph Output %d", i);
         buffer_sinks[i].tmp_frame = av_frame_alloc();
         buffer_sinks[i].time_base = av_buffersink_get_time_base(buffer_sinks[i].ctx);
@@ -391,6 +394,11 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         }
     }
 
+    if (focus_buffersink_window == sink->id) {
+        ImGui::SetNextWindowFocus();
+        focus_buffersink_window = -1;
+    }
+
     if (!ImGui::Begin(sink->label, p_open, flags)) {
         ImGui::End();
         return;
@@ -412,6 +420,9 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         if (ImGui::IsKeyReleased(ImGuiKey_O))
             sink->show_osd = !sink->show_osd;
     }
+
+    if (ImGui::IsKeyDown(ImGuiKey_0 + sink->id) && ImGui::GetIO().KeyCtrl)
+        focus_buffersink_window = sink->id;
 
     if (sink->fullscreen) {
         ImGui::GetWindowDrawList()->AddImage((void*)(intptr_t)*texture, ImVec2(0.f, 0.f),
