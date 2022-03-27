@@ -837,7 +837,7 @@ static void draw_node_options(FilterNode *node)
                 break;
             case AV_OPT_TYPE_VIDEO_RATE:
                 {
-                    AVRational rate = (AVRational){ 0, 0 };
+                    static AVRational rate = (AVRational){ 0, 0 };
                     int irate[2] = { 0, 0 };
                     char rate_str[256];
 
