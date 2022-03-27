@@ -169,20 +169,19 @@ static int filters_setup()
             video_sink_threads[i].join();
     }
 
+    video_sink_threads.clear();
+
     need_filters_reinit = false;
 
     if (filter_nodes.size() == 0)
         return 0;
 
     buffer_sinks.clear();
-    video_sink_threads.clear();
     mutexes.clear();
-    filter_links.clear();
 
     av_freep(&graphdump_text);
 
     avfilter_graph_free(&filter_graph);
-
     filter_graph = avfilter_graph_alloc();
     if (!filter_graph) {
         av_log(NULL, AV_LOG_ERROR, "Cannot allocate graph\n");
@@ -264,13 +263,20 @@ static int filters_setup()
 
     for (unsigned i = 0; i < filter_links.size(); i++) {
         const std::pair<int, int> p = filter_links[i];
-        int x = edge2pad[p.first].node;
-        int y = edge2pad[p.second].node;
+        unsigned x = edge2pad[p.first].node;
+        unsigned y = edge2pad[p.second].node;
         unsigned x_pad = edge2pad[p.first].pad_index;
         unsigned y_pad = edge2pad[p.second].pad_index;
 
         if (!edge2pad[p.first].is_output)
             ;
+
+        if (x >= filter_nodes.size() || y >= filter_nodes.size()) {
+            av_log(NULL, AV_LOG_ERROR, "Cannot link filters: %s(%d) <-> %s(%d), index (%d,%d) out of range (%ld,%ld)\n",
+                   filter_nodes[x].filter_label, x_pad, filter_nodes[y].filter_label, y_pad, x, y, filter_nodes.size(), filter_nodes.size());
+            ret = AVERROR(EINVAL);
+            goto error;
+        }
 
         if ((ret = avfilter_link(filter_nodes[x].ctx, x_pad, filter_nodes[y].ctx, y_pad)) < 0) {
             av_log(NULL, AV_LOG_ERROR, "Cannot link filters: %s(%d) <-> %s(%d)\n",
@@ -659,19 +665,27 @@ static void draw_node_options(FilterNode *node)
     }
 
     ImGui::SameLine();
-    if (node->colapsed && ImGui::Button("Remove")) {
-        av_freep(&node->filter_name);
-        av_freep(&node->filter_label);
-        av_freep(&node->filter_options);
-        av_freep(&node->ctx_options);
-        if (!node->probe_graph)
-            av_freep(&node->probe);
-        avfilter_graph_free(&node->probe_graph);
-        node->probe = NULL;
-        node->ctx = NULL;
-        filter_nodes.erase(filter_nodes.begin() + node->id);
-        node->colapsed = false;
-        return;
+    if (node->colapsed) {
+        for (unsigned i = 0; i < video_sink_threads.size(); i++) {
+            if (video_sink_threads[i].joinable())
+                return;
+        }
+
+        if (ImGui::Button("Remove")) {
+            av_freep(&node->filter_name);
+            av_freep(&node->filter_label);
+            av_freep(&node->filter_options);
+            av_freep(&node->ctx_options);
+            if (!node->probe_graph)
+                avfilter_free(node->probe);
+            avfilter_graph_free(&node->probe_graph);
+            node->probe = NULL;
+            avfilter_free(node->ctx);
+            node->ctx = NULL;
+            node->colapsed = false;
+            filter_nodes.erase(filter_nodes.begin() + node->id);
+            return;
+        }
     }
 
     if (!ImGui::BeginListBox("##List of Filter Options", ImVec2(300, 100)))
@@ -1122,6 +1136,13 @@ static void show_filtergraph_editor(bool *p_open)
     ImNodes::MiniMap(0.2f, ImNodesMiniMapLocation_BottomRight);
     ImNodes::EndNodeEditor();
 
+    for (unsigned i = 0; i < video_sink_threads.size(); i++) {
+        if (video_sink_threads[i].joinable()) {
+            ImGui::End();
+            return;
+        }
+    }
+
     int start_attr, end_attr;
     if (ImNodes::IsLinkCreated(&start_attr, &end_attr)) {
         enum AVMediaType first  = edge2type[start_attr].second;
@@ -1142,8 +1163,11 @@ static void show_filtergraph_editor(bool *p_open)
         selected_links.resize(static_cast<size_t>(links_selected));
         ImNodes::GetSelectedLinks(selected_links.data());
 
-        for (const int edge_id : selected_links)
+        for (const int edge_id : selected_links) {
+            if (filter_links.size() == 0)
+                break;
             filter_links.erase(filter_links.begin() + edge_id);
+        }
     }
 
     const int nodes_selected = ImNodes::NumSelectedNodes();
@@ -1152,8 +1176,20 @@ static void show_filtergraph_editor(bool *p_open)
 
         selected_nodes.resize(static_cast<size_t>(nodes_selected));
         ImNodes::GetSelectedNodes(selected_nodes.data());
-        for (const int node_id : selected_nodes)
-            filter_nodes.erase(filter_nodes.begin() + node_id);
+        for (const int node_id : selected_nodes) {
+            unsigned node = edge2pad[node_id].node;
+
+            avfilter_free(filter_nodes[node].ctx);
+            av_freep(&filter_nodes[node].filter_name);
+            av_freep(&filter_nodes[node].filter_label);
+            av_freep(&filter_nodes[node].filter_options);
+            av_freep(&filter_nodes[node].ctx_options);
+            if (!filter_nodes[node].probe_graph)
+                avfilter_free(filter_nodes[node].probe);
+            avfilter_graph_free(&filter_nodes[node].probe_graph);
+            filter_nodes[node].probe = NULL;
+            filter_nodes.erase(filter_nodes.begin() + node);
+        }
     }
 
     ImGui::End();
@@ -1182,6 +1218,9 @@ static void show_commands(bool *p_open)
             const bool is_selected = selected_filter == n;
             static bool is_opened = false;
             static bool clean_storage = true;
+
+            if (!ctx || !ctx->filter)
+                continue;
 
             if (!imgui_filter.PassFilter(ctx->filter->name))
                 continue;
@@ -1530,7 +1569,7 @@ int main(int, char**)
         glfwPollEvents();
 
         if (show_buffersink_window == false) {
-            if (filter_graph) {
+            if (video_sink_threads.size() > 0) {
                 need_filters_reinit = true;
 
                 for (unsigned i = 0; i < video_sink_threads.size(); i++) {
@@ -1538,9 +1577,7 @@ int main(int, char**)
                         video_sink_threads[i].join();
                 }
 
-                avfilter_graph_free(&filter_graph);
-                for (unsigned i = 0; i < filter_nodes.size(); i++)
-                    filter_nodes[i].ctx = NULL;
+                video_sink_threads.clear();
 
                 need_filters_reinit = false;
             }
@@ -1599,13 +1636,15 @@ int main(int, char**)
             video_sink_threads[i].join();
     }
 
+    video_sink_threads.clear();
+
     for (unsigned i = 0; i < filter_nodes.size(); i++) {
         FilterNode *node = &filter_nodes[i];
 
         av_freep(&node->filter_name);
         av_freep(&node->filter_label);
         if (!node->probe_graph)
-            av_freep(&node->probe);
+            avfilter_free(node->probe);
         avfilter_graph_free(&node->probe_graph);
         node->probe = NULL;
         node->ctx = NULL;
