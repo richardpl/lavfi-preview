@@ -177,6 +177,7 @@ static int filters_setup()
     buffer_sinks.clear();
     video_sink_threads.clear();
     mutexes.clear();
+    filter_links.clear();
 
     av_freep(&graphdump_text);
 
@@ -272,7 +273,8 @@ static int filters_setup()
             ;
 
         if ((ret = avfilter_link(filter_nodes[x].ctx, x_pad, filter_nodes[y].ctx, y_pad)) < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot link filters.\n");
+            av_log(NULL, AV_LOG_ERROR, "Cannot link filters: %s(%d) <-> %s(%d)\n",
+                   filter_nodes[x].filter_label, x_pad, filter_nodes[y].filter_label, y_pad);
             goto error;
         }
     }
@@ -1133,15 +1135,25 @@ static void show_filtergraph_editor(bool *p_open)
     if (ImNodes::IsLinkDestroyed(&link_id))
         filter_links.erase(filter_links.begin() + link_id);
 
-    const int num_selected = ImNodes::NumSelectedLinks();
-    if (num_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X)) {
+    const int links_selected = ImNodes::NumSelectedLinks();
+    if (links_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X)) {
         static std::vector<int> selected_links;
 
-        selected_links.resize(static_cast<size_t>(num_selected));
+        selected_links.resize(static_cast<size_t>(links_selected));
         ImNodes::GetSelectedLinks(selected_links.data());
 
         for (const int edge_id : selected_links)
             filter_links.erase(filter_links.begin() + edge_id);
+    }
+
+    const int nodes_selected = ImNodes::NumSelectedNodes();
+    if (nodes_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X)) {
+        static std::vector<int> selected_nodes;
+
+        selected_nodes.resize(static_cast<size_t>(nodes_selected));
+        ImNodes::GetSelectedNodes(selected_nodes.data());
+        for (const int node_id : selected_nodes)
+            filter_nodes.erase(filter_nodes.begin() + node_id);
     }
 
     ImGui::End();
@@ -1604,6 +1616,7 @@ int main(int, char**)
     av_freep(&graphdump_text);
 
     avfilter_graph_free(&filter_graph);
+    filter_links.clear();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
