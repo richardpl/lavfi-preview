@@ -1073,7 +1073,7 @@ static void show_filtergraph_editor(bool *p_open)
 
         filter_node->edge = edge;
         edge2type.push_back(std::make_pair(edge, AVMEDIA_TYPE_UNKNOWN));
-        edge2pad.push_back(Edge2Pad { 0, 0, 0 });
+        edge2pad.push_back(Edge2Pad { i, 0, 0 });
         ImNodes::SetNodeGridSpacePos(edge, filter_node->pos);
         ImNodes::SnapNodeToGrid(edge);
         ImNodes::SetNodeDraggable(edge, true);
@@ -1177,8 +1177,9 @@ static void show_filtergraph_editor(bool *p_open)
         selected_nodes.resize(static_cast<size_t>(nodes_selected));
         ImNodes::GetSelectedNodes(selected_nodes.data());
         for (const int node_id : selected_nodes) {
-            unsigned node = edge2pad[node_id].node;
+            const unsigned node = edge2pad[node_id].node;
 
+            filter_nodes[node].filter = NULL;
             avfilter_free(filter_nodes[node].ctx);
             av_freep(&filter_nodes[node].filter_name);
             av_freep(&filter_nodes[node].filter_label);
@@ -1188,8 +1189,15 @@ static void show_filtergraph_editor(bool *p_open)
                 avfilter_free(filter_nodes[node].probe);
             avfilter_graph_free(&filter_nodes[node].probe_graph);
             filter_nodes[node].probe = NULL;
-            filter_nodes.erase(filter_nodes.begin() + node);
         }
+    }
+
+    if (filter_nodes.size() > 0) {
+        unsigned i = filter_nodes.size() - 1;
+        do {
+            if (!filter_nodes[i].filter)
+                filter_nodes.erase(filter_nodes.begin() + i);
+        } while (i--);
     }
 
     ImGui::End();
@@ -1219,7 +1227,10 @@ static void show_commands(bool *p_open)
             static bool is_opened = false;
             static bool clean_storage = true;
 
-            if (!ctx || !ctx->filter)
+            if (!ctx)
+                continue;
+
+            if (!ctx->filter)
                 continue;
 
             if (!imgui_filter.PassFilter(ctx->filter->name))
