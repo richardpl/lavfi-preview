@@ -163,6 +163,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex)
     mutex->lock();
 
     av_freep(&sink->label);
+    av_freep(&sink->samples);
     av_frame_free(&sink->a_frame);
     av_frame_free(&sink->b_frame);
     glDeleteTextures(1, &sink->texture);
@@ -349,6 +350,7 @@ error:
         buffer_sinks[i].b_frame = av_frame_alloc();
         buffer_sinks[i].time_base = av_buffersink_get_time_base(buffer_sinks[i].ctx);
         buffer_sinks[i].frame_rate = av_buffersink_get_frame_rate(buffer_sinks[i].ctx);
+        buffer_sinks[i].samples = NULL;
         glGenTextures(1, &buffer_sinks[i].texture);
         std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i]);
 
