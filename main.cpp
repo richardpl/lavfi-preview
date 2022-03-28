@@ -680,8 +680,8 @@ static bool is_simple_filter(const AVFilter *filter)
 static bool is_simple_audio_filter(const AVFilter *filter)
 {
     if (is_simple_filter(filter) &&
-        avfilter_pad_get_type(filter->inputs, 0) == AVMEDIA_TYPE_AUDIO &&
-        avfilter_pad_get_type(filter->inputs, 1) == AVMEDIA_TYPE_AUDIO) {
+        avfilter_pad_get_type(filter->inputs,  0) == AVMEDIA_TYPE_AUDIO &&
+        avfilter_pad_get_type(filter->outputs, 0) == AVMEDIA_TYPE_AUDIO) {
         return true;
     }
     return false;
@@ -690,8 +690,8 @@ static bool is_simple_audio_filter(const AVFilter *filter)
 static bool is_simple_video_filter(const AVFilter *filter)
 {
     if (is_simple_filter(filter) &&
-        avfilter_pad_get_type(filter->inputs, 0) == AVMEDIA_TYPE_VIDEO &&
-        avfilter_pad_get_type(filter->inputs, 1) == AVMEDIA_TYPE_VIDEO) {
+        avfilter_pad_get_type(filter->inputs,  0) == AVMEDIA_TYPE_VIDEO &&
+        avfilter_pad_get_type(filter->outputs, 0) == AVMEDIA_TYPE_VIDEO) {
         return true;
     }
     return false;
@@ -777,7 +777,7 @@ static bool is_media_filter(const AVFilter *filter)
 {
     if (is_simple_filter(filter) &&
         avfilter_pad_get_type(filter->inputs, 0) !=
-        avfilter_pad_get_type(filter->inputs, 1)) {
+        avfilter_pad_get_type(filter->outputs, 0)) {
         return true;
     }
 
