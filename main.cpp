@@ -197,7 +197,7 @@ static int filters_setup()
     avfilter_graph_free(&filter_graph);
     filter_graph = avfilter_graph_alloc();
     if (!filter_graph) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot allocate graph\n");
+        av_log(NULL, AV_LOG_ERROR, "Cannot allocate filter graph.\n");
         ret = AVERROR(ENOMEM);
         goto error;
     }
@@ -985,6 +985,7 @@ static void draw_node_options(FilterNode *node)
     probe_graph = node->probe_graph;
     if (!probe_graph)
         return;
+    probe_graph->nb_threads = 1;
 
     if (!node->probe)
         node->probe = avfilter_graph_alloc_filter(probe_graph, node->filter, "probe");
