@@ -89,6 +89,8 @@ static void glfw_error_callback(int error, const char* description)
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
+int filter_graph_nb_threads = 0;
+int filter_graph_auto_convert_flags = 0;
 unsigned focus_buffersink_window = -1;
 unsigned focus_abuffersink_window = -1;
 bool show_abuffersink_window = true;
@@ -201,6 +203,9 @@ static int filters_setup()
         ret = AVERROR(ENOMEM);
         goto error;
     }
+
+    filter_graph->nb_threads = filter_graph_nb_threads;
+    avfilter_graph_set_auto_convert(filter_graph, filter_graph_auto_convert_flags);
 
     for (unsigned i = 0; i < filter_nodes.size(); i++) {
         AVFilterContext *filter_ctx;
@@ -1177,6 +1182,12 @@ static void show_filtergraph_editor(bool *p_open)
                 }
                 ImGui::EndMenu();
             }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("FilterGraph Options", filter_graph == NULL)) {
+            ImGui::InputInt("Max Number of FilterGraph Threads", &filter_graph_nb_threads);
+            ImGui::InputInt("Auto Conversion Type for FilterGraph", &filter_graph_auto_convert_flags);
             ImGui::EndMenu();
         }
 
