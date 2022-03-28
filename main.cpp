@@ -101,6 +101,7 @@ bool show_filtergraph_editor_window = true;
 bool need_filters_reinit = true;
 bool framestep = false;
 bool paused = true;
+bool show_help = false;
 
 int width = 1280;
 int height = 720;
@@ -389,6 +390,77 @@ static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->linesize[0] / 4);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->data[0]);
+}
+
+static void draw_help(bool *p_open)
+{
+    const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
+                                          ImGuiWindowFlags_AlwaysAutoResize |
+                                          ImGuiWindowFlags_NoSavedSettings |
+                                          ImGuiWindowFlags_NoNav |
+                                          ImGuiWindowFlags_NoMouseInputs |
+                                          ImGuiWindowFlags_NoFocusOnAppearing |
+                                          ImGuiWindowFlags_NoMove;
+    const int align = 555;
+
+    ImGui::SetNextWindowPos(ImGui::GetMousePos());
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    ImGui::SetNextWindowFocus();
+
+    if (!ImGui::Begin("##Help", p_open, window_flags)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Separator();
+    ImGui::Separator();
+    ImGui::Text("FilterGraph Editor Keys:");
+    ImGui::Separator();
+    ImGui::Text("Add New Filter:");
+    ImGui::SameLine(align);
+    ImGui::Text("A");
+    ImGui::Separator();
+    ImGui::Text("Remove Selected Filter:");
+    ImGui::SameLine(align);
+    ImGui::Text("X");
+    ImGui::Separator();
+    ImGui::Text("Remove Selected Links:");
+    ImGui::SameLine(align);
+    ImGui::Text("X");
+    ImGui::Separator();
+    ImGui::Text("Configure Graph:");
+    ImGui::SameLine(align);
+    ImGui::Text("Ctrl + Enter");
+    ImGui::Separator();
+    ImGui::Separator();
+    ImGui::Separator();
+    ImGui::Text("Video/Audio FilterGraph Outputs:");
+    ImGui::Separator();
+    ImGui::Text("Pause playback:");
+    ImGui::SameLine(align);
+    ImGui::Text("Space");
+    ImGui::Separator();
+    ImGui::Text("Toggle fullscreen:");
+    ImGui::SameLine(align);
+    ImGui::Text("F");
+    ImGui::Separator();
+    ImGui::Text("Framestep forward:");
+    ImGui::SameLine(align);
+    ImGui::Text("'.'");
+    ImGui::Separator();
+    ImGui::Text("Jump to #numbered Video output:");
+    ImGui::SameLine(align);
+    ImGui::Text("Ctrl + <number>");
+    ImGui::Separator();
+    ImGui::Text("Jump to #numbered Audio output:");
+    ImGui::SameLine(align);
+    ImGui::Text("Alt + <number>");
+    ImGui::Separator();
+    ImGui::Text("Exit from output:");
+    ImGui::SameLine(align);
+    ImGui::Text("Shift + Q");
+    ImGui::Separator();
+    ImGui::End();
 }
 
 static void draw_osd(bool *p_open, int64_t pts, BufferSink *sink)
@@ -1840,6 +1912,9 @@ int main(int, char**)
             show_dumpgraph(&show_dumpgraph_window);
         if (show_filtergraph_editor_window)
             show_filtergraph_editor(&show_filtergraph_editor_window);
+        show_help = ImGui::IsKeyDown(ImGuiKey_F1);
+        if (show_help)
+            draw_help(&show_help);
 
         // Rendering
         ImGui::Render();
