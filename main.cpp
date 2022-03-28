@@ -69,6 +69,7 @@ typedef struct BufferSink {
 
 typedef struct FilterNode {
     int id;
+    bool get_pos;
     ImVec2 pos;
     int edge;
     bool colapsed;
@@ -807,6 +808,7 @@ static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
         node.ctx = NULL;
         node.pos = click_pos;
         node.colapsed = false;
+        node.get_pos = true;
 
         filter_nodes.push_back(node);
     }
@@ -1120,6 +1122,45 @@ static void draw_node_options(FilterNode *node)
     ImGui::EndListBox();
 }
 
+static void export_filter_graph(AVFilterGraph *filter_graph)
+{
+    for (unsigned i = 0; i < filter_links.size(); i++) {
+        const std::pair<int, int> p = filter_links[i];
+        unsigned a = edge2pad[p.first].node;
+        unsigned b = edge2pad[p.second].node;
+
+        if (is_source_filter(filter_nodes[a].filter)) {
+            printf("%s[l%d];", filter_nodes[a].filter_name, a);
+        } else if (is_source_filter(filter_nodes[b].filter)) {
+            printf("%s[l%d];", filter_nodes[b].filter_name, b);
+        } else {
+            continue;
+        }
+
+        for (unsigned j = 0; j < filter_links.size(); j++) {
+            if (i == j)
+                continue;
+            const std::pair<int, int> p = filter_links[j];
+            unsigned aa = edge2pad[p.first].node;
+            unsigned bb = edge2pad[p.second].node;
+
+            if (aa == a || bb == a) {
+                printf("[l%d]", a);
+            } else if (aa == b || bb == b) {
+                printf("[l%d]", b);
+            }
+        }
+
+        if (is_source_filter(filter_nodes[a].filter)) {
+            printf("%s", filter_nodes[b].filter_name);
+        } else if (is_source_filter(filter_nodes[b].filter)) {
+            printf("%s", filter_nodes[a].filter_name);
+        }
+
+    }
+    printf("\n");
+}
+
 static void show_filtergraph_editor(bool *p_open)
 {
     int edge = 0;
@@ -1287,6 +1328,12 @@ static void show_filtergraph_editor(bool *p_open)
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Export FilterGraph", filter_graph != NULL)) {
+            if (ImGui::MenuItem("Save as Script to a File"))
+                export_filter_graph(filter_graph);
+            ImGui::EndMenu();
+        }
+
         ImGui::EndPopup();
     }
     ImGui::PopStyleVar();
@@ -1297,10 +1344,11 @@ static void show_filtergraph_editor(bool *p_open)
         filter_node->edge = edge;
         edge2type.push_back(std::make_pair(edge, AVMEDIA_TYPE_UNKNOWN));
         edge2pad.push_back(Edge2Pad { i, 0, 0 });
-        ImNodes::SetNodeGridSpacePos(edge, filter_node->pos);
-        ImNodes::SnapNodeToGrid(edge);
-        ImNodes::SetNodeDraggable(edge, true);
         ImNodes::BeginNode(edge++);
+        if (filter_node->get_pos) {
+            ImNodes::SetNodeEditorSpacePos(filter_node->edge, filter_node->pos);
+            filter_node->get_pos = false;
+        }
         ImNodes::BeginNodeTitleBar();
         ImGui::TextUnformatted(filter_node->filter_name);
         if (ImGui::IsItemHovered())
@@ -1349,6 +1397,7 @@ static void show_filtergraph_editor(bool *p_open)
         }
 
         ImNodes::EndNode();
+        ImNodes::SetNodeDraggable(filter_node->edge, true);
     }
 
     for (unsigned i = 0; i < filter_links.size(); i++) {
