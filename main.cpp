@@ -1266,6 +1266,13 @@ static void show_filtergraph_editor(bool *p_open)
         }
     }
 
+    for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
+        if (audio_sink_threads[i].joinable()) {
+            ImGui::End();
+            return;
+        }
+    }
+
     int start_attr, end_attr;
     if (ImNodes::IsLinkCreated(&start_attr, &end_attr)) {
         enum AVMediaType first  = edge2type[start_attr].second;
