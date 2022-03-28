@@ -736,75 +736,19 @@ static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
         ImGui::SetTooltip("%s", filter->description);
 }
 
-static void draw_node_options(FilterNode *node)
+static void draw_options(FilterNode *node, void *av_class, bool filter_private)
 {
-    AVFilterContext *probe_ctx;
-    AVFilterGraph *probe_graph;
     const AVOption *opt = NULL;
+    const void *obj = (const void *)(filter_private ? &node->filter->priv_class : (const void *)node->probe);
     int last_offset = -1;
     double min, max;
-    void *av_class;
     int index = 0;
 
-    if (!node->probe_graph)
-        node->probe_graph = avfilter_graph_alloc();
-    probe_graph = node->probe_graph;
-    if (!probe_graph)
-        return;
-
-    if (!node->probe)
-        node->probe = avfilter_graph_alloc_filter(probe_graph, node->filter, "probe");
-    probe_ctx = node->probe;
-    if (!probe_ctx)
-        return;
-
-    av_class = probe_ctx->priv;
-    if (!node->colapsed && !ImGui::Button("Options"))
-        return;
-
-    node->colapsed = true;
-    if (node->colapsed && ImGui::Button("Close")) {
-        node->colapsed = false;
-        return;
-    }
-
-    ImGui::SameLine();
-    if (node->colapsed) {
-        for (unsigned i = 0; i < video_sink_threads.size(); i++) {
-            if (video_sink_threads[i].joinable())
-                return;
-        }
-
-        for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
-            if (audio_sink_threads[i].joinable())
-                return;
-        }
-
-        if (ImGui::Button("Remove")) {
-            av_freep(&node->filter_name);
-            av_freep(&node->filter_label);
-            av_freep(&node->filter_options);
-            av_freep(&node->ctx_options);
-            if (!node->probe_graph)
-                avfilter_free(node->probe);
-            avfilter_graph_free(&node->probe_graph);
-            node->probe = NULL;
-            avfilter_free(node->ctx);
-            node->ctx = NULL;
-            node->colapsed = false;
-            filter_nodes.erase(filter_nodes.begin() + node->id);
-            return;
-        }
-    }
-
-    if (!ImGui::BeginListBox("##List of Filter Options", ImVec2(300, 100)))
-        return;
-
-    while ((opt = av_opt_next(&node->filter->priv_class, opt))) {
+    while ((opt = av_opt_next(obj, opt))) {
         if (last_offset == opt->offset)
             continue;
         last_offset = opt->offset;
-        if (!query_ranges((void *)&node->filter->priv_class, opt, &min, &max))
+        if (!query_ranges((void *)obj, opt, &min, &max))
             continue;
         switch (opt->type) {
             case AV_OPT_TYPE_INT64:
@@ -1028,6 +972,70 @@ static void draw_node_options(FilterNode *node)
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", opt->help);
     }
+}
+
+static void draw_node_options(FilterNode *node)
+{
+    AVFilterContext *probe_ctx;
+    AVFilterGraph *probe_graph;
+    void *av_class;
+
+    if (!node->probe_graph)
+        node->probe_graph = avfilter_graph_alloc();
+    probe_graph = node->probe_graph;
+    if (!probe_graph)
+        return;
+
+    if (!node->probe)
+        node->probe = avfilter_graph_alloc_filter(probe_graph, node->filter, "probe");
+    probe_ctx = node->probe;
+    if (!probe_ctx)
+        return;
+
+    av_class = probe_ctx->priv;
+    if (!node->colapsed && !ImGui::Button("Options"))
+        return;
+
+    node->colapsed = true;
+    if (node->colapsed && ImGui::Button("Close")) {
+        node->colapsed = false;
+        return;
+    }
+
+    ImGui::SameLine();
+    if (node->colapsed) {
+        for (unsigned i = 0; i < video_sink_threads.size(); i++) {
+            if (video_sink_threads[i].joinable())
+                return;
+        }
+
+        for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
+            if (audio_sink_threads[i].joinable())
+                return;
+        }
+
+        if (ImGui::Button("Remove")) {
+            av_freep(&node->filter_name);
+            av_freep(&node->filter_label);
+            av_freep(&node->filter_options);
+            av_freep(&node->ctx_options);
+            if (!node->probe_graph)
+                avfilter_free(node->probe);
+            avfilter_graph_free(&node->probe_graph);
+            node->probe = NULL;
+            avfilter_free(node->ctx);
+            node->ctx = NULL;
+            node->colapsed = false;
+            filter_nodes.erase(filter_nodes.begin() + node->id);
+            return;
+        }
+    }
+
+    if (!ImGui::BeginListBox("##List of Filter Options"))
+        return;
+    draw_options(node, av_class, 1);
+    ImGui::NewLine();
+    draw_options(node, probe_ctx, 0);
 
     ImGui::EndListBox();
 }
