@@ -60,6 +60,11 @@ typedef struct BufferSink {
     bool have_window_pos;
     ImVec2 window_pos;
     GLuint texture;
+
+    int64_t pts;
+    float *samples;
+    unsigned nb_samples;
+    unsigned sample_index;
 } BufferSink;
 
 typedef struct FilterNode {
@@ -85,6 +90,8 @@ static void glfw_error_callback(int error, const char* description)
 }
 
 unsigned focus_buffersink_window = -1;
+unsigned focus_abuffersink_window = -1;
+bool show_abuffersink_window = true;
 bool show_buffersink_window = true;
 bool show_dumpgraph_window = true;
 bool show_commands_window = true;
@@ -100,8 +107,11 @@ char *graphdump_text = NULL;
 
 ImNodesEditorContext *node_editor_context;
 
+std::vector<BufferSink> abuffer_sinks;
 std::vector<BufferSink> buffer_sinks;
+std::vector<std::mutex> amutexes;
 std::vector<std::mutex> mutexes;
+std::vector<std::thread> audio_sink_threads;
 std::vector<std::thread> video_sink_threads;
 std::vector<FilterNode> filter_nodes;
 std::vector<std::pair<int, int>> filter_links;
@@ -109,6 +119,7 @@ std::vector<std::pair<int, enum AVMediaType>> edge2type;
 std::vector<Edge2Pad> edge2pad;
 
 static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
+static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_NONE };
 
 static void worker_thread(BufferSink *sink, std::mutex *mutex)
 {
@@ -177,7 +188,9 @@ static int filters_setup()
         return 0;
 
     buffer_sinks.clear();
+    abuffer_sinks.clear();
     mutexes.clear();
+    amutexes.clear();
 
     av_freep(&graphdump_text);
 
@@ -224,6 +237,22 @@ static int filters_setup()
             }
 
             buffer_sinks.push_back(new_sink);
+        } else if (!strcmp(filter_ctx->filter->name, "abuffersink")) {
+            BufferSink new_sink;
+
+            new_sink.ctx = filter_ctx;
+            new_sink.uploaded_frame = false;
+            new_sink.have_window_pos = false;
+            new_sink.fullscreen = false;
+            new_sink.show_osd = false;
+            ret = av_opt_set_int_list(filter_ctx, "sample_fmts", sample_fmts,
+                                      AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_ERROR, "Cannot set buffersink output pixel format.\n");
+                goto error;
+            }
+
+            abuffer_sinks.push_back(new_sink);
         }
 
         filter_nodes[i].ctx = filter_ctx;
@@ -292,6 +321,7 @@ static int filters_setup()
 
     graphdump_text = avfilter_graph_dump(filter_graph, NULL);
 
+    show_abuffersink_window = true;
     show_buffersink_window = true;
     show_dumpgraph_window = true;
 
@@ -308,7 +338,7 @@ error:
 
     for (unsigned i = 0; i < buffer_sinks.size(); i++) {
         buffer_sinks[i].id = i;
-        buffer_sinks[i].label = av_asprintf("FilterGraph Output %d", i);
+        buffer_sinks[i].label = av_asprintf("Video FilterGraph Output %d", i);
         buffer_sinks[i].a_frame = av_frame_alloc();
         buffer_sinks[i].b_frame = av_frame_alloc();
         buffer_sinks[i].time_base = av_buffersink_get_time_base(buffer_sinks[i].ctx);
@@ -317,6 +347,28 @@ error:
         std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i]);
 
         video_sink_threads[i].swap(sink_thread);
+    }
+
+    std::vector<std::mutex> amutex_list(abuffer_sinks.size());
+    amutexes.swap(amutex_list);
+
+    std::vector<std::thread> athread_list(abuffer_sinks.size());
+    audio_sink_threads.swap(athread_list);
+
+    for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
+        abuffer_sinks[i].id = i;
+        abuffer_sinks[i].label = av_asprintf("Audio FilterGraph Output %d", i);
+        abuffer_sinks[i].a_frame = av_frame_alloc();
+        abuffer_sinks[i].b_frame = av_frame_alloc();
+        abuffer_sinks[i].time_base = av_buffersink_get_time_base(abuffer_sinks[i].ctx);
+        abuffer_sinks[i].frame_rate = av_make_q(av_buffersink_get_sample_rate(abuffer_sinks[i].ctx), 1);
+        abuffer_sinks[i].sample_index = 0;
+        abuffer_sinks[i].nb_samples = 512;
+        abuffer_sinks[i].pts = AV_NOPTS_VALUE;
+        abuffer_sinks[i].samples = (float *)av_calloc(abuffer_sinks[i].nb_samples, sizeof(float));
+        std::thread asink_thread(worker_thread, &abuffer_sinks[i], &amutexes[i]);
+
+        audio_sink_threads[i].swap(asink_thread);
     }
 
     return 0;
@@ -427,8 +479,10 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
         if (framestep)
             paused = true;
-        if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift)
+        if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
+            show_abuffersink_window = false;
             show_buffersink_window = false;
+        }
         if (ImGui::IsKeyReleased(ImGuiKey_O))
             sink->show_osd = !sink->show_osd;
     }
@@ -472,6 +526,45 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         ImGui::Image((void*)(intptr_t)*texture, ImVec2(region_sz * zoom, region_sz * zoom), uv0, uv1, tint_col, border_col);
         ImGui::EndTooltip();
     }
+    ImGui::End();
+}
+
+static void draw_aframe(bool *p_open, BufferSink *sink)
+{
+    ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
+    char overlay[256] = { 0 };
+
+    if (!*p_open)
+        return;
+
+    if (focus_abuffersink_window == sink->id) {
+        ImGui::SetNextWindowFocus();
+        focus_abuffersink_window = -1;
+    }
+
+    if (!ImGui::Begin(sink->label, p_open, flags)) {
+        ImGui::End();
+        return;
+    }
+
+    if (ImGui::IsWindowFocused()) {
+        if (ImGui::IsKeyReleased(ImGuiKey_Space))
+            paused = !paused;
+        framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
+        if (framestep)
+            paused = true;
+        if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
+            show_abuffersink_window = false;
+            show_buffersink_window = false;
+        }
+    }
+
+    if (ImGui::IsKeyDown(ImGuiKey_0 + sink->id) && ImGui::GetIO().KeyAlt)
+        focus_abuffersink_window = sink->id;
+
+    snprintf(overlay, sizeof(overlay), "TIME: %.5f\nSPEED: %f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN, sink->speed);
+    ImGui::PlotLines("Audio Samples", sink->samples, sink->nb_samples, 0, overlay, -1.0f, 1.0f, ImVec2(0, 80.0f));
+
     ImGui::End();
 }
 
@@ -601,6 +694,17 @@ static bool is_sink_video_filter(const AVFilter *filter)
     return false;
 }
 
+static bool is_media_filter(const AVFilter *filter)
+{
+    if (is_simple_filter(filter) &&
+        avfilter_pad_get_type(filter->inputs, 0) !=
+        avfilter_pad_get_type(filter->inputs, 1)) {
+        return true;
+    }
+
+    return false;
+}
+
 static bool is_complex_filter(const AVFilter *filter)
 {
     if (!is_sink_filter(filter) && !is_source_filter(filter) && !is_simple_filter(filter))
@@ -668,6 +772,11 @@ static void draw_node_options(FilterNode *node)
     if (node->colapsed) {
         for (unsigned i = 0; i < video_sink_threads.size(); i++) {
             if (video_sink_threads[i].joinable())
+                return;
+        }
+
+        for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
+            if (audio_sink_threads[i].joinable())
                 return;
         }
 
@@ -1007,12 +1116,26 @@ static void show_filtergraph_editor(bool *p_open)
             }
             ImGui::EndMenu();
         }
+
         if (ImGui::BeginMenu("Complex Filters")) {
             const AVFilter *filter = NULL;
             void *iterator = NULL;
 
             while ((filter = av_filter_iterate(&iterator))) {
                 if (!is_complex_filter(filter))
+                    continue;
+
+                handle_nodeitem(filter, click_pos);
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Media Filters")) {
+            const AVFilter *filter = NULL;
+            void *iterator = NULL;
+
+            while ((filter = av_filter_iterate(&iterator))) {
+                if (!is_media_filter(filter))
                     continue;
 
                 handle_nodeitem(filter, click_pos);
@@ -1208,9 +1331,11 @@ static void show_commands(bool *p_open)
     static unsigned selected_filter = -1;
     static unsigned toggle_filter = UINT_MAX;
 
-    if (!filter_graph ||
-        (buffer_sinks.size() != mutexes.size() ||
-         buffer_sinks.size() == 0))
+    if (!filter_graph || (
+        ((buffer_sinks.size() != mutexes.size() ||
+          buffer_sinks.size() == 0)) &&
+        ((abuffer_sinks.size() != amutexes.size() ||
+          abuffer_sinks.size() == 0))))
         return;
 
     if (!ImGui::Begin("Filter Commands", p_open, 0)) {
@@ -1579,6 +1704,21 @@ int main(int, char**)
         // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
         glfwPollEvents();
 
+        if (show_abuffersink_window == false) {
+            if (audio_sink_threads.size() > 0) {
+                need_filters_reinit = true;
+
+                for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
+                    if (audio_sink_threads[i].joinable())
+                        audio_sink_threads[i].join();
+                }
+
+                audio_sink_threads.clear();
+
+                need_filters_reinit = false;
+            }
+        }
+
         if (show_buffersink_window == false) {
             if (video_sink_threads.size() > 0) {
                 need_filters_reinit = true;
@@ -1595,6 +1735,37 @@ int main(int, char**)
         }
 
         filters_setup();
+
+        if (amutexes.size() == abuffer_sinks.size()) {
+            for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
+                BufferSink *sink = &abuffer_sinks[i];
+                AVFrame *play_frame;
+
+                amutexes[i].lock();
+                play_frame = sink->uploaded_frame == false ? sink->b_frame : sink->a_frame;
+                amutexes[i].unlock();
+                if (play_frame) {
+                    const float *src = (const float *)play_frame->extended_data[0];
+
+                    if (src) {
+                        sink->pts = play_frame->pts;
+                        sink->samples[sink->sample_index++] = src[0];
+                        if (sink->sample_index >= sink->nb_samples)
+                            sink->sample_index = 0;
+                    }
+                }
+                //play_frame(&sink->texture, &show_abuffersink_window, play_frame, sink);
+                amutexes[i].lock();
+                if (sink->uploaded_frame == true && (!paused || framestep)) {
+                    AVFrame *tmp = sink->b_frame;
+
+                    sink->b_frame = sink->a_frame;
+                    sink->a_frame = tmp;
+                    sink->uploaded_frame = false;
+                }
+                amutexes[i].unlock();
+            }
+        }
 
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
@@ -1619,6 +1790,14 @@ int main(int, char**)
                     sink->uploaded_frame = false;
                 }
                 mutexes[i].unlock();
+            }
+        }
+
+        if (amutexes.size() == abuffer_sinks.size()) {
+            for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
+                BufferSink *sink = &abuffer_sinks[i];
+
+                draw_aframe(&show_abuffersink_window, sink);
             }
         }
 
@@ -1647,7 +1826,13 @@ int main(int, char**)
             video_sink_threads[i].join();
     }
 
+    for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
+        if (audio_sink_threads[i].joinable())
+            audio_sink_threads[i].join();
+    }
+
     video_sink_threads.clear();
+    audio_sink_threads.clear();
 
     for (unsigned i = 0; i < filter_nodes.size(); i++) {
         FilterNode *node = &filter_nodes[i];
