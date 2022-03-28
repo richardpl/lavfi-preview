@@ -1077,10 +1077,11 @@ static void show_filtergraph_editor(bool *p_open)
         const ImVec2 click_pos = ImGui::GetMousePosOnOpeningCurrentPopup();
 
         if (ImGui::BeginMenu("Source Filters")) {
-            if (ImGui::BeginMenu("Video Source Filters")) {
+            if (ImGui::BeginMenu("Video")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
 
+                ImGui::SetTooltip("%s", "Video Source Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
                     if (!is_source_video_filter(filter))
                         continue;
@@ -1089,10 +1090,11 @@ static void show_filtergraph_editor(bool *p_open)
                 }
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Audio Source Filters")) {
+            if (ImGui::BeginMenu("Audio")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
 
+                ImGui::SetTooltip("%s", "Audio Source Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
                     if (!is_source_audio_filter(filter))
                         continue;
@@ -1104,10 +1106,11 @@ static void show_filtergraph_editor(bool *p_open)
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Simple Filters")) {
-            if (ImGui::BeginMenu("Simple Video Filters")) {
+            if (ImGui::BeginMenu("Video")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
 
+                ImGui::SetTooltip("%s", "Simple Video Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
                     if (!is_simple_video_filter(filter))
                         continue;
@@ -1116,10 +1119,11 @@ static void show_filtergraph_editor(bool *p_open)
                 }
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Simple Audio Filters")) {
+            if (ImGui::BeginMenu("Audio")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
 
+                ImGui::SetTooltip("%s", "Simple Audio Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
                     if (!is_simple_audio_filter(filter))
                         continue;
@@ -1158,10 +1162,11 @@ static void show_filtergraph_editor(bool *p_open)
         }
 
         if (ImGui::BeginMenu("Sink Filters")) {
-            if (ImGui::BeginMenu("Video Sink Filters")) {
+            if (ImGui::BeginMenu("Video")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
 
+                ImGui::SetTooltip("%s", "Sink Video Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
                     if (!is_sink_video_filter(filter))
                         continue;
@@ -1170,10 +1175,11 @@ static void show_filtergraph_editor(bool *p_open)
                 }
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Audio Sink Filters")) {
+            if (ImGui::BeginMenu("Audio")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
 
+                ImGui::SetTooltip("%s", "Sink Audio Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
                     if (!is_sink_audio_filter(filter))
                         continue;
