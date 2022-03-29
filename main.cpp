@@ -1222,12 +1222,17 @@ static void show_filtergraph_editor(bool *p_open)
         }
         if (ImGui::BeginMenu("Simple Filters")) {
             if (ImGui::BeginMenu("Video")) {
+                static ImGuiTextFilter imgui_filter;
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
 
                 ImGui::SetTooltip("%s", "Simple Video Filters");
+                imgui_filter.Draw();
                 while ((filter = av_filter_iterate(&iterator))) {
                     if (!is_simple_video_filter(filter))
+                        continue;
+
+                    if (!imgui_filter.PassFilter(filter->name))
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -1235,12 +1240,17 @@ static void show_filtergraph_editor(bool *p_open)
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Audio")) {
+                static ImGuiTextFilter imgui_filter;
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
 
                 ImGui::SetTooltip("%s", "Simple Audio Filters");
+                imgui_filter.Draw();
                 while ((filter = av_filter_iterate(&iterator))) {
                     if (!is_simple_audio_filter(filter))
+                        continue;
+
+                    if (!imgui_filter.PassFilter(filter->name))
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -1251,11 +1261,16 @@ static void show_filtergraph_editor(bool *p_open)
         }
 
         if (ImGui::BeginMenu("Complex Filters")) {
+            static ImGuiTextFilter imgui_filter;
             const AVFilter *filter = NULL;
             void *iterator = NULL;
 
+            imgui_filter.Draw();
             while ((filter = av_filter_iterate(&iterator))) {
                 if (!is_complex_filter(filter))
+                    continue;
+
+                if (!imgui_filter.PassFilter(filter->name))
                     continue;
 
                 handle_nodeitem(filter, click_pos);
