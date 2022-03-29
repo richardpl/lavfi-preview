@@ -102,6 +102,9 @@ bool show_buffersink_window = true;
 bool show_dumpgraph_window = true;
 bool show_commands_window = true;
 bool show_filtergraph_editor_window = true;
+bool show_mini_map = true;
+int mini_map_location = ImNodesMiniMapLocation_BottomRight;
+
 bool need_filters_reinit = true;
 bool framestep = false;
 bool paused = true;
@@ -1428,6 +1431,52 @@ static void show_filtergraph_editor(bool *p_open)
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("MiniMap")) {
+                const char *items[] = { "Off", "On" };
+                const bool values[] = { false, true };
+                const int positions[] = {
+                    ImNodesMiniMapLocation_BottomLeft,
+                    ImNodesMiniMapLocation_BottomRight,
+                    ImNodesMiniMapLocation_TopLeft,
+                    ImNodesMiniMapLocation_TopRight,
+                };
+                const char *positions_name[] = {
+                    "Bottom Left",
+                    "Bottom Right",
+                    "Top Left",
+                    "Top Right",
+                };
+                const int flags = 0;
+
+                if (ImGui::BeginCombo("Toggle Display", items[show_mini_map], flags)) {
+                    for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
+                        const bool is_selected = values[n] == show_mini_map;
+
+                        if (ImGui::Selectable(items[n], is_selected))
+                            show_mini_map = values[n];
+
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                if (ImGui::BeginCombo("Corner Position", positions_name[mini_map_location], flags)) {
+                    for (int n = 0; n < IM_ARRAYSIZE(positions); n++) {
+                        const bool is_selected = mini_map_location == positions[n];
+
+                        if (ImGui::Selectable(positions_name[n], is_selected))
+                            mini_map_location = positions[n];
+
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMenu();
         }
 
@@ -1524,7 +1573,8 @@ static void show_filtergraph_editor(bool *p_open)
         ImNodes::Link(i, p.first, p.second);
     }
 
-    ImNodes::MiniMap(0.2f, ImNodesMiniMapLocation_BottomRight);
+    if (show_mini_map == true)
+        ImNodes::MiniMap(0.2f, mini_map_location);
     ImNodes::EndNodeEditor();
 
     for (unsigned i = 0; i < video_sink_threads.size(); i++) {
