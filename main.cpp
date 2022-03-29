@@ -18,6 +18,7 @@
 extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/avstring.h>
+#include <libavutil/bprint.h>
 #include <libavutil/dict.h>
 #include <libavutil/opt.h>
 #include <libavutil/parseutils.h>
@@ -1186,43 +1187,95 @@ static void draw_node_options(FilterNode *node)
     ImGui::EndListBox();
 }
 
-static void export_filter_graph(AVFilterGraph *filter_graph)
+static void export_filter_graph(char **out, size_t *out_size)
 {
-    for (unsigned i = 0; i < filter_links.size(); i++) {
-        const std::pair<int, int> p = filter_links[i];
-        unsigned a = edge2pad[p.first].node;
-        unsigned b = edge2pad[p.second].node;
+    std::vector<bool> visited;
+    std::vector<unsigned> to_visit;
+    AVBPrint buf;
+    bool first = true;
 
-        if (is_source_filter(filter_nodes[a].filter)) {
-            printf("%s[l%d];", filter_nodes[a].filter_name, a);
-        } else if (is_source_filter(filter_nodes[b].filter)) {
-            printf("%s[l%d];", filter_nodes[b].filter_name, b);
-        } else {
-            continue;
-        }
+    av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
 
-        for (unsigned j = 0; j < filter_links.size(); j++) {
-            if (i == j)
-                continue;
-            const std::pair<int, int> p = filter_links[j];
-            unsigned aa = edge2pad[p.first].node;
-            unsigned bb = edge2pad[p.second].node;
+    visited.resize(filter_nodes.size());
 
-            if (aa == a || bb == a) {
-                printf("[l%d]", a);
-            } else if (aa == b || bb == b) {
-                printf("[l%d]", b);
+    to_visit.push_back(0);
+
+    while (to_visit.size() > 0) {
+        unsigned node = to_visit.back();
+
+        to_visit.pop_back();
+
+        if (visited[node] == false) {
+            visited[node] = true;
+
+            if (first)
+                first = false;
+            else
+                av_bprintf(&buf, ";");
+
+            for (unsigned i = 0; i < filter_links.size(); i++) {
+                const std::pair<int, int> p = filter_links[i];
+                const int a = p.first;
+                const int b = p.second;
+                unsigned na  = edge2pad[a].node;
+                unsigned nat = edge2pad[a].is_output;
+                unsigned nb  = edge2pad[b].node;
+                unsigned nbt = edge2pad[b].is_output;
+
+                if (node != na && node != nb)
+                    continue;
+                if (node == na && nat == 1)
+                    continue;
+                if (node == nb && nbt == 1)
+                    continue;
+                av_bprintf(&buf, "[e%d]", i);
+            }
+
+            av_bprintf(&buf, "%s", filter_nodes[node].filter_name);
+            if (strlen(filter_nodes[node].filter_options) > 0)
+                av_bprintf(&buf, "=%s", filter_nodes[node].filter_options);
+
+            for (unsigned i = 0; i < filter_links.size(); i++) {
+                const std::pair<int, int> p = filter_links[i];
+                const int a = p.first;
+                const int b = p.second;
+                unsigned na  = edge2pad[a].node;
+                unsigned nat = edge2pad[a].is_output;
+                unsigned nb  = edge2pad[b].node;
+                unsigned nbt = edge2pad[b].is_output;
+
+                if (node != na && node != nb)
+                    continue;
+                if (node == na && nat == 0)
+                    continue;
+                if (node == nb && nbt == 0)
+                    continue;
+                av_bprintf(&buf, "[e%d]", i);
+            }
+
+            for (unsigned i = 0; i < filter_links.size(); i++) {
+                const std::pair<int, int> p = filter_links[i];
+                unsigned a = edge2pad[p.first].node;
+                unsigned b = edge2pad[p.second].node;
+
+                if (node != a && node != b)
+                    continue;
+                if (node != a)
+                    to_visit.push_back(a);
+                else
+                    to_visit.push_back(b);
             }
         }
-
-        if (is_source_filter(filter_nodes[a].filter)) {
-            printf("%s", filter_nodes[b].filter_name);
-        } else if (is_source_filter(filter_nodes[b].filter)) {
-            printf("%s", filter_nodes[a].filter_name);
-        }
-
     }
-    printf("\n");
+
+    av_bprintf(&buf, "\n");
+
+    av_bprint_finalize(&buf, out);
+    if (av_bprint_is_complete(&buf))
+        *out_size = buf.len;
+    else
+        *out_size = buf.size;
+    av_bprint_finalize(&buf, NULL);
 }
 
 static void show_filtergraph_editor(bool *p_open)
@@ -1497,8 +1550,29 @@ static void show_filtergraph_editor(bool *p_open)
         }
 
         if (ImGui::BeginMenu("Export FilterGraph", filter_graph != NULL)) {
-            if (ImGui::MenuItem("Save as Script to a File"))
-                export_filter_graph(filter_graph);
+            if (ImGui::BeginMenu("Save as Script")) {
+                static char file_name[1024] = { 0 };
+                size_t out_size = 0;
+                char *out = NULL;
+
+                ImGui::InputText("File name:", file_name, sizeof(file_name) - 1);
+                if (strlen(file_name) > 0 && ImGui::Button("Save")) {
+                    export_filter_graph(&out, &out_size);
+
+                    if (out && out_size > 0) {
+                        FILE *script_file = fopen(file_name, "w");
+
+                        if (script_file) {
+                            fwrite(out, 1, out_size, script_file);
+                            fclose(script_file);
+                        }
+                        av_freep(&out);
+                        out_size = 0;
+                        memset(file_name, 0, sizeof(file_name));
+                    }
+                }
+                ImGui::EndMenu();
+            }
             ImGui::EndMenu();
         }
 
