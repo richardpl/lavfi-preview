@@ -904,6 +904,31 @@ static void draw_options(FilterNode *node, void *av_class, bool filter_private)
                             av_opt_set_int(av_class, opt->name, value, 0);
                         }
                     }
+
+                    if (opt->unit) {
+                        if (ImGui::BeginCombo("##const flags values", 0, 0)) {
+                            const AVOption *copt = NULL;
+
+                            while ((copt = av_opt_next(obj, copt))) {
+                                const bool is_selected = value == copt->default_val.i64;
+
+                                if (!copt->unit)
+                                    continue;
+                                if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
+                                    continue;
+
+                                if (ImGui::Selectable(copt->name, is_selected))
+                                    av_opt_set_int(av_class, opt->name, copt->default_val.i64, 0);
+                                ImGui::SameLine();
+                                ImGui::Text("\t\t%s", copt->help);
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+
+                            ImGui::EndCombo();
+                        }
+                    }
                 }
                 break;
             case AV_OPT_TYPE_INT:
@@ -924,6 +949,31 @@ static void draw_options(FilterNode *node, void *av_class, bool filter_private)
                         if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
                             value = ivalue;
                             av_opt_set_int(av_class, opt->name, value, 0);
+                        }
+                    }
+
+                    if (opt->unit) {
+                        if (ImGui::BeginCombo("##const int values", 0, 0)) {
+                            const AVOption *copt = NULL;
+
+                            while ((copt = av_opt_next(obj, copt))) {
+                                const bool is_selected = value == copt->default_val.i64;
+
+                                if (!copt->unit)
+                                    continue;
+                                if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
+                                    continue;
+
+                                if (ImGui::Selectable(copt->name, is_selected))
+                                    av_opt_set_int(av_class, opt->name, copt->default_val.i64, 0);
+                                ImGui::SameLine();
+                                ImGui::Text("\t\t%s", copt->help);
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+
+                            ImGui::EndCombo();
                         }
                     }
                 }
@@ -1061,7 +1111,7 @@ static void draw_options(FilterNode *node, void *av_class, bool filter_private)
                 break;
         }
 
-        if (ImGui::IsItemHovered())
+        if (ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
             ImGui::SetTooltip("%s", opt->help);
     }
 }
