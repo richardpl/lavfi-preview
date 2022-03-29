@@ -114,6 +114,8 @@ bool show_help = false;
 GLint global_upscale_interpolation = GL_NEAREST;
 GLint global_downscale_interpolation = GL_NEAREST;
 
+int display_w;
+int display_h;
 int width = 1280;
 int height = 720;
 AVFilterGraph *filter_graph = NULL;
@@ -1282,6 +1284,7 @@ static void show_filtergraph_editor(bool *p_open)
 {
     int edge = 0;
 
+    ImGui::SetNextWindowSizeConstraints(ImVec2(600, 500), ImVec2(display_w, display_h), NULL);
     if (!ImGui::Begin("FilterGraph Editor", p_open, 0)) {
         ImGui::End();
         return;
@@ -2212,7 +2215,6 @@ int main(int, char**)
 
         // Rendering
         ImGui::Render();
-        int display_w, display_h;
         glfwGetFramebufferSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
         glClear(GL_COLOR_BUFFER_BIT);
