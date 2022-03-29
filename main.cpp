@@ -61,6 +61,9 @@ typedef struct BufferSink {
     ImVec2 window_pos;
     GLuint texture;
 
+    GLint downscale_interpolator;
+    GLint upscale_interpolator;
+
     int64_t pts;
     float *samples;
     unsigned nb_samples;
@@ -103,6 +106,9 @@ bool need_filters_reinit = true;
 bool framestep = false;
 bool paused = true;
 bool show_help = false;
+
+GLint global_upscale_interpolation = GL_NEAREST;
+GLint global_downscale_interpolation = GL_NEAREST;
 
 int width = 1280;
 int height = 720;
@@ -237,6 +243,8 @@ static int filters_setup()
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
             new_sink.show_osd = false;
+            new_sink.upscale_interpolator = global_upscale_interpolation;
+            new_sink.downscale_interpolator = global_downscale_interpolation;
             ret = av_opt_set_int_list(filter_ctx, "pix_fmts", pix_fmts,
                                       AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
@@ -253,6 +261,8 @@ static int filters_setup()
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
             new_sink.show_osd = false;
+            new_sink.upscale_interpolator = 0;
+            new_sink.downscale_interpolator = 0;
             ret = av_opt_set_int_list(filter_ctx, "sample_fmts", sample_fmts,
                                       AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
@@ -383,14 +393,15 @@ error:
     return 0;
 }
 
-static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *frame)
+static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *frame,
+                       BufferSink *sink)
 {
     *width  = frame->width;
     *height = frame->height;
 
     glBindTexture(GL_TEXTURE_2D, *out_texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, sink->downscale_interpolator);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, sink->upscale_interpolator);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->linesize[0] / 4);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->data[0]);
 }
@@ -515,7 +526,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     if (!*p_open || !new_frame)
         return;
 
-    load_frame(texture, &width, &height, new_frame);
+    load_frame(texture, &width, &height, new_frame, sink);
     if (sink->fullscreen) {
         const ImGuiViewport *viewport = ImGui::GetMainViewport();
 
@@ -1321,9 +1332,52 @@ static void show_filtergraph_editor(bool *p_open)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("FilterGraph Options", filter_graph == NULL)) {
-            ImGui::InputInt("Max Number of FilterGraph Threads", &filter_graph_nb_threads);
-            ImGui::InputInt("Auto Conversion Type for FilterGraph", &filter_graph_auto_convert_flags);
+        if (ImGui::BeginMenu("Options")) {
+            if (ImGui::BeginMenu("FilterGraph", filter_graph == NULL)) {
+                ImGui::InputInt("Max Number of FilterGraph Threads", &filter_graph_nb_threads);
+                ImGui::InputInt("Auto Conversion Type for FilterGraph", &filter_graph_auto_convert_flags);
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Video Outputs")) {
+                const char *items[] = { "nearest", "linear" };
+                const GLint values[] = { GL_NEAREST, GL_LINEAR };
+                static int item_current_idx[2] = { 0, 0 };
+                const int flags = 0;
+
+                if (ImGui::BeginCombo("Upscaler", items[item_current_idx[0]], flags)) {
+                    for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
+                        const bool is_selected = (item_current_idx[0] == n);
+
+                        if (ImGui::Selectable(items[n], is_selected)) {
+                            item_current_idx[0] = n;
+                            global_upscale_interpolation = values[n];
+                        }
+
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                if (ImGui::BeginCombo("Downscaler", items[item_current_idx[1]], flags)) {
+                    for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
+                        const bool is_selected = (item_current_idx[1] == n);
+
+                        if (ImGui::Selectable(items[n], is_selected)) {
+                            item_current_idx[1] = n;
+                            global_downscale_interpolation = values[n];
+                        }
+
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMenu();
         }
 
