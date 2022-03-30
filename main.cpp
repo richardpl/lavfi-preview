@@ -26,6 +26,7 @@ extern "C" {
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
 #include <libavformat/avformat.h>
+#include "ringbuffer/ringbuffer.c"
 }
 
 typedef struct Edge2Pad {
@@ -52,10 +53,10 @@ typedef struct BufferSink {
     AVFilterContext *ctx;
     AVRational time_base;
     AVRational frame_rate;
-    AVFrame *a_frame;
-    AVFrame *b_frame;
+    ring_buffer_t consume_frames;
+    ring_buffer_t render_frames;
+    ring_buffer_t purge_frames;
     double speed;
-    bool uploaded_frame;
     bool fullscreen;
     bool show_osd;
     bool have_window_pos;
@@ -124,6 +125,8 @@ char *graphdump_text = NULL;
 
 ImNodesEditorContext *node_editor_context;
 
+std::mutex filtergraph_mutex;
+
 std::vector<BufferSink> abuffer_sinks;
 std::vector<BufferSink> buffer_sinks;
 std::vector<std::mutex> amutexes;
@@ -138,6 +141,16 @@ std::vector<Edge2Pad> edge2pad;
 static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
 static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_NONE };
 
+static void clear_ring_buffer(ring_buffer_t *ring_buffer, std::mutex *mutex)
+{
+    while (ring_buffer_num_items(ring_buffer, mutex) > 0) {
+        AVFrame *frame;
+
+        ring_buffer_dequeue(ring_buffer, &frame, mutex);
+        av_frame_free(&frame);
+    }
+}
+
 static void worker_thread(BufferSink *sink, std::mutex *mutex)
 {
     int ret;
@@ -146,43 +159,33 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex)
         if (need_filters_reinit)
             break;
 
-        mutex->lock();
-        while (!sink->uploaded_frame) {
+        if (ring_buffer_num_items(&sink->consume_frames, mutex) < 1) {
             AVFrame *filter_frame;
             int64_t start, end;
 
-            mutex->unlock();
-
-            av_frame_unref(sink->a_frame);
-            filter_frame = sink->a_frame;
+            filter_frame = av_frame_alloc();
+            if (!filter_frame)
+                break;
             start = av_gettime_relative();
+            filtergraph_mutex.lock();
             ret = av_buffersink_get_frame_flags(sink->ctx, filter_frame, 0);
+            filtergraph_mutex.unlock();
             end = av_gettime_relative();
             if (end > start)
                 sink->speed = 1000000. * av_q2d(av_inv_q(sink->frame_rate)) / (end - start);
-            if (ret < 0 && ret != AVERROR(EAGAIN)) {
-                mutex->lock();
+            if (ret < 0 && ret != AVERROR(EAGAIN))
                 break;
-            }
 
-            mutex->lock();
-            sink->uploaded_frame = true;
+            ring_buffer_enqueue(&sink->consume_frames, filter_frame, mutex);
         }
-        mutex->unlock();
 
         if (paused)
-            usleep(10000);
+            av_usleep(100000);
     }
 
-    mutex->lock();
-
-    av_freep(&sink->label);
-    av_freep(&sink->samples);
-    av_frame_free(&sink->a_frame);
-    av_frame_free(&sink->b_frame);
-    glDeleteTextures(1, &sink->texture);
-
-    mutex->unlock();
+    clear_ring_buffer(&sink->consume_frames, mutex);
+    clear_ring_buffer(&sink->render_frames, mutex);
+    clear_ring_buffer(&sink->purge_frames, mutex);
 }
 
 static int filters_setup()
@@ -193,11 +196,17 @@ static int filters_setup()
     if (need_filters_reinit == false)
         return 0;
 
+    for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
+        if (audio_sink_threads[i].joinable())
+            audio_sink_threads[i].join();
+    }
+
     for (unsigned i = 0; i < video_sink_threads.size(); i++) {
         if (video_sink_threads[i].joinable())
             video_sink_threads[i].join();
     }
 
+    audio_sink_threads.clear();
     video_sink_threads.clear();
 
     need_filters_reinit = false;
@@ -248,7 +257,6 @@ static int filters_setup()
             BufferSink new_sink;
 
             new_sink.ctx = filter_ctx;
-            new_sink.uploaded_frame = false;
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
             new_sink.show_osd = false;
@@ -266,7 +274,6 @@ static int filters_setup()
             BufferSink new_sink;
 
             new_sink.ctx = filter_ctx;
-            new_sink.uploaded_frame = false;
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
             new_sink.show_osd = false;
@@ -368,11 +375,12 @@ error:
     for (unsigned i = 0; i < buffer_sinks.size(); i++) {
         buffer_sinks[i].id = i;
         buffer_sinks[i].label = av_asprintf("Video FilterGraph Output %d", i);
-        buffer_sinks[i].a_frame = av_frame_alloc();
-        buffer_sinks[i].b_frame = av_frame_alloc();
         buffer_sinks[i].time_base = av_buffersink_get_time_base(buffer_sinks[i].ctx);
         buffer_sinks[i].frame_rate = av_buffersink_get_frame_rate(buffer_sinks[i].ctx);
         buffer_sinks[i].samples = NULL;
+        ring_buffer_init(&buffer_sinks[i].consume_frames);
+        ring_buffer_init(&buffer_sinks[i].render_frames);
+        ring_buffer_init(&buffer_sinks[i].purge_frames);
         glGenTextures(1, &buffer_sinks[i].texture);
         std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i]);
 
@@ -388,14 +396,15 @@ error:
     for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
         abuffer_sinks[i].id = i;
         abuffer_sinks[i].label = av_asprintf("Audio FilterGraph Output %d", i);
-        abuffer_sinks[i].a_frame = av_frame_alloc();
-        abuffer_sinks[i].b_frame = av_frame_alloc();
         abuffer_sinks[i].time_base = av_buffersink_get_time_base(abuffer_sinks[i].ctx);
         abuffer_sinks[i].frame_rate = av_make_q(av_buffersink_get_sample_rate(abuffer_sinks[i].ctx), 1);
         abuffer_sinks[i].sample_index = 0;
         abuffer_sinks[i].nb_samples = 512;
         abuffer_sinks[i].pts = AV_NOPTS_VALUE;
         abuffer_sinks[i].samples = (float *)av_calloc(abuffer_sinks[i].nb_samples, sizeof(float));
+        ring_buffer_init(&abuffer_sinks[i].consume_frames);
+        ring_buffer_init(&abuffer_sinks[i].render_frames);
+        ring_buffer_init(&abuffer_sinks[i].purge_frames);
         std::thread asink_thread(worker_thread, &abuffer_sinks[i], &amutexes[i]);
 
         audio_sink_threads[i].swap(asink_thread);
@@ -679,6 +688,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
         if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
             show_abuffersink_window = false;
             show_buffersink_window = false;
+            filter_graph_is_valid = false;
         }
     }
 
@@ -2201,6 +2211,9 @@ int main(int, char**)
                 for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
                     if (audio_sink_threads[i].joinable())
                         audio_sink_threads[i].join();
+
+                    av_freep(&abuffer_sinks[i].label);
+                    av_freep(&abuffer_sinks[i].samples);
                 }
 
                 audio_sink_threads.clear();
@@ -2216,6 +2229,9 @@ int main(int, char**)
                 for (unsigned i = 0; i < video_sink_threads.size(); i++) {
                     if (video_sink_threads[i].joinable())
                         video_sink_threads[i].join();
+
+                    av_freep(&buffer_sinks[i].label);
+                    glDeleteTextures(1, &buffer_sinks[i].texture);
                 }
 
                 video_sink_threads.clear();
@@ -2226,14 +2242,42 @@ int main(int, char**)
 
         filters_setup();
 
+        if (mutexes.size() == buffer_sinks.size()) {
+            for (unsigned i = 0; i < buffer_sinks.size(); i++) {
+                BufferSink *sink = &buffer_sinks[i];
+                AVFrame *render_frame = NULL;
+
+                if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) > 1)
+                    continue;
+
+                ring_buffer_dequeue(&sink->consume_frames, &render_frame, &mutexes[i]);
+                if (!render_frame)
+                    continue;
+                ring_buffer_enqueue(&sink->render_frames, render_frame, &mutexes[i]);
+            }
+        }
+
         if (amutexes.size() == abuffer_sinks.size()) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
-                AVFrame *play_frame;
+                AVFrame *render_frame = NULL;
 
-                amutexes[i].lock();
-                play_frame = sink->uploaded_frame == false ? sink->b_frame : sink->a_frame;
-                amutexes[i].unlock();
+                if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) > 1)
+                    continue;
+
+                ring_buffer_dequeue(&sink->consume_frames, &render_frame, &amutexes[i]);
+                if (!render_frame)
+                    continue;
+                ring_buffer_enqueue(&sink->render_frames, render_frame, &amutexes[i]);
+            }
+        }
+
+        if (amutexes.size() == abuffer_sinks.size() && show_abuffersink_window == true) {
+            for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
+                BufferSink *sink = &abuffer_sinks[i];
+                AVFrame *play_frame = NULL;
+
+                ring_buffer_peek(&sink->render_frames, &play_frame, 0, &amutexes[i]);
                 if (play_frame) {
                     const float *src = (const float *)play_frame->extended_data[0];
 
@@ -2245,15 +2289,6 @@ int main(int, char**)
                     }
                 }
                 //play_frame(&sink->texture, &show_abuffersink_window, play_frame, sink);
-                amutexes[i].lock();
-                if (sink->uploaded_frame == true && (!paused || framestep)) {
-                    AVFrame *tmp = sink->b_frame;
-
-                    sink->b_frame = sink->a_frame;
-                    sink->a_frame = tmp;
-                    sink->uploaded_frame = false;
-                }
-                amutexes[i].unlock();
             }
         }
 
@@ -2262,28 +2297,20 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        if (mutexes.size() == buffer_sinks.size()) {
+        if (mutexes.size() == buffer_sinks.size() && show_buffersink_window == true) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
-                AVFrame *render_frame;
+                AVFrame *render_frame = NULL;
 
-                mutexes[i].lock();
-                render_frame = sink->uploaded_frame == false ? sink->b_frame : sink->a_frame;
-                mutexes[i].unlock();
+                ring_buffer_peek(&sink->render_frames, &render_frame, 0, &mutexes[i]);
+                if (!render_frame)
+                    continue;
+
                 draw_frame(&sink->texture, &show_buffersink_window, render_frame, sink);
-                mutexes[i].lock();
-                if (sink->uploaded_frame == true && (!paused || framestep)) {
-                    AVFrame *tmp = sink->b_frame;
-
-                    sink->b_frame = sink->a_frame;
-                    sink->a_frame = tmp;
-                    sink->uploaded_frame = false;
-                }
-                mutexes[i].unlock();
             }
         }
 
-        if (amutexes.size() == abuffer_sinks.size()) {
+        if (amutexes.size() == abuffer_sinks.size() && show_abuffersink_window == true) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
 
@@ -2319,17 +2346,63 @@ int main(int, char**)
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
+
+        if (mutexes.size() == buffer_sinks.size()) {
+            for (unsigned i = 0; i < buffer_sinks.size(); i++) {
+                BufferSink *sink = &buffer_sinks[i];
+
+                if (!paused || framestep) {
+                    AVFrame *purge_frame = NULL;
+
+                    if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) < 2)
+                        continue;
+
+                    ring_buffer_dequeue(&sink->render_frames, &purge_frame, &mutexes[i]);
+                    if (!purge_frame)
+                        continue;
+                    ring_buffer_enqueue(&sink->purge_frames, purge_frame, &mutexes[i]);
+                }
+
+                clear_ring_buffer(&sink->purge_frames, &mutexes[i]);
+            }
+        }
+
+        if (amutexes.size() == abuffer_sinks.size()) {
+            for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
+                BufferSink *sink = &abuffer_sinks[i];
+
+                if (!paused || framestep) {
+                    AVFrame *purge_frame = NULL;
+
+                    if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) < 2)
+                        continue;
+
+                    ring_buffer_dequeue(&sink->render_frames, &purge_frame, &amutexes[i]);
+                    if (!purge_frame)
+                        continue;
+                    ring_buffer_enqueue(&sink->purge_frames, purge_frame, &amutexes[i]);
+                }
+
+                clear_ring_buffer(&sink->purge_frames, &amutexes[i]);
+            }
+        }
     }
 
     need_filters_reinit = true;
     for (unsigned i = 0; i < video_sink_threads.size(); i++) {
         if (video_sink_threads[i].joinable())
             video_sink_threads[i].join();
+
+        av_freep(&buffer_sinks[i].label);
+        glDeleteTextures(1, &buffer_sinks[i].texture);
     }
 
     for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
         if (audio_sink_threads[i].joinable())
             audio_sink_threads[i].join();
+
+        av_freep(&abuffer_sinks[i].label);
+        av_freep(&abuffer_sinks[i].samples);
     }
 
     video_sink_threads.clear();
