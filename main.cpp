@@ -73,7 +73,7 @@ typedef struct BufferSink {
 
 typedef struct FilterNode {
     int id;
-    bool get_pos;
+    bool set_pos;
     ImVec2 pos;
     int edge;
     bool colapsed;
@@ -825,7 +825,7 @@ static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
         node.ctx = NULL;
         node.pos = click_pos;
         node.colapsed = false;
-        node.get_pos = true;
+        node.set_pos = true;
 
         filter_nodes.push_back(node);
     }
@@ -1590,9 +1590,11 @@ static void show_filtergraph_editor(bool *p_open)
         edge2type.push_back(std::make_pair(edge, AVMEDIA_TYPE_UNKNOWN));
         edge2pad.push_back(Edge2Pad { i, 0, 0 });
         ImNodes::BeginNode(edge++);
-        if (filter_node->get_pos) {
+        if (filter_node->set_pos) {
             ImNodes::SetNodeEditorSpacePos(filter_node->edge, filter_node->pos);
-            filter_node->get_pos = false;
+            filter_node->set_pos = false;
+        } else {
+            filter_node->pos = ImNodes::GetNodeEditorSpacePos(filter_node->edge);
         }
         ImNodes::BeginNodeTitleBar();
         ImGui::TextUnformatted(filter_node->filter_name);
@@ -1717,11 +1719,21 @@ static void show_filtergraph_editor(bool *p_open)
         }
     }
 
+    bool erased = false;
     if (filter_nodes.size() > 0) {
         unsigned i = filter_nodes.size() - 1;
         do {
-            if (!filter_nodes[i].filter)
+            if (!filter_nodes[i].filter) {
                 filter_nodes.erase(filter_nodes.begin() + i);
+                erased = true;
+            }
+        } while (i--);
+    }
+
+    if (erased && filter_nodes.size() > 0) {
+        unsigned i = filter_nodes.size() - 1;
+        do {
+            filter_nodes[i].set_pos = true;
         } while (i--);
     }
 
