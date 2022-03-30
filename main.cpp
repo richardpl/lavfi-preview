@@ -118,6 +118,7 @@ int display_w;
 int display_h;
 int width = 1280;
 int height = 720;
+bool filter_graph_is_valid = false;
 AVFilterGraph *filter_graph = NULL;
 char *graphdump_text = NULL;
 
@@ -208,6 +209,8 @@ static int filters_setup()
     abuffer_sinks.clear();
     mutexes.clear();
     amutexes.clear();
+
+    filter_graph_is_valid = false;
 
     av_freep(&graphdump_text);
 
@@ -342,6 +345,8 @@ static int filters_setup()
         av_log(NULL, AV_LOG_ERROR, "Cannot configure graph.\n");
         goto error;
     }
+
+    filter_graph_is_valid = true;
 
     graphdump_text = avfilter_graph_dump(filter_graph, NULL);
 
@@ -599,6 +604,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
             show_abuffersink_window = false;
             show_buffersink_window = false;
+            filter_graph_is_valid = false;
         }
         if (ImGui::IsKeyReleased(ImGuiKey_O))
             sink->show_osd = !sink->show_osd;
@@ -1484,7 +1490,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         }
 
         if (ImGui::BeginMenu("Options")) {
-            if (ImGui::BeginMenu("FilterGraph", filter_graph == NULL)) {
+            if (ImGui::BeginMenu("FilterGraph", filter_graph_is_valid == false)) {
                 ImGui::InputInt("Max Number of FilterGraph Threads", &filter_graph_nb_threads);
                 ImGui::InputInt("Auto Conversion Type for FilterGraph", &filter_graph_auto_convert_flags);
                 ImGui::EndMenu();
@@ -1594,7 +1600,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Export FilterGraph", filter_graph != NULL)) {
+        if (ImGui::BeginMenu("Export FilterGraph", filter_graph_is_valid == true)) {
             if (ImGui::BeginMenu("Save as Script")) {
                 static char file_name[1024] = { 0 };
                 size_t out_size = 0;
@@ -1811,7 +1817,7 @@ static void show_commands(bool *p_open, bool focused)
     static unsigned selected_filter = -1;
     static unsigned toggle_filter = UINT_MAX;
 
-    if (!filter_graph || (
+    if (filter_graph_is_valid == false || (
         ((buffer_sinks.size() != mutexes.size() ||
           buffer_sinks.size() == 0)) &&
         ((abuffer_sinks.size() != amutexes.size() ||
@@ -2106,7 +2112,7 @@ static void show_commands(bool *p_open, bool focused)
 
 static void show_dumpgraph(bool *p_open, bool focused)
 {
-    if (!graphdump_text || !filter_graph)
+    if (!graphdump_text || filter_graph_is_valid == false)
         return;
 
     if (focused)
