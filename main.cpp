@@ -434,6 +434,26 @@ static void draw_help(bool *p_open)
 
     ImGui::Separator();
     ImGui::Separator();
+    ImGui::Text("Global Keys:");
+    ImGui::Separator();
+    ImGui::Text("Show Help:");
+    ImGui::SameLine(align);
+    ImGui::Text("F1");
+    ImGui::Separator();
+    ImGui::Text("Jump to FilterGraph Editor:");
+    ImGui::SameLine(align);
+    ImGui::Text("F2");
+    ImGui::Separator();
+    ImGui::Text("Jump to Filter Commands Window:");
+    ImGui::SameLine(align);
+    ImGui::Text("F3");
+    ImGui::Separator();
+    ImGui::Text("Jump to FilterGraph Dump Window:");
+    ImGui::SameLine(align);
+    ImGui::Text("F4");
+    ImGui::Separator();
+    ImGui::Separator();
+    ImGui::Separator();
     ImGui::Text("FilterGraph Editor Keys:");
     ImGui::Separator();
     ImGui::Text("Add New Filter:");
@@ -1280,10 +1300,12 @@ static void export_filter_graph(char **out, size_t *out_size)
     av_bprint_finalize(&buf, NULL);
 }
 
-static void show_filtergraph_editor(bool *p_open)
+static void show_filtergraph_editor(bool *p_open, bool focused)
 {
     int edge;
 
+    if (focused)
+        ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowSizeConstraints(ImVec2(600, 500), ImVec2(display_w, display_h), NULL);
     if (!ImGui::Begin("FilterGraph Editor", p_open, 0)) {
         ImGui::End();
@@ -1764,7 +1786,7 @@ static void show_filtergraph_editor(bool *p_open)
     ImGui::End();
 }
 
-static void show_commands(bool *p_open)
+static void show_commands(bool *p_open, bool focused)
 {
     static unsigned selected_filter = -1;
     static unsigned toggle_filter = UINT_MAX;
@@ -1776,6 +1798,8 @@ static void show_commands(bool *p_open)
           abuffer_sinks.size() == 0))))
         return;
 
+    if (focused)
+        ImGui::SetNextWindowFocus();
     if (!ImGui::Begin("Filter Commands", p_open, 0)) {
         ImGui::End();
         return;
@@ -2060,11 +2084,13 @@ static void show_commands(bool *p_open)
     }
 }
 
-static void show_dumpgraph(bool *p_open)
+static void show_dumpgraph(bool *p_open, bool focused)
 {
     if (!graphdump_text || !filter_graph)
         return;
 
+    if (focused)
+        ImGui::SetNextWindowFocus();
     if (!ImGui::Begin("FilterGraph Dump", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::End();
         return;
@@ -2239,12 +2265,21 @@ int main(int, char**)
             }
         }
 
+        bool focused = ImGui::IsKeyReleased(ImGuiKey_F3);
+        if (focused)
+            show_commands_window = true;
         if (show_commands_window)
-            show_commands(&show_commands_window);
+            show_commands(&show_commands_window, focused);
+        focused = ImGui::IsKeyReleased(ImGuiKey_F4);
+        if (focused)
+            show_dumpgraph_window = true;
         if (show_dumpgraph_window)
-            show_dumpgraph(&show_dumpgraph_window);
+            show_dumpgraph(&show_dumpgraph_window, focused);
+        focused = ImGui::IsKeyReleased(ImGuiKey_F2);
+        if (focused)
+            show_filtergraph_editor_window = true;
         if (show_filtergraph_editor_window)
-            show_filtergraph_editor(&show_filtergraph_editor_window);
+            show_filtergraph_editor(&show_filtergraph_editor_window, focused);
         show_help = ImGui::IsKeyDown(ImGuiKey_F1);
         if (show_help)
             draw_help(&show_help);
