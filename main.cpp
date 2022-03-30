@@ -1282,7 +1282,7 @@ static void export_filter_graph(char **out, size_t *out_size)
 
 static void show_filtergraph_editor(bool *p_open)
 {
-    int edge = 0;
+    int edge;
 
     ImGui::SetNextWindowSizeConstraints(ImVec2(600, 500), ImVec2(display_w, display_h), NULL);
     if (!ImGui::Begin("FilterGraph Editor", p_open, 0)) {
@@ -1583,6 +1583,7 @@ static void show_filtergraph_editor(bool *p_open)
     }
     ImGui::PopStyleVar();
 
+    edge = 0;
     for (unsigned i = 0; i < filter_nodes.size(); i++) {
         FilterNode *filter_node = &filter_nodes[i];
 
@@ -1724,8 +1725,31 @@ static void show_filtergraph_editor(bool *p_open)
         unsigned i = filter_nodes.size() - 1;
         do {
             if (!filter_nodes[i].filter) {
+                const int removed_edge = filter_nodes[i].edge;
+                const int subtract = removed_edge - (i > 0 ? filter_nodes[i-1].edge : 0);
+
                 filter_nodes.erase(filter_nodes.begin() + i);
                 erased = true;
+
+                if (filter_links.size() > 0) {
+                    unsigned l = filter_links.size() - 1;
+                    do {
+                        const std::pair<int, int> p = filter_links[l];
+                        int a = p.first;
+                        int b = p.second;
+
+                        if (a == removed_edge || b == removed_edge) {
+                            filter_links.erase(filter_links.begin() + l);
+                        } else {
+                            if (a > removed_edge)
+                                a -= subtract;
+                            if (b > removed_edge)
+                                b -= subtract;
+
+                            filter_links[l] = std::make_pair(a, b);
+                        }
+                    } while (l--);
+                }
             }
         } while (i--);
     }
