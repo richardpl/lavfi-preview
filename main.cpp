@@ -783,6 +783,13 @@ static bool is_source_video_filter(const AVFilter *filter)
     return false;
 }
 
+static bool is_source_media_filter(const AVFilter *filter)
+{
+    if (is_source_filter(filter) && !is_source_audio_filter(filter) && !is_source_video_filter(filter))
+        return true;
+    return false;
+}
+
 static bool is_sink_audio_filter(const AVFilter *filter)
 {
     if (is_sink_filter(filter)) {
@@ -1354,6 +1361,19 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::SetTooltip("%s", "Audio Source Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
                     if (!is_source_audio_filter(filter))
+                        continue;
+
+                    handle_nodeitem(filter, click_pos);
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Media")) {
+                const AVFilter *filter = NULL;
+                void *iterator = NULL;
+
+                ImGui::SetTooltip("%s", "Media Source Filters");
+                while ((filter = av_filter_iterate(&iterator))) {
+                    if (!is_source_media_filter(filter))
                         continue;
 
                     handle_nodeitem(filter, click_pos);
