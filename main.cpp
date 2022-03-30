@@ -440,9 +440,9 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("A");
     ImGui::Separator();
-    ImGui::Text("Remove Selected Filter:");
+    ImGui::Text("Remove Selected Filters:");
     ImGui::SameLine(align);
-    ImGui::Text("X");
+    ImGui::Text("Shift + X");
     ImGui::Separator();
     ImGui::Text("Remove Selected Links:");
     ImGui::SameLine(align);
@@ -1696,7 +1696,7 @@ static void show_filtergraph_editor(bool *p_open)
     }
 
     const int nodes_selected = ImNodes::NumSelectedNodes();
-    if (nodes_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X)) {
+    if (nodes_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X) && ImGui::GetIO().KeyShift) {
         static std::vector<int> selected_nodes;
 
         selected_nodes.resize(static_cast<size_t>(nodes_selected));
