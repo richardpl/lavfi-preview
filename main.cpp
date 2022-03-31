@@ -31,7 +31,7 @@ extern "C" {
 
 typedef struct Edge2Pad {
     unsigned node;
-    int is_output;
+    bool is_output;
     unsigned pad_index;
 } Edge2Pad;
 
@@ -180,7 +180,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex)
         }
 
         if (paused)
-            av_usleep(100000);
+            av_usleep(10000);
     }
 
     clear_ring_buffer(&sink->consume_frames, mutex);
@@ -473,6 +473,10 @@ static void draw_help(bool *p_open)
     ImGui::Text("Add New Filter:");
     ImGui::SameLine(align);
     ImGui::Text("A");
+    ImGui::Separator();
+    ImGui::Text("Auto Connect Filter Outputs to Sinks:");
+    ImGui::SameLine(align);
+    ImGui::Text("Shift + A");
     ImGui::Separator();
     ImGui::Text("Remove Selected Filters:");
     ImGui::SameLine(align);
@@ -1263,9 +1267,9 @@ static void export_filter_graph(char **out, size_t *out_size)
                 const int a = p.first;
                 const int b = p.second;
                 unsigned na  = edge2pad[a].node;
-                unsigned nat = edge2pad[a].is_output;
+                bool nat = edge2pad[a].is_output;
                 unsigned nb  = edge2pad[b].node;
-                unsigned nbt = edge2pad[b].is_output;
+                bool nbt = edge2pad[b].is_output;
 
                 if (node != na && node != nb)
                     continue;
@@ -1285,9 +1289,9 @@ static void export_filter_graph(char **out, size_t *out_size)
                 const int a = p.first;
                 const int b = p.second;
                 unsigned na  = edge2pad[a].node;
-                unsigned nat = edge2pad[a].is_output;
+                bool nat = edge2pad[a].is_output;
                 unsigned nb  = edge2pad[b].node;
-                unsigned nbt = edge2pad[b].is_output;
+                bool nbt = edge2pad[b].is_output;
 
                 if (node != na && node != nb)
                     continue;
@@ -1346,7 +1350,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         need_filters_reinit = true;
 
     const bool open_popup = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-        ImNodes::IsEditorHovered() && (ImGui::IsKeyReleased(ImGuiKey_A) || ImGui::IsMouseReleased(ImGuiMouseButton_Right));
+        ImNodes::IsEditorHovered() && ((ImGui::IsKeyReleased(ImGuiKey_A) && !ImGui::GetIO().KeyShift) ||
+        ImGui::IsMouseReleased(ImGuiMouseButton_Right));
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 8.f));
     if (!ImGui::IsAnyItemHovered() && open_popup) {
@@ -1678,7 +1683,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255, 255,   0, 255));
             }
             edge2type.push_back(std::make_pair(edge, media_type));
-            edge2pad.push_back(Edge2Pad { i, 0, j });
+            edge2pad.push_back(Edge2Pad { i, false, j });
             ImNodes::BeginInputAttribute(edge++);
             ImGui::Text("%s", avfilter_pad_get_name(filter_ctx->input_pads, j));
             ImNodes::EndInputAttribute();
@@ -1695,7 +1700,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255, 255,   0, 255));
             }
             edge2type.push_back(std::make_pair(edge, media_type));
-            edge2pad.push_back(Edge2Pad { i, 1, j });
+            edge2pad.push_back(Edge2Pad { i, true, j });
             ImNodes::BeginOutputAttribute(edge++);
             ImGui::Text("%s", avfilter_pad_get_name(filter_ctx->output_pads, j));
             ImNodes::EndOutputAttribute();
@@ -1817,6 +1822,55 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         do {
             filter_nodes[i].set_pos = true;
         } while (i--);
+    }
+
+    if (ImGui::IsKeyReleased(ImGuiKey_A) && ImGui::GetIO().KeyShift) {
+        const AVFilter *buffersink  = avfilter_get_by_name("buffersink");
+        const AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
+        std::vector<int> unconnected_edges;
+        std::vector<int> connected_edges;
+
+        for (unsigned l = 0; l < filter_links.size(); l++) {
+            const std::pair<int, int> p = filter_links[l];
+
+            connected_edges.push_back(p.first);
+            connected_edges.push_back(p.second);
+        }
+
+        for (int e = 0; e < edge; e++) {
+            unsigned ee = 0;
+            for (; ee < connected_edges.size(); ee++) {
+                if (e == connected_edges[ee])
+                    break;
+            }
+
+            if (ee == connected_edges.size() &&
+                edge2pad[e].is_output == true)
+                unconnected_edges.push_back(e);
+        }
+
+        for (unsigned i = 0; i < unconnected_edges.size(); i++) {
+            const int e = unconnected_edges[i];
+            enum AVMediaType type = edge2type[e].second;
+            FilterNode node;
+
+            node.filter = type == AVMEDIA_TYPE_AUDIO ? abuffersink : buffersink;
+            node.id = filter_nodes.size();
+            node.filter_name = av_strdup(node.filter->name);
+            node.filter_label = av_asprintf("%s%d", node.filter->name, node.id);
+            node.filter_options = NULL;
+            node.ctx_options = NULL;
+            node.probe_graph = NULL;
+            node.probe = NULL;
+            node.ctx = NULL;
+            node.pos = ImVec2(filter_nodes[edge2pad[e].node].pos.x + 100 * (i + 1), filter_nodes[edge2pad[e].node].pos.y + 100 * (i + 1));
+            node.colapsed = false;
+            node.set_pos = true;
+            node.edge = edge++;
+
+            filter_nodes.push_back(node);
+            filter_links.push_back(std::make_pair(e, edge++));
+        }
     }
 
     ImGui::End();
