@@ -129,6 +129,7 @@ bool need_filters_reinit = true;
 bool framestep = false;
 bool paused = true;
 bool show_help = false;
+bool show_console = false;
 
 GLint global_upscale_interpolation = GL_NEAREST;
 GLint global_downscale_interpolation = GL_NEAREST;
@@ -524,6 +525,10 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("F4");
     ImGui::Separator();
+    ImGui::Text("Toggle Console:");
+    ImGui::SameLine(align);
+    ImGui::Text("Escape");
+    ImGui::Separator();
     ImGui::Separator();
     ImGui::Separator();
     ImGui::Text("FilterGraph Editor Keys:");
@@ -580,6 +585,63 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("Shift + Q");
     ImGui::Separator();
+    ImGui::End();
+}
+
+static void add_filter_node(const AVFilter *filter, ImVec2 pos)
+{
+    FilterNode node;
+
+    node.filter = filter;
+    node.id = filter_nodes.size();
+    node.filter_name = av_strdup(filter->name);
+    node.filter_label = av_asprintf("%s%d", filter->name, node.id);
+    node.filter_options = NULL;
+    node.ctx_options = NULL;
+    node.probe_graph = NULL;
+    node.probe = NULL;
+    node.ctx = NULL;
+    node.pos = pos;
+    node.colapsed = false;
+    node.set_pos = true;
+
+    filter_nodes.push_back(node);
+}
+
+static void draw_console(bool *p_open)
+{
+    char input_line[4096] = { 0 };
+    const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
+                                          ImGuiWindowFlags_NoSavedSettings |
+                                          ImGuiWindowFlags_NoNav |
+                                          ImGuiWindowFlags_NoMove;
+
+    ImGui::SetNextWindowPos(ImVec2(0, display_h - 35));
+    ImGui::SetNextWindowSize(ImVec2(display_w, 30));
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    ImGui::SetNextWindowFocus();
+
+    if (!ImGui::Begin("##Console", p_open, window_flags)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGuiInputTextFlags input_text_flags = ImGuiInputTextFlags_EnterReturnsTrue;
+
+    ImGui::SetKeyboardFocusHere();
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0,   0, 0, 200));
+    ImGui::PushStyleColor(ImGuiCol_Text,    IM_COL32(0, 255, 0, 200));
+    if (ImGui::InputText("##>", input_line, IM_ARRAYSIZE(input_line), input_text_flags)) {
+        if (!strncmp(input_line, "a ", 2)) {
+            const AVFilter *filter = avfilter_get_by_name(input_line + 2);
+
+            if (filter)
+                add_filter_node(filter, ImVec2(0, 0));
+        }
+    }
+    ImGui::PopStyleColor();
+    ImGui::PopStyleColor();
+
     ImGui::End();
 }
 
@@ -974,24 +1036,8 @@ static bool is_complex_filter(const AVFilter *filter)
 
 static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
 {
-    FilterNode node;
-
-    if (ImGui::MenuItem(filter->name)) {
-        node.filter = filter;
-        node.id = filter_nodes.size();
-        node.filter_name = av_strdup(filter->name);
-        node.filter_label = av_asprintf("%s%d", filter->name, node.id);
-        node.filter_options = NULL;
-        node.ctx_options = NULL;
-        node.probe_graph = NULL;
-        node.probe = NULL;
-        node.ctx = NULL;
-        node.pos = click_pos;
-        node.colapsed = false;
-        node.set_pos = true;
-
-        filter_nodes.push_back(node);
-    }
+    if (ImGui::MenuItem(filter->name))
+        add_filter_node(filter, click_pos);
 
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", filter->description);
@@ -2556,6 +2602,9 @@ int main(int, char**)
         show_help = ImGui::IsKeyDown(ImGuiKey_F1);
         if (show_help)
             draw_help(&show_help);
+        show_console ^= ImGui::IsKeyReleased(ImGuiKey_Escape);
+        if (show_console)
+            draw_console(&show_console);
 
         // Rendering
         ImGui::Render();
