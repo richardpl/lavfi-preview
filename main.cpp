@@ -65,6 +65,7 @@ typedef struct BufferSink {
     unsigned render_ring_size;
     double speed;
     bool fullscreen;
+    bool muted;
     bool show_osd;
     bool need_more;
     bool have_window_pos;
@@ -284,6 +285,7 @@ static int filters_setup()
             new_sink.ctx = filter_ctx;
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
+            new_sink.muted = false;
             new_sink.show_osd = false;
             new_sink.upscale_interpolator = global_upscale_interpolation;
             new_sink.downscale_interpolator = global_downscale_interpolation;
@@ -301,6 +303,7 @@ static int filters_setup()
             new_sink.ctx = filter_ctx;
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
+            new_sink.muted = false;
             new_sink.show_osd = false;
             new_sink.upscale_interpolator = 0;
             new_sink.downscale_interpolator = 0;
@@ -565,6 +568,10 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("Alt + <number>");
     ImGui::Separator();
+    ImGui::Text("Toggle Audio output mute:");
+    ImGui::SameLine(align);
+    ImGui::Text("M");
+    ImGui::Separator();
     ImGui::Text("Exit from output:");
     ImGui::SameLine(align);
     ImGui::Text("Shift + Q");
@@ -737,6 +744,8 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     if (ImGui::IsWindowFocused()) {
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
             paused = !paused;
+        if (ImGui::IsKeyReleased(ImGuiKey_M))
+            sink->muted = !sink->muted;
         framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
         if (framestep)
             paused = true;
@@ -759,6 +768,8 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
 static void play_sound(AVFrame *frame, BufferSink *sink)
 {
     ALint processed, state, queued;
+
+    alSourcef(sink->source, AL_GAIN, 1.f * !sink->muted);
 
     alGetSourcei(sink->source, AL_BUFFERS_PROCESSED, &processed);
     while (processed > 0) {
