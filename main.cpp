@@ -1895,37 +1895,44 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     }
 
     bool erased = false;
-    if (filter_nodes.size() > 0) {
+    if (filter_nodes.size() > 1) {
         unsigned i = filter_nodes.size() - 1;
+        int next_edge = filter_nodes[i].edge;
+
         do {
-            if (!filter_nodes[i].filter) {
+            if (filter_nodes[i].filter) {
+                next_edge = filter_nodes[i].edge;
+            } else {
                 const int removed_edge = filter_nodes[i].edge;
-                const int subtract = removed_edge - (i > 0 ? filter_nodes[i-1].edge : 0);
+                const int subtract = next_edge - removed_edge;
+                static std::vector<int> selected_links;
 
                 filter_nodes.erase(filter_nodes.begin() + i);
                 erased = true;
 
-                if (filter_links.size() > 0) {
-                    unsigned l = filter_links.size() - 1;
-                    do {
-                        const std::pair<int, int> p = filter_links[l];
-                        int a = p.first;
-                        int b = p.second;
+                for (unsigned l = 0; l < filter_links.size(); l++) {
+                    const std::pair<int, int> p = filter_links[l];
+                    int a = p.first;
+                    int b = p.second;
 
-                        if (a == removed_edge || b == removed_edge) {
-                            filter_links.erase(filter_links.begin() + l);
-                        } else {
-                            if (a > removed_edge)
-                                a -= subtract;
-                            if (b > removed_edge)
-                                b -= subtract;
+                    if ((a > edge && a < next_edge) ||
+                        (b > edge && b < next_edge)) {
+                        selected_links.push_back(l);
+                    } else {
+                        if (a > removed_edge)
+                            a -= subtract;
+                        if (b > removed_edge)
+                            b -= subtract;
 
-                            filter_links[l] = std::make_pair(a, b);
-                        }
-                    } while (l--);
+                        filter_links[l] = std::make_pair(a, b);
+                    }
                 }
+
+                std::sort(selected_links.begin(), selected_links.end(), std::greater <>());
+                for (const int edge_id : selected_links)
+                    filter_links.erase(filter_links.begin() + edge_id);
             }
-        } while (i--);
+        } while (i-- > 0);
     }
 
     if (erased && filter_nodes.size() > 0) {
