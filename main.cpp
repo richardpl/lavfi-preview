@@ -191,8 +191,8 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex)
             ret = av_buffersink_get_frame_flags(sink->ctx, filter_frame, 0);
             filtergraph_mutex.unlock();
             end = av_gettime_relative();
-            if (end > start)
-                sink->speed = 1000000. * av_q2d(av_inv_q(sink->frame_rate)) / (end - start);
+            if (end > start && filter_frame)
+                sink->speed = 1000000. * (std::max(filter_frame->nb_samples, 1)) * av_q2d(av_inv_q(sink->frame_rate)) / (end - start);
             if (ret < 0 && ret != AVERROR(EAGAIN))
                 break;
 
