@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <thread>
 #include <mutex>
 #include <vector>
@@ -1823,6 +1824,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
     for (unsigned i = 0; i < filter_links.size(); i++) {
         const std::pair<int, int> p = filter_links[i];
+
         ImNodes::Link(i, p.first, p.second);
     }
 
@@ -1863,12 +1865,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
         selected_links.resize(static_cast<size_t>(links_selected));
         ImNodes::GetSelectedLinks(selected_links.data());
+        std::sort(selected_links.begin(), selected_links.end(), std::greater <>());
 
-        for (const int edge_id : selected_links) {
-            if (filter_links.size() == 0)
-                break;
+        for (const int edge_id : selected_links)
             filter_links.erase(filter_links.begin() + edge_id);
-        }
     }
 
     const int nodes_selected = ImNodes::NumSelectedNodes();
@@ -1877,6 +1877,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
         selected_nodes.resize(static_cast<size_t>(nodes_selected));
         ImNodes::GetSelectedNodes(selected_nodes.data());
+
         for (const int node_id : selected_nodes) {
             const unsigned node = edge2pad[node_id].node;
 
