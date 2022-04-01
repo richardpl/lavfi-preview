@@ -1070,7 +1070,10 @@ static void draw_options(FilterNode *node, void *av_class, bool filter_private)
                     }
 
                     if (opt->unit) {
-                        if (ImGui::BeginCombo("##const flags values", 0, 0)) {
+                        char combo_name[20];
+
+                        snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                        if (ImGui::BeginCombo(combo_name, 0, 0)) {
                             const AVOption *copt = NULL;
 
                             while ((copt = av_opt_next(obj, copt))) {
@@ -1117,7 +1120,10 @@ static void draw_options(FilterNode *node, void *av_class, bool filter_private)
                     }
 
                     if (opt->unit) {
-                        if (ImGui::BeginCombo("##const int values", 0, 0)) {
+                        char combo_name[20];
+
+                        snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                        if (ImGui::BeginCombo(combo_name, 0, 0)) {
                             const AVOption *copt = NULL;
 
                             while ((copt = av_opt_next(obj, copt))) {
