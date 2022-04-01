@@ -1907,7 +1907,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     }
 
     bool erased = false;
-    if (filter_nodes.size() > 1) {
+    if (filter_nodes.size() > 0) {
         unsigned i = filter_nodes.size() - 1;
         int next_edge = filter_nodes[i].edge;
 
