@@ -154,12 +154,12 @@ std::vector<Edge2Pad> edge2pad;
 
 static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
 static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_NONE };
-static const int sample_rates[] = { 44100, 0 };
+static const int sample_rates[] = { output_sample_rate, 0 };
 
 ALCdevice *al_dev = NULL;
 ALCcontext *al_ctx = NULL;
-float direction[6] = { 0, 0, -1, 0, 1, 0 };
-float position[3] = { 0, 0, 0 };
+float listener_direction[6] = { 0, 0, -1, 0, 1, 0 };
+float listener_position[3] = { 0, 0, 0 };
 
 static void clear_ring_buffer(ring_buffer_t *ring_buffer, std::mutex *mutex)
 {
@@ -2300,8 +2300,8 @@ int main(int, char**)
 
     al_ctx = alcCreateContext(al_dev, attribs);
     alcMakeContextCurrent(al_ctx);
-    alListenerfv(AL_POSITION, position);
-    alListenerfv(AL_ORIENTATION, direction);
+    alListenerfv(AL_POSITION, listener_position);
+    alListenerfv(AL_ORIENTATION, listener_direction);
 
     // Setup window
     glfwSetErrorCallback(glfw_error_callback);
