@@ -1894,6 +1894,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
             filter_nodes[node].filter = NULL;
             avfilter_free(filter_nodes[node].ctx);
+            filter_nodes[node].ctx = NULL;
             av_freep(&filter_nodes[node].filter_name);
             av_freep(&filter_nodes[node].filter_label);
             av_freep(&filter_nodes[node].filter_options);
