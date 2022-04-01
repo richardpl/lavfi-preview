@@ -81,7 +81,10 @@ typedef struct BufferSink {
     GLint downscale_interpolator;
     GLint upscale_interpolator;
 
+    int64_t delta;
+    int64_t qpts;
     int64_t pts;
+
     float *samples;
     unsigned nb_samples;
     unsigned sample_index;
@@ -629,6 +632,8 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     if (!*p_open || !new_frame)
         return;
 
+    sink->pts = new_frame->pts;
+
     load_frame(texture, &width, &height, new_frame, sink);
     if (sink->fullscreen) {
         const ImGuiViewport *viewport = ImGui::GetMainViewport();
@@ -697,7 +702,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         ImGui::PopStyleVar();
 
     if (sink->show_osd)
-        draw_osd(&sink->show_osd, new_frame->pts, sink);
+        draw_osd(&sink->show_osd, sink->pts, sink);
 
     if (ImGui::IsItemHovered() && ImGui::IsKeyDown(ImGuiKey_Z)) {
         ImGuiIO& io = ImGui::GetIO();
@@ -2388,11 +2393,8 @@ int main(int, char**)
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
-        // Poll and handle events (inputs, window resize, etc.)
-        // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
-        // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application.
-        // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application.
-        // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+        int64_t min_qpts = INT64_MAX;
+        int64_t min_aqpts = INT64_MAX;
         glfwPollEvents();
 
         if (show_abuffersink_window == false) {
@@ -2438,9 +2440,19 @@ int main(int, char**)
         if (mutexes.size() == buffer_sinks.size()) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
+
+                sink->qpts = av_rescale_q(sink->pts, sink->time_base, AV_TIME_BASE_Q);
+                min_qpts = std::min(min_qpts, sink->qpts);
+            }
+
+            for (unsigned i = 0; i < buffer_sinks.size(); i++) {
+                BufferSink *sink = &buffer_sinks[i];
                 AVFrame *render_frame = NULL;
 
                 if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) > sink->render_ring_size - 1)
+                    continue;
+
+                if (sink->qpts > min_qpts)
                     continue;
 
                 ring_buffer_dequeue(&sink->consume_frames, &render_frame, &mutexes[i]);
@@ -2453,9 +2465,19 @@ int main(int, char**)
         if (amutexes.size() == abuffer_sinks.size()) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
+
+                sink->qpts = av_rescale_q(sink->pts, sink->time_base, AV_TIME_BASE_Q);
+                min_aqpts = std::min(min_aqpts, sink->qpts);
+            }
+
+            for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
+                BufferSink *sink = &abuffer_sinks[i];
                 AVFrame *render_frame = NULL;
 
                 if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) > sink->render_ring_size - 1)
+                    continue;
+
+                if (sink->qpts > min_aqpts)
                     continue;
 
                 ring_buffer_dequeue(&sink->consume_frames, &render_frame, &amutexes[i]);
@@ -2551,6 +2573,9 @@ int main(int, char**)
                 if (!paused || framestep) {
                     AVFrame *purge_frame = NULL;
 
+                    if (sink->qpts > min_qpts)
+                        continue;
+
                     if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) < sink->render_ring_size)
                         continue;
 
@@ -2570,6 +2595,9 @@ int main(int, char**)
 
                 if ((!paused || framestep) && sink->need_more) {
                     AVFrame *purge_frame = NULL;
+
+                    if (sink->qpts > min_aqpts)
+                        continue;
 
                     if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) < sink->render_ring_size)
                         continue;
