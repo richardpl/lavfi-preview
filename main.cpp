@@ -15,6 +15,10 @@
 #include <GLFW/glfw3.h> // Will drag system OpenGL headers
 #include <unistd.h>
 
+#include <AL/alc.h>
+#include <AL/al.h>
+#include <AL/alext.h>
+
 extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/avstring.h>
@@ -28,6 +32,8 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include "ringbuffer/ringbuffer.c"
 }
+
+#define AL_BUFFERS 64
 
 typedef struct Edge2Pad {
     unsigned node;
@@ -56,12 +62,19 @@ typedef struct BufferSink {
     ring_buffer_t consume_frames;
     ring_buffer_t render_frames;
     ring_buffer_t purge_frames;
+    unsigned render_ring_size;
     double speed;
     bool fullscreen;
     bool show_osd;
+    bool need_more;
     bool have_window_pos;
     ImVec2 window_pos;
     GLuint texture;
+    ALuint source;
+    ALenum format;
+    ALuint buffers[AL_BUFFERS];
+    std::vector<ALuint> processed_bufids;
+    std::vector<ALuint> unprocessed_bufids;
 
     GLint downscale_interpolator;
     GLint upscale_interpolator;
@@ -115,6 +128,7 @@ bool show_help = false;
 GLint global_upscale_interpolation = GL_NEAREST;
 GLint global_downscale_interpolation = GL_NEAREST;
 
+int output_sample_rate = 44100;
 int display_w;
 int display_h;
 int width = 1280;
@@ -139,7 +153,13 @@ std::vector<std::pair<int, enum AVMediaType>> edge2type;
 std::vector<Edge2Pad> edge2pad;
 
 static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
-static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_NONE };
+static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_NONE };
+static const int sample_rates[] = { 44100, 0 };
+
+ALCdevice *al_dev = NULL;
+ALCcontext *al_ctx = NULL;
+float direction[6] = { 0, 0, -1, 0, 1, 0 };
+float position[3] = { 0, 0, 0 };
 
 static void clear_ring_buffer(ring_buffer_t *ring_buffer, std::mutex *mutex)
 {
@@ -199,11 +219,16 @@ static int filters_setup()
     for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
         if (audio_sink_threads[i].joinable())
             audio_sink_threads[i].join();
+
+        alDeleteSources(1, &abuffer_sinks[i].source);
+        alDeleteBuffers(AL_BUFFERS, abuffer_sinks[i].buffers);
     }
 
     for (unsigned i = 0; i < video_sink_threads.size(); i++) {
         if (video_sink_threads[i].joinable())
             video_sink_threads[i].join();
+
+        glDeleteTextures(1, &buffer_sinks[i].texture);
     }
 
     audio_sink_threads.clear();
@@ -282,7 +307,14 @@ static int filters_setup()
             ret = av_opt_set_int_list(filter_ctx, "sample_fmts", sample_fmts,
                                       AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR, "Cannot set buffersink output pixel format.\n");
+                av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample formats.\n");
+                goto error;
+            }
+
+            ret = av_opt_set_int_list(filter_ctx, "sample_rates", sample_rates,
+                                      0, AV_OPT_SEARCH_CHILDREN);
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample rates.\n");
                 goto error;
             }
 
@@ -377,11 +409,17 @@ error:
         buffer_sinks[i].label = av_asprintf("Video FilterGraph Output %d", i);
         buffer_sinks[i].time_base = av_buffersink_get_time_base(buffer_sinks[i].ctx);
         buffer_sinks[i].frame_rate = av_buffersink_get_frame_rate(buffer_sinks[i].ctx);
+        buffer_sinks[i].pts = AV_NOPTS_VALUE;
+        buffer_sinks[i].sample_index = 0;
         buffer_sinks[i].samples = NULL;
+        buffer_sinks[i].nb_samples = 0;
+        buffer_sinks[i].render_ring_size = 2;
         ring_buffer_init(&buffer_sinks[i].consume_frames);
         ring_buffer_init(&buffer_sinks[i].render_frames);
         ring_buffer_init(&buffer_sinks[i].purge_frames);
+
         glGenTextures(1, &buffer_sinks[i].texture);
+
         std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i]);
 
         video_sink_threads[i].swap(sink_thread);
@@ -402,9 +440,22 @@ error:
         abuffer_sinks[i].nb_samples = 512;
         abuffer_sinks[i].pts = AV_NOPTS_VALUE;
         abuffer_sinks[i].samples = (float *)av_calloc(abuffer_sinks[i].nb_samples, sizeof(float));
+        abuffer_sinks[i].render_ring_size = 1;
         ring_buffer_init(&abuffer_sinks[i].consume_frames);
         ring_buffer_init(&abuffer_sinks[i].render_frames);
         ring_buffer_init(&abuffer_sinks[i].purge_frames);
+
+        abuffer_sinks[i].format = AL_FORMAT_MONO_FLOAT32;
+
+        alGenBuffers(AL_BUFFERS, abuffer_sinks[i].buffers);
+        for (unsigned j = 0; j < AL_BUFFERS; j++)
+            abuffer_sinks[i].unprocessed_bufids.push_back(abuffer_sinks[i].buffers[j]);
+
+        alGenSources(1, &abuffer_sinks[i].source);
+        alSource3i(abuffer_sinks[i].source, AL_POSITION, 0, 0, -1);
+        alSourcei(abuffer_sinks[i].source, AL_SOURCE_RELATIVE, AL_TRUE);
+        alSourcei(abuffer_sinks[i].source, AL_ROLLOFF_FACTOR, 0);
+
         std::thread asink_thread(worker_thread, &abuffer_sinks[i], &amutexes[i]);
 
         audio_sink_threads[i].swap(asink_thread);
@@ -703,6 +754,54 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     ImGui::PlotLines("Audio Samples", sink->samples, sink->nb_samples, 0, overlay, -1.0f, 1.0f, ImVec2(0, 80.0f));
 
     ImGui::End();
+}
+
+static void play_sound(AVFrame *frame, BufferSink *sink)
+{
+    ALint processed, state, queued;
+
+    alGetSourcei(sink->source, AL_BUFFERS_PROCESSED, &processed);
+    while (processed > 0) {
+        ALuint bufid;
+
+        alSourceUnqueueBuffers(sink->source, 1, &bufid);
+        processed--;
+
+        sink->processed_bufids.push_back(bufid);
+    }
+
+    alGetSourcei(sink->source, AL_SOURCE_STATE, &state);
+    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+    if (queued >= 1 && state != AL_PLAYING)
+        alSourcePlay(sink->source);
+    else if (queued < 1 && state != AL_PAUSED)
+        alSourcePause(sink->source);
+
+    if (sink->processed_bufids.size() > 0 && frame->nb_samples > 0) {
+        ALuint bufid = sink->processed_bufids.back();
+
+        sink->processed_bufids.pop_back();
+        alBufferData(bufid, sink->format, frame->extended_data[0],
+                     (ALsizei)frame->nb_samples * sizeof(float), frame->sample_rate);
+        alSourceQueueBuffers(sink->source, 1, &bufid);
+    } else if (sink->unprocessed_bufids.size() > 0 && frame->nb_samples > 0) {
+        ALuint bufid = sink->unprocessed_bufids.back();
+
+        sink->unprocessed_bufids.pop_back();
+        alBufferData(bufid, sink->format, frame->extended_data[0],
+                     (ALsizei)frame->nb_samples * sizeof(float), frame->sample_rate);
+        alSourceQueueBuffers(sink->source, 1, &bufid);
+    }
+
+    alGetSourcei(sink->source, AL_SOURCE_STATE, &state);
+    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+
+    if (queued >= 1 && state != AL_PLAYING)
+        alSourcePlay(sink->source);
+    else if (queued < 1 && state != AL_PAUSED)
+        alSourcePause(sink->source);
+
+    sink->need_more = queued < (AL_BUFFERS / 2);
 }
 
 static bool query_ranges(void *obj, const AVOption *opt,
@@ -2191,6 +2290,19 @@ static void show_dumpgraph(bool *p_open, bool focused)
 
 int main(int, char**)
 {
+    ALCint attribs[] = { ALC_FREQUENCY, output_sample_rate, 0, 0 };
+
+    al_dev = alcOpenDevice(NULL);
+    if (!al_dev) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot open AL device.\n");
+        return -1;
+    }
+
+    al_ctx = alcCreateContext(al_dev, attribs);
+    alcMakeContextCurrent(al_ctx);
+    alListenerfv(AL_POSITION, position);
+    alListenerfv(AL_ORIENTATION, direction);
+
     // Setup window
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
@@ -2268,6 +2380,8 @@ int main(int, char**)
 
                     av_freep(&abuffer_sinks[i].label);
                     av_freep(&abuffer_sinks[i].samples);
+                    alDeleteSources(1, &abuffer_sinks[i].source);
+                    alDeleteBuffers(AL_BUFFERS, abuffer_sinks[i].buffers);
                 }
 
                 audio_sink_threads.clear();
@@ -2301,7 +2415,7 @@ int main(int, char**)
                 BufferSink *sink = &buffer_sinks[i];
                 AVFrame *render_frame = NULL;
 
-                if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) > 1)
+                if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) > sink->render_ring_size - 1)
                     continue;
 
                 ring_buffer_dequeue(&sink->consume_frames, &render_frame, &mutexes[i]);
@@ -2316,7 +2430,7 @@ int main(int, char**)
                 BufferSink *sink = &abuffer_sinks[i];
                 AVFrame *render_frame = NULL;
 
-                if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) > 1)
+                if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) > sink->render_ring_size - 1)
                     continue;
 
                 ring_buffer_dequeue(&sink->consume_frames, &render_frame, &amutexes[i]);
@@ -2341,8 +2455,12 @@ int main(int, char**)
                         if (sink->sample_index >= sink->nb_samples)
                             sink->sample_index = 0;
                     }
+
+                    if (paused == false || framestep) {
+                        play_sound(play_frame, sink);
+                        play_frame->nb_samples = 0;
+                    }
                 }
-                //play_frame(&sink->texture, &show_abuffersink_window, play_frame, sink);
             }
         }
 
@@ -2408,7 +2526,7 @@ int main(int, char**)
                 if (!paused || framestep) {
                     AVFrame *purge_frame = NULL;
 
-                    if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) < 2)
+                    if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) < sink->render_ring_size)
                         continue;
 
                     ring_buffer_dequeue(&sink->render_frames, &purge_frame, &mutexes[i]);
@@ -2425,10 +2543,10 @@ int main(int, char**)
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
 
-                if (!paused || framestep) {
+                if ((!paused || framestep) && sink->need_more) {
                     AVFrame *purge_frame = NULL;
 
-                    if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) < 2)
+                    if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) < sink->render_ring_size)
                         continue;
 
                     ring_buffer_dequeue(&sink->render_frames, &purge_frame, &amutexes[i]);
@@ -2457,6 +2575,8 @@ int main(int, char**)
 
         av_freep(&abuffer_sinks[i].label);
         av_freep(&abuffer_sinks[i].samples);
+        alDeleteSources(1, &abuffer_sinks[i].source);
+        alDeleteBuffers(AL_BUFFERS, abuffer_sinks[i].buffers);
     }
 
     video_sink_threads.clear();
@@ -2490,6 +2610,11 @@ int main(int, char**)
 
     glfwDestroyWindow(window);
     glfwTerminate();
+
+    alcDestroyContext(al_ctx);
+    al_ctx = NULL;
+    alcCloseDevice(al_dev);
+    al_dev = NULL;
 
     return 0;
 }
