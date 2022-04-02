@@ -241,6 +241,7 @@ static int filters_setup()
     video_sink_threads.clear();
 
     need_filters_reinit = false;
+    filter_graph_is_valid = false;
 
     if (filter_nodes.size() == 0)
         return 0;
@@ -249,8 +250,6 @@ static int filters_setup()
     abuffer_sinks.clear();
     mutexes.clear();
     amutexes.clear();
-
-    filter_graph_is_valid = false;
 
     av_freep(&graphdump_text);
 
@@ -632,7 +631,7 @@ static void draw_console(bool *p_open)
     ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0,   0, 0, 200));
     ImGui::PushStyleColor(ImGuiCol_Text,    IM_COL32(0, 255, 0, 200));
     if (ImGui::InputText("##>", input_line, IM_ARRAYSIZE(input_line), input_text_flags)) {
-        if (!strncmp(input_line, "a ", 2)) {
+        if (!strncmp(input_line, "a ", 2) && filter_graph_is_valid == false) {
             const AVFilter *filter = avfilter_get_by_name(input_line + 2);
 
             if (filter)
