@@ -1725,6 +1725,12 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
             if (ImGui::BeginMenu("Audio Outputs")) {
                 ImGui::InputFloat2("Window Size", audio_window_size);
+                if (ImGui::InputFloat3("Listener Position", listener_position))
+                    alListenerfv(AL_POSITION, listener_position);
+                if (ImGui::InputFloat3("Listener Direction At", listener_direction))
+                    alListenerfv(AL_ORIENTATION, listener_direction);
+                if (ImGui::InputFloat3("Listener Direction Up", &listener_direction[3]))
+                    alListenerfv(AL_ORIENTATION, listener_direction);
 
                 ImGui::EndMenu();
             }
