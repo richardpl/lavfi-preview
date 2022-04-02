@@ -2462,6 +2462,9 @@ static void show_log(bool *p_open, bool focused)
         ImGui::TextUnformatted(log_buffer.begin(), log_buffer.end());
     }
 
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+        ImGui::SetScrollHereY(1.0f);
+
     ImGui::End();
 }
 
