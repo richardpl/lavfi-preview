@@ -134,7 +134,9 @@ bool show_help = false;
 bool show_console = false;
 bool show_log_window = false;
 
+int log_level = AV_LOG_INFO;
 ImGuiTextBuffer log_buffer;
+ImVector<int> log_lines_offsets;
 std::mutex log_mutex;
 
 GLint global_upscale_interpolation = GL_NEAREST;
@@ -1526,7 +1528,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
     if (focused)
         ImGui::SetNextWindowFocus();
-    ImGui::SetNextWindowSizeConstraints(ImVec2(600, 500), ImVec2(display_w, display_h), NULL);
+    ImGui::SetNextWindowSize(ImVec2(600, 500), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("FilterGraph Editor", p_open, 0)) {
         ImGui::End();
         return;
@@ -1699,8 +1701,26 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
         if (ImGui::BeginMenu("Options")) {
             if (ImGui::BeginMenu("FilterGraph", filter_graph_is_valid == false)) {
+                const char *items[] = { "quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug" };
+                const int values[] = { AV_LOG_QUIET, AV_LOG_PANIC, AV_LOG_FATAL, AV_LOG_ERROR, AV_LOG_WARNING, AV_LOG_INFO, AV_LOG_VERBOSE, AV_LOG_DEBUG };
+                static int item_current_idx = 5;
+
                 ImGui::InputInt("Max Number of FilterGraph Threads", &filter_graph_nb_threads);
                 ImGui::InputInt("Auto Conversion Type for FilterGraph", &filter_graph_auto_convert_flags);
+                if (ImGui::BeginCombo("Log Message Level", items[item_current_idx], 0)) {
+                    for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
+                        const bool is_selected = (item_current_idx == n);
+
+                        if (ImGui::Selectable(items[n], is_selected)) {
+                            item_current_idx = n;
+                            log_level = values[n];
+                        }
+
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
                 ImGui::EndMenu();
             }
 
@@ -2406,21 +2426,41 @@ static void log_callback(void *ptr, int level, const char *fmt, va_list args)
 {
     log_mutex.lock();
 
-    log_buffer.appendfv(fmt, args);
+    if (log_level >= level) {
+        int old_size = log_buffer.size();
+
+        log_buffer.appendfv(fmt, args);
+        for (int new_size = log_buffer.size(); old_size < new_size; old_size++)
+            if (log_buffer[old_size] == '\n')
+                log_lines_offsets.push_back(old_size + 1);
+    }
 
     log_mutex.unlock();
 }
 
 static void show_log(bool *p_open, bool focused)
 {
+    static ImGuiTextFilter filter;
+
     if (focused)
         ImGui::SetNextWindowFocus();
-    if (!ImGui::Begin("FilterGraph Log", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("FilterGraph Log", p_open, 0)) {
         ImGui::End();
         return;
     }
 
-    ImGui::TextUnformatted(log_buffer.begin(), log_buffer.end());
+    filter.Draw("###Log Filter", ImGui::GetWindowSize().x);
+    if (filter.IsActive()) {
+        for (int line_no = 0; line_no < log_lines_offsets.Size; line_no++) {
+            const char *line_start = log_buffer.begin() + log_lines_offsets[line_no];
+            const char *line_end = (line_no + 1 < log_lines_offsets.Size) ? (log_buffer.begin() + log_lines_offsets[line_no + 1] - 1) : log_buffer.end();
+            if (filter.PassFilter(line_start, line_end))
+                ImGui::TextUnformatted(line_start, line_end);
+        }
+    } else {
+        ImGui::TextUnformatted(log_buffer.begin(), log_buffer.end());
+    }
 
     ImGui::End();
 }
