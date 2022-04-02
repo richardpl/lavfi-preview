@@ -142,6 +142,7 @@ int height = 720;
 bool filter_graph_is_valid = false;
 AVFilterGraph *filter_graph = NULL;
 char *graphdump_text = NULL;
+float audio_window_size[2] = { 0, 100 };
 
 ImNodesEditorContext *node_editor_context;
 
@@ -831,7 +832,8 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
         focus_abuffersink_window = sink->id;
 
     snprintf(overlay, sizeof(overlay), "TIME: %.5f\nSPEED: %f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN, sink->speed);
-    ImGui::PlotLines("Audio Samples", sink->samples, sink->nb_samples, 0, overlay, -1.0f, 1.0f, ImVec2(0, 80.0f));
+    ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
+    ImGui::PlotLines("Audio Samples", sink->samples, sink->nb_samples, 0, overlay, -1.0f, 1.0f, window_size);
 
     ImGui::End();
 }
@@ -1717,6 +1719,12 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     }
                     ImGui::EndCombo();
                 }
+
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Audio Outputs")) {
+                ImGui::InputFloat2("Window Size", audio_window_size);
 
                 ImGui::EndMenu();
             }
