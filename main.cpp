@@ -1361,6 +1361,9 @@ static void draw_node_options(FilterNode *node)
     if (!probe_ctx)
         return;
 
+    if (filter_graph_is_valid)
+        return;
+
     av_class = probe_ctx->priv;
     if (!node->colapsed && !ImGui::Button("Options"))
         return;
