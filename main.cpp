@@ -511,7 +511,7 @@ static void draw_help(bool *p_open)
                                           ImGuiWindowFlags_NoMove;
     const int align = 555;
 
-    ImGui::SetNextWindowPos(ImGui::GetMousePos());
+    ImGui::SetNextWindowPos(ImVec2(display_w/2, display_h/2), 0, ImVec2(0.5, 0.5));
     ImGui::SetNextWindowBgAlpha(0.5f);
     ImGui::SetNextWindowFocus();
 
