@@ -74,6 +74,8 @@ typedef struct BufferSink {
     GLuint texture;
     ALuint source;
     ALenum format;
+    float gain;
+    float position[3];
     ALuint buffers[AL_BUFFERS];
     std::vector<ALuint> processed_bufids;
     std::vector<ALuint> unprocessed_bufids;
@@ -464,7 +466,11 @@ error:
             sink->unprocessed_bufids.push_back(sink->buffers[j]);
 
         alGenSources(1, &sink->source);
-        alSource3i(sink->source, AL_POSITION, 0, 0, -1);
+        sink->gain = 1.f;
+        sink->position[0] =  0.f;
+        sink->position[1] =  0.f;
+        sink->position[2] = -1.f;
+        alSource3f(sink->source, AL_POSITION, sink->position[0], sink->position[1], sink->position[2]);
         alSourcei(sink->source, AL_SOURCE_RELATIVE, AL_TRUE);
         alSourcei(sink->source, AL_ROLLOFF_FACTOR, 0);
 
@@ -833,7 +839,11 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
 
     snprintf(overlay, sizeof(overlay), "TIME: %.5f\nSPEED: %f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN, sink->speed);
     ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
-    ImGui::PlotLines("Audio Samples", sink->samples, sink->nb_samples, 0, overlay, -1.0f, 1.0f, window_size);
+    ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, overlay, -1.0f, 1.0f, window_size);
+    if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp))
+        alSourcef(sink->source, AL_GAIN, sink->gain);
+    if (ImGui::DragFloat3("Position", sink->position, 0.001f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp))
+        alSource3f(sink->source, AL_POSITION, sink->position[0], sink->position[1], sink->position[2]);
 
     ImGui::End();
 }
@@ -842,7 +852,7 @@ static void play_sound(AVFrame *frame, BufferSink *sink)
 {
     ALint processed, state, queued;
 
-    alSourcef(sink->source, AL_GAIN, 1.f * !sink->muted);
+    alSourcef(sink->source, AL_GAIN, sink->gain * !sink->muted);
 
     alGetSourcei(sink->source, AL_BUFFERS_PROCESSED, &processed);
     while (processed > 0) {
