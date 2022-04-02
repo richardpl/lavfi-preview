@@ -2429,6 +2429,34 @@ static void log_callback(void *ptr, int level, const char *fmt, va_list args)
     if (log_level >= level) {
         int old_size = log_buffer.size();
 
+        switch (level) {
+        case AV_LOG_QUIET:
+            break;
+        case AV_LOG_PANIC:
+            log_buffer.appendf("[panic] ");
+            break;
+        case AV_LOG_FATAL:
+            log_buffer.appendf("[fatal] ");
+            break;
+        case AV_LOG_ERROR:
+            log_buffer.appendf("[error] ");
+            break;
+        case AV_LOG_WARNING:
+            log_buffer.appendf("[warning] ");
+            break;
+        case AV_LOG_INFO:
+            log_buffer.appendf("[info] ");
+            break;
+        case AV_LOG_VERBOSE:
+            log_buffer.appendf("[verbose] ");
+            break;
+        case AV_LOG_DEBUG:
+            log_buffer.appendf("[debug] ");
+            break;
+        default:
+            log_buffer.appendf("[unknown%d] ", level);
+            break;
+        }
         log_buffer.appendfv(fmt, args);
         for (int new_size = log_buffer.size(); old_size < new_size; old_size++)
             if (log_buffer[old_size] == '\n')
