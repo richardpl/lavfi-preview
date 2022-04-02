@@ -121,8 +121,8 @@ unsigned focus_buffersink_window = -1;
 unsigned focus_abuffersink_window = -1;
 bool show_abuffersink_window = true;
 bool show_buffersink_window = true;
-bool show_dumpgraph_window = true;
-bool show_commands_window = true;
+bool show_dumpgraph_window = false;
+bool show_commands_window = false;
 bool show_filtergraph_editor_window = true;
 bool show_mini_map = true;
 int mini_map_location = ImNodesMiniMapLocation_BottomRight;
@@ -132,6 +132,10 @@ bool framestep = false;
 bool paused = true;
 bool show_help = false;
 bool show_console = false;
+bool show_log_window = false;
+
+ImGuiTextBuffer log_buffer;
+std::mutex log_mutex;
 
 GLint global_upscale_interpolation = GL_NEAREST;
 GLint global_downscale_interpolation = GL_NEAREST;
@@ -401,7 +405,6 @@ static int filters_setup()
 
     show_abuffersink_window = true;
     show_buffersink_window = true;
-    show_dumpgraph_window = true;
 
 error:
 
@@ -527,13 +530,17 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("F2");
     ImGui::Separator();
-    ImGui::Text("Jump to Filter Commands Window:");
+    ImGui::Text("Jump to FilterGraph Commands Window:");
     ImGui::SameLine(align);
     ImGui::Text("F3");
     ImGui::Separator();
     ImGui::Text("Jump to FilterGraph Dump Window:");
     ImGui::SameLine(align);
     ImGui::Text("F4");
+    ImGui::Separator();
+    ImGui::Text("Jump to FilterGraph Log Window:");
+    ImGui::SameLine(align);
+    ImGui::Text("F5");
     ImGui::Separator();
     ImGui::Text("Toggle Console:");
     ImGui::SameLine(align);
@@ -2395,6 +2402,29 @@ static void show_dumpgraph(bool *p_open, bool focused)
     ImGui::End();
 }
 
+static void log_callback(void *ptr, int level, const char *fmt, va_list args)
+{
+    log_mutex.lock();
+
+    log_buffer.appendfv(fmt, args);
+
+    log_mutex.unlock();
+}
+
+static void show_log(bool *p_open, bool focused)
+{
+    if (focused)
+        ImGui::SetNextWindowFocus();
+    if (!ImGui::Begin("FilterGraph Log", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextUnformatted(log_buffer.begin(), log_buffer.end());
+
+    ImGui::End();
+}
+
 int main(int, char**)
 {
     ALCint attribs[] = { ALC_FREQUENCY, output_sample_rate, 0, 0 };
@@ -2428,6 +2458,8 @@ int main(int, char**)
         return 1;
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Enable vsync
+
+    av_log_set_callback(log_callback);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -2624,6 +2656,11 @@ int main(int, char**)
             show_dumpgraph_window = true;
         if (show_dumpgraph_window)
             show_dumpgraph(&show_dumpgraph_window, focused);
+        focused = ImGui::IsKeyReleased(ImGuiKey_F5);
+        if (focused)
+            show_log_window = true;
+        if (show_log_window)
+            show_log(&show_log_window, focused);
         focused = ImGui::IsKeyReleased(ImGuiKey_F2);
         if (focused)
             show_filtergraph_editor_window = true;
