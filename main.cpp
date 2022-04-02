@@ -1534,7 +1534,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     if (ImGui::BeginPopup("Add Filter")) {
         const ImVec2 click_pos = ImGui::GetMousePosOnOpeningCurrentPopup();
 
-        if (ImGui::BeginMenu("Source Filters")) {
+        if (ImGui::BeginMenu("Source Filters", filter_graph_is_valid == false)) {
             if (ImGui::BeginMenu("Video")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
@@ -1576,7 +1576,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Simple Filters")) {
+        if (ImGui::BeginMenu("Simple Filters", filter_graph_is_valid == false)) {
             if (ImGui::BeginMenu("Video")) {
                 static ImGuiTextFilter imgui_filter;
                 const AVFilter *filter = NULL;
@@ -1616,7 +1616,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Complex Filters")) {
+        if (ImGui::BeginMenu("Complex Filters", filter_graph_is_valid == false)) {
             static ImGuiTextFilter imgui_filter;
             const AVFilter *filter = NULL;
             void *iterator = NULL;
@@ -1634,7 +1634,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Media Filters")) {
+        if (ImGui::BeginMenu("Media Filters", filter_graph_is_valid == false)) {
             const AVFilter *filter = NULL;
             void *iterator = NULL;
 
@@ -1647,7 +1647,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Sink Filters")) {
+        if (ImGui::BeginMenu("Sink Filters", filter_graph_is_valid == false)) {
             if (ImGui::BeginMenu("Video")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
