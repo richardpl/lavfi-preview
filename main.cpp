@@ -68,7 +68,6 @@ typedef struct BufferSink {
     bool fullscreen;
     bool muted;
     bool show_osd;
-    bool need_more;
     bool have_window_pos;
     ImVec2 window_pos;
     GLuint texture;
@@ -156,6 +155,9 @@ ImNodesEditorContext *node_editor_context;
 
 std::mutex filtergraph_mutex;
 
+std::vector<ALuint> play_sources;
+std::thread play_sound_thread;
+
 std::vector<BufferSink> abuffer_sinks;
 std::vector<BufferSink> buffer_sinks;
 std::vector<std::mutex> amutexes;
@@ -183,6 +185,30 @@ static void clear_ring_buffer(ring_buffer_t *ring_buffer, std::mutex *mutex)
 
         ring_buffer_dequeue(ring_buffer, &frame, mutex);
         av_frame_free(&frame);
+    }
+}
+
+static void sound_thread(ALsizei nb_sources, std::vector<ALuint> *sources)
+{
+    bool state = paused && !framestep;
+
+    if (state)
+        alSourceStopv(nb_sources, sources->data());
+
+    while (!need_filters_reinit && filter_graph_is_valid) {
+        bool new_state = paused && !framestep;
+
+        if (sources->size() == 0)
+            break;
+
+        if (state != new_state) {
+            state = new_state;
+            if (state == true)
+                alSourcePausev(nb_sources, sources->data());
+            else
+                alSourcePlayv(nb_sources, sources->data());
+        }
+        av_usleep(10000);
     }
 }
 
@@ -230,6 +256,10 @@ static int filters_setup()
 
     if (need_filters_reinit == false)
         return 0;
+
+    if (play_sound_thread.joinable())
+        play_sound_thread.join();
+    play_sources.clear();
 
     for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
         if (audio_sink_threads[i].joinable())
@@ -402,6 +432,8 @@ static int filters_setup()
     }
 
     filter_graph_is_valid = true;
+    framestep = false;
+    paused = true;
 
     graphdump_text = avfilter_graph_dump(filter_graph, NULL);
 
@@ -471,6 +503,7 @@ error:
             sink->unprocessed_bufids.push_back(sink->buffers[j]);
 
         alGenSources(1, &sink->source);
+        play_sources.push_back(sink->source);
         sink->gain = 1.f;
         sink->position[0] =  0.f;
         sink->position[1] =  0.f;
@@ -483,6 +516,9 @@ error:
 
         audio_sink_threads[i].swap(asink_thread);
     }
+
+    std::thread new_sound_thread(sound_thread, abuffer_sinks.size(), &play_sources);
+    play_sound_thread.swap(new_sound_thread);
 
     return 0;
 }
@@ -813,7 +849,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
 static void draw_aframe(bool *p_open, BufferSink *sink)
 {
     ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
-    char overlay[256] = { 0 };
+    ALint queued;
 
     if (!*p_open)
         return;
@@ -846,9 +882,12 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     if (ImGui::IsKeyDown(ImGuiKey_0 + sink->id) && ImGui::GetIO().KeyAlt)
         focus_abuffersink_window = sink->id;
 
-    snprintf(overlay, sizeof(overlay), "TIME: %.5f\nSPEED: %f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN, sink->speed);
     ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
-    ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, overlay, -1.0f, 1.0f, window_size);
+    ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -1.0f, 1.0f, window_size);
+    ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
+    ImGui::Text("SPEED: %.5f", sink->speed);
+    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+    ImGui::Text("QUEUE: %d", queued);
     if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
         alSourcef(sink->source, AL_GAIN, sink->gain);
     if (ImGui::DragFloat3("Position", sink->position, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
@@ -857,14 +896,14 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     ImGui::End();
 }
 
-static void play_sound(AVFrame *frame, BufferSink *sink)
+static void queue_sound(AVFrame *frame, BufferSink *sink)
 {
-    ALint processed, state, queued;
+    ALint processed = 0;
 
     alSourcef(sink->source, AL_GAIN, sink->gain * !sink->muted);
 
     alGetSourcei(sink->source, AL_BUFFERS_PROCESSED, &processed);
-    while (processed > 0) {
+    while (processed > 0 && (!paused || framestep)) {
         ALuint bufid;
 
         alSourceUnqueueBuffers(sink->source, 1, &bufid);
@@ -873,13 +912,6 @@ static void play_sound(AVFrame *frame, BufferSink *sink)
         sink->processed_bufids.push_back(bufid);
     }
 
-    alGetSourcei(sink->source, AL_SOURCE_STATE, &state);
-    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-    if (queued >= 1 && state != AL_PLAYING)
-        alSourcePlay(sink->source);
-    else if (queued < 1 && state != AL_PAUSED)
-        alSourcePause(sink->source);
-
     if (sink->processed_bufids.size() > 0 && frame->nb_samples > 0) {
         ALuint bufid = sink->processed_bufids.back();
 
@@ -887,6 +919,7 @@ static void play_sound(AVFrame *frame, BufferSink *sink)
         alBufferData(bufid, sink->format, frame->extended_data[0],
                      (ALsizei)frame->nb_samples * sizeof(float), frame->sample_rate);
         alSourceQueueBuffers(sink->source, 1, &bufid);
+        frame->nb_samples = 0;
     } else if (sink->unprocessed_bufids.size() > 0 && frame->nb_samples > 0) {
         ALuint bufid = sink->unprocessed_bufids.back();
 
@@ -894,17 +927,8 @@ static void play_sound(AVFrame *frame, BufferSink *sink)
         alBufferData(bufid, sink->format, frame->extended_data[0],
                      (ALsizei)frame->nb_samples * sizeof(float), frame->sample_rate);
         alSourceQueueBuffers(sink->source, 1, &bufid);
+        frame->nb_samples = 0;
     }
-
-    alGetSourcei(sink->source, AL_SOURCE_STATE, &state);
-    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-
-    if (queued >= 1 && state != AL_PLAYING)
-        alSourcePlay(sink->source);
-    else if (queued < 1 && state != AL_PAUSED)
-        alSourcePause(sink->source);
-
-    sink->need_more = queued < (AL_BUFFERS / 2);
 }
 
 static bool query_ranges(void *obj, const AVOption *opt,
@@ -2358,7 +2382,7 @@ static void show_commands(bool *p_open, bool focused)
                                         }
 
                                         if (opt_storage[opt_index].u.str)
-                                            memcpy(string, opt_storage[opt_index].u.str, FFMIN(sizeof(string) - 1, strlen(opt_storage[opt_index].u.str)));
+                                            memcpy(string, opt_storage[opt_index].u.str, std::min(sizeof(string) - 1, strlen(opt_storage[opt_index].u.str)));
                                         if (ImGui::InputText(opt->name, string, sizeof(string) - 1)) {
                                             av_freep(&opt_storage[opt_index].u.str);
                                             opt_storage[opt_index].u.str = av_strdup(string);
@@ -2573,13 +2597,18 @@ int main(int, char**)
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
-        int64_t min_qpts = INT64_MAX;
         int64_t min_aqpts = INT64_MAX;
+        int64_t min_qpts = INT64_MAX;
+
         glfwPollEvents();
 
         if (show_abuffersink_window == false) {
             if (audio_sink_threads.size() > 0) {
                 need_filters_reinit = true;
+
+                if (play_sound_thread.joinable())
+                    play_sound_thread.join();
+                play_sources.clear();
 
                 for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
                     if (audio_sink_threads[i].joinable())
@@ -2617,14 +2646,36 @@ int main(int, char**)
 
         filters_setup();
 
-        if (mutexes.size() == buffer_sinks.size()) {
+        if (filter_graph_is_valid) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
 
+                if (sink->pts == AV_NOPTS_VALUE) {
+                    min_qpts = sink->qpts = AV_NOPTS_VALUE;
+                    continue;
+                }
                 sink->qpts = av_rescale_q(sink->pts, sink->time_base, AV_TIME_BASE_Q);
                 min_qpts = std::min(min_qpts, sink->qpts);
             }
+        }
 
+        if (filter_graph_is_valid) {
+            for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
+                BufferSink *sink = &abuffer_sinks[i];
+
+                if (sink->pts == AV_NOPTS_VALUE) {
+                    min_aqpts = sink->qpts = AV_NOPTS_VALUE;
+                    continue;
+                }
+                sink->qpts = av_rescale_q(sink->pts, sink->time_base, AV_TIME_BASE_Q);
+                min_aqpts = std::min(min_aqpts, sink->qpts);
+            }
+        }
+
+        min_qpts = std::min(min_qpts, min_aqpts);
+        min_aqpts = min_qpts;
+
+        if (filter_graph_is_valid) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
                 AVFrame *render_frame = NULL;
@@ -2642,24 +2693,29 @@ int main(int, char**)
             }
         }
 
-        if (amutexes.size() == abuffer_sinks.size()) {
-            for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
-                BufferSink *sink = &abuffer_sinks[i];
-
-                sink->qpts = av_rescale_q(sink->pts, sink->time_base, AV_TIME_BASE_Q);
-                min_aqpts = std::min(min_aqpts, sink->qpts);
-            }
-
+        if (filter_graph_is_valid) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
                 AVFrame *render_frame = NULL;
 
-                if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) > sink->render_ring_size - 1)
-                    continue;
+                if (sink->unprocessed_bufids.size() == 0) {
+                    ALint queued = 0;
 
-                if (sink->qpts > min_aqpts)
-                    continue;
+                    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+                    if (queued > AL_BUFFERS / 2)
+                        continue;
 
+                    if (queued < AL_BUFFERS / 2)
+                        goto dequeue_consume_frames;
+
+                    if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) > sink->render_ring_size - 1)
+                        continue;
+
+                    if (sink->qpts > min_aqpts)
+                        continue;
+                }
+
+dequeue_consume_frames:
                 ring_buffer_dequeue(&sink->consume_frames, &render_frame, &amutexes[i]);
                 if (!render_frame)
                     continue;
@@ -2667,7 +2723,7 @@ int main(int, char**)
             }
         }
 
-        if (amutexes.size() == abuffer_sinks.size() && show_abuffersink_window == true) {
+        if (filter_graph_is_valid && show_abuffersink_window == true) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
                 AVFrame *play_frame = NULL;
@@ -2683,10 +2739,7 @@ int main(int, char**)
                             sink->sample_index = 0;
                     }
 
-                    if (paused == false || framestep) {
-                        play_sound(play_frame, sink);
-                        play_frame->nb_samples = 0;
-                    }
+                    queue_sound(play_frame, sink);
                 }
             }
         }
@@ -2696,7 +2749,7 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        if (mutexes.size() == buffer_sinks.size() && show_buffersink_window == true) {
+        if (filter_graph_is_valid && show_buffersink_window == true) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
                 AVFrame *render_frame = NULL;
@@ -2709,7 +2762,7 @@ int main(int, char**)
             }
         }
 
-        if (amutexes.size() == abuffer_sinks.size() && show_abuffersink_window == true) {
+        if (filter_graph_is_valid && show_abuffersink_window == true) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
 
@@ -2754,47 +2807,59 @@ int main(int, char**)
 
         glfwSwapBuffers(window);
 
-        if (mutexes.size() == buffer_sinks.size()) {
+        if (filter_graph_is_valid) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
+                AVFrame *purge_frame = NULL;
 
-                if (!paused || framestep) {
-                    AVFrame *purge_frame = NULL;
+                if (paused && !framestep)
+                    continue;
 
-                    if (sink->qpts > min_qpts)
-                        continue;
+                if (sink->qpts > min_qpts)
+                    continue;
 
-                    if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) < sink->render_ring_size)
-                        continue;
+                if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) < sink->render_ring_size)
+                    continue;
 
-                    ring_buffer_dequeue(&sink->render_frames, &purge_frame, &mutexes[i]);
-                    if (!purge_frame)
-                        continue;
-                    ring_buffer_enqueue(&sink->purge_frames, purge_frame, &mutexes[i]);
-                }
+                ring_buffer_dequeue(&sink->render_frames, &purge_frame, &mutexes[i]);
+                if (!purge_frame)
+                    continue;
+                ring_buffer_enqueue(&sink->purge_frames, purge_frame, &mutexes[i]);
 
                 clear_ring_buffer(&sink->purge_frames, &mutexes[i]);
             }
         }
 
-        if (amutexes.size() == abuffer_sinks.size()) {
+        if (filter_graph_is_valid) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
+                AVFrame *purge_frame = NULL;
 
-                if ((!paused || framestep) && sink->need_more) {
-                    AVFrame *purge_frame = NULL;
+                if (sink->unprocessed_bufids.size() == 0) {
+                    ALint queued = 0;
+
+                    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+                    if (queued > AL_BUFFERS / 2)
+                        continue;
+
+                    if (paused && !framestep)
+                        continue;
+
+                    if (queued < AL_BUFFERS / 2)
+                        goto dequeue_render_frames;
 
                     if (sink->qpts > min_aqpts)
                         continue;
 
                     if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) < sink->render_ring_size)
                         continue;
-
-                    ring_buffer_dequeue(&sink->render_frames, &purge_frame, &amutexes[i]);
-                    if (!purge_frame)
-                        continue;
-                    ring_buffer_enqueue(&sink->purge_frames, purge_frame, &amutexes[i]);
                 }
+
+dequeue_render_frames:
+                ring_buffer_dequeue(&sink->render_frames, &purge_frame, &amutexes[i]);
+                if (!purge_frame)
+                    continue;
+                ring_buffer_enqueue(&sink->purge_frames, purge_frame, &amutexes[i]);
 
                 clear_ring_buffer(&sink->purge_frames, &amutexes[i]);
             }
@@ -2809,6 +2874,10 @@ int main(int, char**)
         av_freep(&buffer_sinks[i].label);
         glDeleteTextures(1, &buffer_sinks[i].texture);
     }
+
+    if (play_sound_thread.joinable())
+        play_sound_thread.join();
+    play_sources.clear();
 
     for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
         if (audio_sink_threads[i].joinable())
