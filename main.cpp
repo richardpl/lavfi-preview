@@ -412,20 +412,22 @@ error:
     video_sink_threads.swap(thread_list);
 
     for (unsigned i = 0; i < buffer_sinks.size(); i++) {
-        buffer_sinks[i].id = i;
-        buffer_sinks[i].label = av_asprintf("Video FilterGraph Output %d", i);
-        buffer_sinks[i].time_base = av_buffersink_get_time_base(buffer_sinks[i].ctx);
-        buffer_sinks[i].frame_rate = av_buffersink_get_frame_rate(buffer_sinks[i].ctx);
-        buffer_sinks[i].pts = AV_NOPTS_VALUE;
-        buffer_sinks[i].sample_index = 0;
-        buffer_sinks[i].samples = NULL;
-        buffer_sinks[i].nb_samples = 0;
-        buffer_sinks[i].render_ring_size = 2;
-        ring_buffer_init(&buffer_sinks[i].consume_frames);
-        ring_buffer_init(&buffer_sinks[i].render_frames);
-        ring_buffer_init(&buffer_sinks[i].purge_frames);
+        BufferSink *sink = &buffer_sinks[i];
 
-        glGenTextures(1, &buffer_sinks[i].texture);
+        sink->id = i;
+        sink->label = av_asprintf("Video FilterGraph Output %d", i);
+        sink->time_base = av_buffersink_get_time_base(sink->ctx);
+        sink->frame_rate = av_buffersink_get_frame_rate(sink->ctx);
+        sink->pts = AV_NOPTS_VALUE;
+        sink->sample_index = 0;
+        sink->samples = NULL;
+        sink->nb_samples = 0;
+        sink->render_ring_size = 2;
+        ring_buffer_init(&sink->consume_frames);
+        ring_buffer_init(&sink->render_frames);
+        ring_buffer_init(&sink->purge_frames);
+
+        glGenTextures(1, &sink->texture);
 
         std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i]);
 
@@ -439,29 +441,31 @@ error:
     audio_sink_threads.swap(athread_list);
 
     for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
-        abuffer_sinks[i].id = i;
-        abuffer_sinks[i].label = av_asprintf("Audio FilterGraph Output %d", i);
-        abuffer_sinks[i].time_base = av_buffersink_get_time_base(abuffer_sinks[i].ctx);
-        abuffer_sinks[i].frame_rate = av_make_q(av_buffersink_get_sample_rate(abuffer_sinks[i].ctx), 1);
-        abuffer_sinks[i].sample_index = 0;
-        abuffer_sinks[i].nb_samples = 512;
-        abuffer_sinks[i].pts = AV_NOPTS_VALUE;
-        abuffer_sinks[i].samples = (float *)av_calloc(abuffer_sinks[i].nb_samples, sizeof(float));
-        abuffer_sinks[i].render_ring_size = 1;
-        ring_buffer_init(&abuffer_sinks[i].consume_frames);
-        ring_buffer_init(&abuffer_sinks[i].render_frames);
-        ring_buffer_init(&abuffer_sinks[i].purge_frames);
+        BufferSink *sink = &abuffer_sinks[i];
 
-        abuffer_sinks[i].format = AL_FORMAT_MONO_FLOAT32;
+        sink->id = i;
+        sink->label = av_asprintf("Audio FilterGraph Output %d", i);
+        sink->time_base = av_buffersink_get_time_base(sink->ctx);
+        sink->frame_rate = av_make_q(av_buffersink_get_sample_rate(sink->ctx), 1);
+        sink->sample_index = 0;
+        sink->nb_samples = 512;
+        sink->pts = AV_NOPTS_VALUE;
+        sink->samples = (float *)av_calloc(sink->nb_samples, sizeof(float));
+        sink->render_ring_size = 1;
+        ring_buffer_init(&sink->consume_frames);
+        ring_buffer_init(&sink->render_frames);
+        ring_buffer_init(&sink->purge_frames);
 
-        alGenBuffers(AL_BUFFERS, abuffer_sinks[i].buffers);
+        sink->format = AL_FORMAT_MONO_FLOAT32;
+
+        alGenBuffers(AL_BUFFERS, sink->buffers);
         for (unsigned j = 0; j < AL_BUFFERS; j++)
-            abuffer_sinks[i].unprocessed_bufids.push_back(abuffer_sinks[i].buffers[j]);
+            sink->unprocessed_bufids.push_back(sink->buffers[j]);
 
-        alGenSources(1, &abuffer_sinks[i].source);
-        alSource3i(abuffer_sinks[i].source, AL_POSITION, 0, 0, -1);
-        alSourcei(abuffer_sinks[i].source, AL_SOURCE_RELATIVE, AL_TRUE);
-        alSourcei(abuffer_sinks[i].source, AL_ROLLOFF_FACTOR, 0);
+        alGenSources(1, &sink->source);
+        alSource3i(sink->source, AL_POSITION, 0, 0, -1);
+        alSourcei(sink->source, AL_SOURCE_RELATIVE, AL_TRUE);
+        alSourcei(sink->source, AL_ROLLOFF_FACTOR, 0);
 
         std::thread asink_thread(worker_thread, &abuffer_sinks[i], &amutexes[i]);
 
