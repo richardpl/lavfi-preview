@@ -840,9 +840,9 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     snprintf(overlay, sizeof(overlay), "TIME: %.5f\nSPEED: %f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN, sink->speed);
     ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
     ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, overlay, -1.0f, 1.0f, window_size);
-    if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp))
+    if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
         alSourcef(sink->source, AL_GAIN, sink->gain);
-    if (ImGui::DragFloat3("Position", sink->position, 0.001f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp))
+    if (ImGui::DragFloat3("Position", sink->position, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
         alSource3f(sink->source, AL_POSITION, sink->position[0], sink->position[1], sink->position[2]);
 
     ImGui::End();
@@ -1738,11 +1738,11 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
             if (ImGui::BeginMenu("Audio Outputs")) {
                 ImGui::InputFloat2("Window Size", audio_window_size);
-                if (ImGui::InputFloat3("Listener Position", listener_position))
+                if (ImGui::DragFloat3("Listener Position", listener_position, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
                     alListenerfv(AL_POSITION, listener_position);
-                if (ImGui::InputFloat3("Listener Direction At", listener_direction))
+                if (ImGui::DragFloat3("Listener Direction At", listener_direction, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
                     alListenerfv(AL_ORIENTATION, listener_direction);
-                if (ImGui::InputFloat3("Listener Direction Up", &listener_direction[3]))
+                if (ImGui::DragFloat3("Listener Direction Up", &listener_direction[3], 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
                     alListenerfv(AL_ORIENTATION, listener_direction);
 
                 ImGui::EndMenu();
