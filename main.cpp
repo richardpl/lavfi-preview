@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <vector>
 
 #include "imgui.h"
@@ -65,6 +66,7 @@ typedef struct BufferSink {
     ring_buffer_t purge_frames;
     unsigned render_ring_size;
     double speed;
+    bool ready;
     bool fullscreen;
     bool muted;
     bool show_osd;
@@ -160,6 +162,8 @@ std::thread play_sound_thread;
 
 std::vector<BufferSink> abuffer_sinks;
 std::vector<BufferSink> buffer_sinks;
+std::vector<std::condition_variable> acv;
+std::vector<std::condition_variable> cv;
 std::vector<std::mutex> amutexes;
 std::vector<std::mutex> mutexes;
 std::vector<std::thread> audio_sink_threads;
@@ -178,12 +182,12 @@ ALCcontext *al_ctx = NULL;
 float listener_direction[6] = { 0, 0, -1, 0, 1, 0 };
 float listener_position[3] = { 0, 0, 0 };
 
-static void clear_ring_buffer(ring_buffer_t *ring_buffer, std::mutex *mutex)
+static void clear_ring_buffer(ring_buffer_t *ring_buffer)
 {
-    while (ring_buffer_num_items(ring_buffer, mutex) > 0) {
+    while (ring_buffer_num_items(ring_buffer) > 0) {
         AVFrame *frame;
 
-        ring_buffer_dequeue(ring_buffer, &frame, mutex);
+        ring_buffer_dequeue(ring_buffer, &frame);
         av_frame_free(&frame);
     }
 }
@@ -212,15 +216,20 @@ static void sound_thread(ALsizei nb_sources, std::vector<ALuint> *sources)
     }
 }
 
-static void worker_thread(BufferSink *sink, std::mutex *mutex)
+static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_variable *cv)
 {
     int ret;
 
     while (sink->ctx) {
+        std::unique_lock lk(*mutex);
+        cv->wait(lk, [sink]{ return sink->ready == true; });
         if (need_filters_reinit)
             break;
+        if (sink->ready == false)
+            continue;
+        sink->ready = false;
 
-        if (ring_buffer_num_items(&sink->consume_frames, mutex) < 1) {
+        if (ring_buffer_num_items(&sink->consume_frames) < 1) {
             AVFrame *filter_frame;
             int64_t start, end;
 
@@ -237,16 +246,47 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex)
             if (ret < 0 && ret != AVERROR(EAGAIN))
                 break;
 
-            ring_buffer_enqueue(&sink->consume_frames, filter_frame, mutex);
+            ring_buffer_enqueue(&sink->consume_frames, filter_frame);
         }
 
         if (paused)
             av_usleep(10000);
     }
 
-    clear_ring_buffer(&sink->consume_frames, mutex);
-    clear_ring_buffer(&sink->render_frames, mutex);
-    clear_ring_buffer(&sink->purge_frames, mutex);
+    clear_ring_buffer(&sink->consume_frames);
+    clear_ring_buffer(&sink->render_frames);
+    clear_ring_buffer(&sink->purge_frames);
+}
+
+static void kill_audio_sink_threads()
+{
+    for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
+        BufferSink *sink = &abuffer_sinks[i];
+
+        if (audio_sink_threads[i].joinable()) {
+            { std::lock_guard lk(amutexes[i]); sink->ready = true; }
+            acv[i].notify_one();
+            audio_sink_threads[i].join();
+        }
+
+        alDeleteSources(1, &sink->source);
+        alDeleteBuffers(AL_BUFFERS, sink->buffers);
+    }
+}
+
+static void kill_video_sink_threads()
+{
+    for (unsigned i = 0; i < video_sink_threads.size(); i++) {
+        BufferSink *sink = &buffer_sinks[i];
+
+        if (video_sink_threads[i].joinable()) {
+            { std::lock_guard lk(mutexes[i]); sink->ready = true; }
+            cv[i].notify_one();
+            video_sink_threads[i].join();
+        }
+
+        glDeleteTextures(1, &sink->texture);
+    }
 }
 
 static int filters_setup()
@@ -261,20 +301,8 @@ static int filters_setup()
         play_sound_thread.join();
     play_sources.clear();
 
-    for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
-        if (audio_sink_threads[i].joinable())
-            audio_sink_threads[i].join();
-
-        alDeleteSources(1, &abuffer_sinks[i].source);
-        alDeleteBuffers(AL_BUFFERS, abuffer_sinks[i].buffers);
-    }
-
-    for (unsigned i = 0; i < video_sink_threads.size(); i++) {
-        if (video_sink_threads[i].joinable())
-            video_sink_threads[i].join();
-
-        glDeleteTextures(1, &buffer_sinks[i].texture);
-    }
+    kill_audio_sink_threads();
+    kill_video_sink_threads();
 
     audio_sink_threads.clear();
     video_sink_threads.clear();
@@ -287,6 +315,8 @@ static int filters_setup()
 
     buffer_sinks.clear();
     abuffer_sinks.clear();
+    cv.clear();
+    acv.clear();
     mutexes.clear();
     amutexes.clear();
 
@@ -326,6 +356,7 @@ static int filters_setup()
             BufferSink new_sink;
 
             new_sink.ctx = filter_ctx;
+            new_sink.ready = false;
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
             new_sink.muted = false;
@@ -344,6 +375,7 @@ static int filters_setup()
             BufferSink new_sink;
 
             new_sink.ctx = filter_ctx;
+            new_sink.ready = false;
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
             new_sink.muted = false;
@@ -445,6 +477,9 @@ error:
     if (ret < 0)
         return ret;
 
+    std::vector<std::condition_variable> cv_list(buffer_sinks.size());
+    cv.swap(cv_list);
+
     std::vector<std::mutex> mutex_list(buffer_sinks.size());
     mutexes.swap(mutex_list);
 
@@ -469,10 +504,13 @@ error:
 
         glGenTextures(1, &sink->texture);
 
-        std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i]);
+        std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i], &cv[i]);
 
         video_sink_threads[i].swap(sink_thread);
     }
+
+    std::vector<std::condition_variable> acv_list(abuffer_sinks.size());
+    acv.swap(acv_list);
 
     std::vector<std::mutex> amutex_list(abuffer_sinks.size());
     amutexes.swap(amutex_list);
@@ -512,7 +550,7 @@ error:
         alSourcei(sink->source, AL_SOURCE_RELATIVE, AL_TRUE);
         alSourcei(sink->source, AL_ROLLOFF_FACTOR, 0);
 
-        std::thread asink_thread(worker_thread, &abuffer_sinks[i], &amutexes[i]);
+        std::thread asink_thread(worker_thread, &abuffer_sinks[i], &amutexes[i], &acv[i]);
 
         audio_sink_threads[i].swap(asink_thread);
     }
@@ -2610,15 +2648,7 @@ int main(int, char**)
                     play_sound_thread.join();
                 play_sources.clear();
 
-                for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
-                    if (audio_sink_threads[i].joinable())
-                        audio_sink_threads[i].join();
-
-                    av_freep(&abuffer_sinks[i].label);
-                    av_freep(&abuffer_sinks[i].samples);
-                    alDeleteSources(1, &abuffer_sinks[i].source);
-                    alDeleteBuffers(AL_BUFFERS, abuffer_sinks[i].buffers);
-                }
+                kill_audio_sink_threads();
 
                 audio_sink_threads.clear();
 
@@ -2630,13 +2660,7 @@ int main(int, char**)
             if (video_sink_threads.size() > 0) {
                 need_filters_reinit = true;
 
-                for (unsigned i = 0; i < video_sink_threads.size(); i++) {
-                    if (video_sink_threads[i].joinable())
-                        video_sink_threads[i].join();
-
-                    av_freep(&buffer_sinks[i].label);
-                    glDeleteTextures(1, &buffer_sinks[i].texture);
-                }
+                kill_video_sink_threads();
 
                 video_sink_threads.clear();
 
@@ -2680,16 +2704,18 @@ int main(int, char**)
                 BufferSink *sink = &buffer_sinks[i];
                 AVFrame *render_frame = NULL;
 
-                if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) > sink->render_ring_size - 1)
+                if (ring_buffer_num_items(&sink->render_frames) > sink->render_ring_size - 1)
                     continue;
 
                 if (sink->qpts > min_qpts)
                     continue;
 
-                ring_buffer_dequeue(&sink->consume_frames, &render_frame, &mutexes[i]);
+                { std::lock_guard lk(mutexes[i]); sink->ready = true; }
+                cv[i].notify_one();
+                ring_buffer_dequeue(&sink->consume_frames, &render_frame);
                 if (!render_frame)
                     continue;
-                ring_buffer_enqueue(&sink->render_frames, render_frame, &mutexes[i]);
+                ring_buffer_enqueue(&sink->render_frames, render_frame);
             }
         }
 
@@ -2708,7 +2734,7 @@ int main(int, char**)
                     if (queued < AL_BUFFERS / 2)
                         goto dequeue_consume_frames;
 
-                    if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) > sink->render_ring_size - 1)
+                    if (ring_buffer_num_items(&sink->render_frames) > sink->render_ring_size - 1)
                         continue;
 
                     if (sink->qpts > min_aqpts)
@@ -2716,10 +2742,12 @@ int main(int, char**)
                 }
 
 dequeue_consume_frames:
-                ring_buffer_dequeue(&sink->consume_frames, &render_frame, &amutexes[i]);
+                { std::lock_guard lk(amutexes[i]); sink->ready = true; }
+                acv[i].notify_one();
+                ring_buffer_dequeue(&sink->consume_frames, &render_frame);
                 if (!render_frame)
                     continue;
-                ring_buffer_enqueue(&sink->render_frames, render_frame, &amutexes[i]);
+                ring_buffer_enqueue(&sink->render_frames, render_frame);
             }
         }
 
@@ -2728,7 +2756,7 @@ dequeue_consume_frames:
                 BufferSink *sink = &abuffer_sinks[i];
                 AVFrame *play_frame = NULL;
 
-                ring_buffer_peek(&sink->render_frames, &play_frame, 0, &amutexes[i]);
+                ring_buffer_peek(&sink->render_frames, &play_frame, 0);
                 if (play_frame) {
                     const float *src = (const float *)play_frame->extended_data[0];
 
@@ -2754,7 +2782,7 @@ dequeue_consume_frames:
                 BufferSink *sink = &buffer_sinks[i];
                 AVFrame *render_frame = NULL;
 
-                ring_buffer_peek(&sink->render_frames, &render_frame, 0, &mutexes[i]);
+                ring_buffer_peek(&sink->render_frames, &render_frame, 0);
                 if (!render_frame)
                     continue;
 
@@ -2818,15 +2846,15 @@ dequeue_consume_frames:
                 if (sink->qpts > min_qpts)
                     continue;
 
-                if (ring_buffer_num_items(&sink->render_frames, &mutexes[i]) < sink->render_ring_size)
+                if (ring_buffer_num_items(&sink->render_frames) < sink->render_ring_size)
                     continue;
 
-                ring_buffer_dequeue(&sink->render_frames, &purge_frame, &mutexes[i]);
+                ring_buffer_dequeue(&sink->render_frames, &purge_frame);
                 if (!purge_frame)
                     continue;
-                ring_buffer_enqueue(&sink->purge_frames, purge_frame, &mutexes[i]);
+                ring_buffer_enqueue(&sink->purge_frames, purge_frame);
 
-                clear_ring_buffer(&sink->purge_frames, &mutexes[i]);
+                clear_ring_buffer(&sink->purge_frames);
             }
         }
 
@@ -2851,43 +2879,29 @@ dequeue_consume_frames:
                     if (sink->qpts > min_aqpts)
                         continue;
 
-                    if (ring_buffer_num_items(&sink->render_frames, &amutexes[i]) < sink->render_ring_size)
+                    if (ring_buffer_num_items(&sink->render_frames) < sink->render_ring_size)
                         continue;
                 }
 
 dequeue_render_frames:
-                ring_buffer_dequeue(&sink->render_frames, &purge_frame, &amutexes[i]);
+                ring_buffer_dequeue(&sink->render_frames, &purge_frame);
                 if (!purge_frame)
                     continue;
-                ring_buffer_enqueue(&sink->purge_frames, purge_frame, &amutexes[i]);
+                ring_buffer_enqueue(&sink->purge_frames, purge_frame);
 
-                clear_ring_buffer(&sink->purge_frames, &amutexes[i]);
+                clear_ring_buffer(&sink->purge_frames);
             }
         }
     }
 
     need_filters_reinit = true;
-    for (unsigned i = 0; i < video_sink_threads.size(); i++) {
-        if (video_sink_threads[i].joinable())
-            video_sink_threads[i].join();
-
-        av_freep(&buffer_sinks[i].label);
-        glDeleteTextures(1, &buffer_sinks[i].texture);
-    }
 
     if (play_sound_thread.joinable())
         play_sound_thread.join();
     play_sources.clear();
 
-    for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
-        if (audio_sink_threads[i].joinable())
-            audio_sink_threads[i].join();
-
-        av_freep(&abuffer_sinks[i].label);
-        av_freep(&abuffer_sinks[i].samples);
-        alDeleteSources(1, &abuffer_sinks[i].source);
-        alDeleteBuffers(AL_BUFFERS, abuffer_sinks[i].buffers);
-    }
+    kill_audio_sink_threads();
+    kill_video_sink_threads();
 
     video_sink_threads.clear();
     audio_sink_threads.clear();
