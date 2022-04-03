@@ -1615,14 +1615,17 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         ImNodes::IsEditorHovered() && ((ImGui::IsKeyReleased(ImGuiKey_A) && !ImGui::GetIO().KeyShift) ||
         ImGui::IsMouseReleased(ImGuiMouseButton_Right));
 
+    static ImVec2 click_pos;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 8.f));
     if (!ImGui::IsAnyItemHovered() && open_popup) {
         ImGui::OpenPopup("Add Filter");
+
+        click_pos = ImGui::GetMousePosOnOpeningCurrentPopup();
+        click_pos.x -= ImGui::GetWindowPos().x;
+        click_pos.y -= ImGui::GetWindowPos().y;
     }
 
     if (ImGui::BeginPopup("Add Filter")) {
-        const ImVec2 click_pos = ImGui::GetMousePosOnOpeningCurrentPopup();
-
         if (ImGui::BeginMenu("Source Filters", filter_graph_is_valid == false)) {
             if (ImGui::BeginMenu("Video")) {
                 const AVFilter *filter = NULL;
