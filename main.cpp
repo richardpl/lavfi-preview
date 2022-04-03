@@ -2912,6 +2912,8 @@ dequeue_render_frames:
 
         av_freep(&node->filter_name);
         av_freep(&node->filter_label);
+        av_freep(&node->filter_options);
+        av_freep(&node->ctx_options);
         if (!node->probe_graph)
             avfilter_free(node->probe);
         avfilter_graph_free(&node->probe_graph);
