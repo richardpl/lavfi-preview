@@ -269,6 +269,7 @@ static void kill_audio_sink_threads()
             audio_sink_threads[i].join();
         }
 
+        av_freep(&sink->label);
         av_freep(&sink->samples);
         alDeleteSources(1, &sink->source);
         alDeleteBuffers(AL_BUFFERS, sink->buffers);
@@ -286,6 +287,7 @@ static void kill_video_sink_threads()
             video_sink_threads[i].join();
         }
 
+        av_freep(&sink->label);
         glDeleteTextures(1, &sink->texture);
     }
 }
