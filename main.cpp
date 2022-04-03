@@ -34,7 +34,7 @@ extern "C" {
 #include "ringbuffer/ringbuffer.c"
 }
 
-#define AL_BUFFERS 64
+#define AL_BUFFERS 16
 
 typedef struct Edge2Pad {
     unsigned node;
@@ -491,7 +491,7 @@ error:
         sink->nb_samples = 512;
         sink->pts = AV_NOPTS_VALUE;
         sink->samples = (float *)av_calloc(sink->nb_samples, sizeof(float));
-        sink->render_ring_size = 1;
+        sink->render_ring_size = 2;
         ring_buffer_init(&sink->consume_frames);
         ring_buffer_init(&sink->render_frames);
         ring_buffer_init(&sink->purge_frames);
