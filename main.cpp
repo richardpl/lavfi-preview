@@ -116,6 +116,8 @@ static void glfw_error_callback(int error, const char* description)
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
+bool full_screen = false;
+bool restart_display = false;
 int filter_graph_nb_threads = 0;
 int filter_graph_auto_convert_flags = 0;
 unsigned focus_buffersink_window = -1;
@@ -1886,6 +1888,29 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("Display", filter_graph_is_valid == false)) {
+                const char *items[] = { "Windowed", "Fullscreen" };
+                const bool values[] = { false, true };
+                const bool old_display = full_screen;
+
+                if (ImGui::BeginCombo("Screen mode", items[full_screen], 0)) {
+                    for (int n = 0; n < IM_ARRAYSIZE(values); n++) {
+                        const bool is_selected = full_screen == values[n];
+
+                        if (ImGui::Selectable(items[n], is_selected))
+                            full_screen = values[n];
+
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                if (old_display != full_screen)
+                    restart_display = true;
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMenu();
         }
 
@@ -2588,8 +2613,16 @@ int main(int, char**)
     //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
     //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 
-    // Create window with graphics context
-    GLFWwindow* window = glfwCreateWindow(width, height, "lavfi-preview", NULL, NULL);
+restart_window:
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    if (monitor) {
+        const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+
+        width = mode->width;
+        height = mode->height;
+    }
+
+    GLFWwindow *window = glfwCreateWindow(width, height, "lavfi-preview", full_screen ? monitor : NULL, NULL);
     if (window == NULL)
         return 1;
     glfwMakeContextCurrent(window);
@@ -2614,7 +2647,6 @@ int main(int, char**)
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
-    //ImGui::StyleColorsClassic();
 
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -2895,6 +2927,9 @@ dequeue_render_frames:
                 clear_ring_buffer(&sink->purge_frames);
             }
         }
+
+        if (restart_display == true)
+            break;
     }
 
     need_filters_reinit = true;
@@ -2938,6 +2973,11 @@ dequeue_render_frames:
     ImGui::DestroyContext();
 
     glfwDestroyWindow(window);
+    if (restart_display == true) {
+        restart_display = false;
+        goto restart_window;
+    }
+
     glfwTerminate();
 
     alcDestroyContext(al_ctx);
