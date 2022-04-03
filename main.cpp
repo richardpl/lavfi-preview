@@ -269,6 +269,7 @@ static void kill_audio_sink_threads()
             audio_sink_threads[i].join();
         }
 
+        av_freep(&sink->samples);
         alDeleteSources(1, &sink->source);
         alDeleteBuffers(AL_BUFFERS, sink->buffers);
     }
