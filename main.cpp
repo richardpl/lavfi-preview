@@ -2189,7 +2189,7 @@ static void show_commands(bool *p_open, bool focused)
         ImGui::End();
         return;
     }
-    if (ImGui::BeginListBox("##Filters", ImVec2(400, 300))) {
+    if (ImGui::BeginListBox("##Filters", ImVec2(-1, -1))) {
         static ImGuiTextFilter imgui_filter;
 
         imgui_filter.Draw();
