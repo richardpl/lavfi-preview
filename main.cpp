@@ -250,7 +250,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
         }
 
         if (paused)
-            av_usleep(10000);
+            av_usleep(100000);
     }
 
     clear_ring_buffer(&sink->consume_frames);
