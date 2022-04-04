@@ -156,6 +156,7 @@ int height = 720;
 bool filter_graph_is_valid = false;
 AVFilterGraph *filter_graph = NULL;
 char *graphdump_text = NULL;
+float audio_sample_range[2] = { 1.f, 1.f };
 float audio_window_size[2] = { 0, 100 };
 
 ImNodesEditorContext *node_editor_context;
@@ -938,7 +939,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
         focus_abuffersink_window = sink->id;
 
     ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
-    ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -1.0f, 1.0f, window_size);
+    ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -audio_sample_range[0], audio_sample_range[1], window_size);
     ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
     ImGui::Text("SPEED: %.5f", sink->speed);
     alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
@@ -2014,6 +2015,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             }
 
             if (ImGui::BeginMenu("Audio Outputs")) {
+                ImGui::DragFloat2("Sample Range", audio_sample_range, 0.01f, 1.f, 8.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                 ImGui::InputFloat2("Window Size", audio_window_size);
                 if (ImGui::DragFloat3("Listener Position", listener_position, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
                     alListenerfv(AL_POSITION, listener_position);
