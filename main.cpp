@@ -456,6 +456,12 @@ static int filters_setup()
             goto error;
         }
 
+        if (y_out == true) {
+            std::swap(x, y);
+            std::swap(x_pad, y_pad);
+            std::swap(x_out, y_out);
+        }
+
         if ((ret = avfilter_link(filter_nodes[x].ctx, x_pad, filter_nodes[y].ctx, y_pad)) < 0) {
             av_log(NULL, AV_LOG_ERROR, "Cannot link filters: %s(%d|%d) <-> %s(%d|%d)\n",
                    filter_nodes[x].filter_label, x_pad, x_out, filter_nodes[y].filter_label, y_pad, y_out);
