@@ -2998,9 +2998,17 @@ dequeue_consume_frames:
                 if (play_frame) {
                     const float *src = (const float *)play_frame->extended_data[0];
 
-                    if (src) {
+                    if (src && play_frame->nb_samples > 0) {
+                        float min = FLT_MAX, max = -FLT_MAX;
+
+                        for (int n = 0; n < play_frame->nb_samples; n++) {
+                            max = std::max(max, src[n]);
+                            min = std::min(min, src[n]);
+                        }
+
                         sink->pts = play_frame->pts;
-                        sink->samples[sink->sample_index++] = src[0];
+                        sink->samples[sink->sample_index++] = max;
+                        sink->samples[sink->sample_index++] = min;
                         if (sink->sample_index >= sink->nb_samples)
                             sink->sample_index = 0;
                     }
