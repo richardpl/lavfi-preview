@@ -1914,22 +1914,22 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::EndMenu();
             }
 
-            ImGui::EndMenu();
-        }
+            if (ImGui::BeginMenu("Visual Color Style")) {
+                if (ImGui::MenuItem("Classic")) {
+                    ImGui::StyleColorsClassic();
+                    ImNodes::StyleColorsClassic();
+                }
+                if (ImGui::MenuItem("Dark")) {
+                    ImGui::StyleColorsDark();
+                    ImNodes::StyleColorsDark();
+                }
+                if (ImGui::MenuItem("Light")) {
+                    ImGui::StyleColorsLight();
+                    ImNodes::StyleColorsLight();
+                }
+                ImGui::EndMenu();
+            }
 
-        if (ImGui::BeginMenu("Visual Color Style")) {
-            if (ImGui::MenuItem("Classic")) {
-                ImGui::StyleColorsClassic();
-                ImNodes::StyleColorsClassic();
-            }
-            if (ImGui::MenuItem("Dark")) {
-                ImGui::StyleColorsDark();
-                ImNodes::StyleColorsDark();
-            }
-            if (ImGui::MenuItem("Light")) {
-                ImGui::StyleColorsLight();
-                ImNodes::StyleColorsLight();
-            }
             ImGui::EndMenu();
         }
 
