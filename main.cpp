@@ -669,6 +669,10 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("F");
     ImGui::Separator();
+    ImGui::Text("Toggle zooming:");
+    ImGui::SameLine(align);
+    ImGui::Text("Z");
+    ImGui::Separator();
     ImGui::Text("Framestep forward:");
     ImGui::SameLine(align);
     ImGui::Text("'.'");
@@ -870,17 +874,18 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     if (sink->show_osd)
         draw_osd(&sink->show_osd, sink->pts, sink);
 
-    if (ImGui::IsItemHovered() && ImGui::IsKeyDown(ImGuiKey_Z)) {
+    if ((ImGui::IsItemHovered() || sink->fullscreen) && ImGui::IsKeyDown(ImGuiKey_Z)) {
         ImGuiIO& io = ImGui::GetIO();
-        ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImVec2 size = ImGui::GetWindowSize();
+        ImVec2 pos = ImGui::GetWindowPos();
         ImGui::BeginTooltip();
         float my_tex_w = (float)width;
         float my_tex_h = (float)height;
         ImVec4 tint_col   = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // No tint
         ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
         float region_sz = 32.0f;
-        float region_x = io.MousePos.x - pos.x - region_sz * 0.5f;
-        float region_y = io.MousePos.y - pos.y - region_sz * 0.5f;
+        float region_x = (io.MousePos.x - pos.x - region_sz * 0.5f) * width  / size.x;
+        float region_y = (io.MousePos.y - pos.y - region_sz * 0.5f) * height / size.y;
         static float zoom = 4.f;
         zoom = av_clipf(zoom + io.MouseWheel * 0.3f, 1.5f, 12.f);
         if (region_x < 0.0f) { region_x = 0.0f; }
