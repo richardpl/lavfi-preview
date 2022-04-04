@@ -130,6 +130,8 @@ bool show_filtergraph_editor_window = true;
 bool show_mini_map = true;
 int mini_map_location = ImNodesMiniMapLocation_BottomRight;
 
+char *import_script_file_name = NULL;
+
 bool need_filters_reinit = true;
 bool framestep = false;
 bool paused = true;
@@ -409,16 +411,15 @@ static int filters_setup()
         av_freep(&filter_nodes[i].ctx_options);
         ret = av_opt_serialize(filter_nodes[i].probe, 0, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
                                &filter_nodes[i].ctx_options, '=', ':');
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot serialize filter ctx options.\n");
-            goto error;
-        }
-
-        av_freep(&filter_nodes[i].filter_options);
-        ret = av_opt_serialize(filter_nodes[i].probe->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
-                               &filter_nodes[i].filter_options, '=', ':');
         if (ret < 0)
-            av_log(NULL, AV_LOG_WARNING, "Cannot serialize filter private options.\n");
+            av_log(NULL, AV_LOG_WARNING, "Cannot serialize filter ctx options.\n");
+
+        if (filter_nodes[i].filter_options == NULL && filter_nodes[i].probe) {
+            ret = av_opt_serialize(filter_nodes[i].probe->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
+                                   &filter_nodes[i].filter_options, '=', ':');
+            if (ret < 0)
+                av_log(NULL, AV_LOG_WARNING, "Cannot serialize filter private options.\n");
+        }
 
         ret = av_opt_set_from_string(filter_ctx, filter_nodes[i].ctx_options, NULL, "=", ":");
         if (ret < 0) {
@@ -445,9 +446,8 @@ static int filters_setup()
         unsigned y = edge2pad[p.second].node;
         unsigned x_pad = edge2pad[p.first].pad_index;
         unsigned y_pad = edge2pad[p.second].pad_index;
-
-        if (!edge2pad[p.first].is_output)
-            ;
+        bool x_out = edge2pad[p.first].is_output;
+        bool y_out = edge2pad[p.second].is_output;
 
         if (x >= filter_nodes.size() || y >= filter_nodes.size()) {
             av_log(NULL, AV_LOG_ERROR, "Cannot link filters: %s(%d) <-> %s(%d), index (%d,%d) out of range (%ld,%ld)\n",
@@ -457,8 +457,8 @@ static int filters_setup()
         }
 
         if ((ret = avfilter_link(filter_nodes[x].ctx, x_pad, filter_nodes[y].ctx, y_pad)) < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot link filters: %s(%d) <-> %s(%d)\n",
-                   filter_nodes[x].filter_label, x_pad, filter_nodes[y].filter_label, y_pad);
+            av_log(NULL, AV_LOG_ERROR, "Cannot link filters: %s(%d|%d) <-> %s(%d|%d)\n",
+                   filter_nodes[x].filter_label, x_pad, x_out, filter_nodes[y].filter_label, y_pad, y_out);
             goto error;
         }
     }
@@ -1498,6 +1498,173 @@ static void draw_node_options(FilterNode *node)
     ImGui::EndListBox();
 }
 
+static void import_filter_graph(const char *file_name)
+{
+    FILE *file = av_fopen_utf8(file_name, "r");
+    std::vector<char *> filter_opts;
+    std::vector<std::pair <int, int>> labels;
+    std::vector<std::pair <int, int>> filters;
+    std::vector<std::pair <unsigned, unsigned>> pads;
+    std::vector<int> separators;
+    std::vector<int> filter2edge;
+    std::vector<int> label2edge;
+    int edge, pos = 0;
+    int filter_start = -1;
+    int filter_stop = 0;
+    int label_start = 0;
+    int label_stop = 0;
+    int in_pad_count = -1;
+    int out_pad_count = -1;
+    AVBPrint buf;
+    char c;
+
+    if (!file) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot open '%s' script.\n", file_name);
+        return;
+    }
+
+    av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
+
+    while ((c = fgetc(file))) {
+        if (c != EOF)
+            av_bprintf(&buf, "%c", c);
+
+        if (c == ';' || c == EOF)
+            separators.push_back(pos);
+
+        if (c == '[' && label_start == 0 && label_stop == 0) {
+            if (filter_start >= 0) {
+                filter_stop = pos;
+                if (filter_stop - filter_start > 1)
+                    filters.push_back(std::make_pair(filter_start, filter_stop));
+                filter_start = -1;
+                filter_stop = 0;
+            }
+            label_start = pos + 1;
+        } else if (c == ']' && label_start > 0 && label_stop == 0) {
+            label_stop = pos;
+            labels.push_back(std::make_pair(label_start, label_stop));
+            label_start = label_stop = 0;
+        } else if ((c == ';' || c == EOF) && filter_start >= 0) {
+            filter_stop = pos - (c == EOF);
+            if (filter_stop - filter_start > 1)
+                filters.push_back(std::make_pair(filter_start, filter_stop));
+            filter_start = -1;
+            filter_stop = 0;
+        } else if (filter_start >= 0) {
+        } else if (label_stop == 0 && label_start == 0) {
+            filter_start = pos + (c == ';');
+        }
+
+        pos++;
+        if (c == EOF)
+            break;
+    }
+
+    unsigned cur_label = 0;
+    unsigned cur_filter_idx = 0;
+    int label, filter, separator;
+
+    if (separators.size() != filters.size())
+        goto error;
+
+    while (cur_label < labels.size()) {
+        label = labels[cur_label].second;
+
+        if (in_pad_count == -1 && out_pad_count == -1) {
+            filter = filters[cur_filter_idx].first;
+            separator = separators[cur_filter_idx++];
+            in_pad_count = out_pad_count = 0;
+        }
+
+        if (label > separator) {
+            pads.push_back(std::make_pair(in_pad_count, out_pad_count));
+            in_pad_count = out_pad_count = -1;
+        } else if (label < filter) {
+            in_pad_count++;
+            cur_label++;
+        } else if (label < separator) {
+            out_pad_count++;
+            cur_label++;
+        }
+    }
+
+    if (in_pad_count >= 0 && out_pad_count >= 0)
+        pads.push_back(std::make_pair(in_pad_count, out_pad_count));
+
+    edge = 0;
+    for (unsigned i = 0; i < filters.size(); i++) {
+        filter2edge.push_back(edge++);
+        edge2pad.push_back(Edge2Pad { i, 0, 0 });
+        for (unsigned j = 0; j < pads[i].first; j++) {
+            label2edge.push_back(edge++);
+            edge2pad.push_back(Edge2Pad { i, 0, j });
+        }
+        for (unsigned j = 0; j < pads[i].second; j++) {
+            label2edge.push_back(edge++);
+            edge2pad.push_back(Edge2Pad { i, 1, j });
+        }
+    }
+
+    for (unsigned i = 0; i < filters.size(); i++) {
+        FilterNode node;
+        std::pair <int, int> p = filters[i];
+        char *opts = NULL;
+
+        for (int j = p.first; j < p.second; j++) {
+            if (buf.str[j] == '=') {
+                opts = av_asprintf("%.*s", p.second - j-1, buf.str + j+1);
+                p.second = j;
+                break;
+            }
+        }
+
+        filter_opts.push_back(opts);
+
+        node.id = filter_nodes.size();
+        node.edge = filter2edge[i];
+        node.filter_name = av_asprintf("%.*s", p.second - p.first, buf.str + p.first);
+        node.filter = avfilter_get_by_name(node.filter_name);
+        node.filter_label = av_asprintf("%s%d", node.filter_name, node.id);
+        node.filter_options = opts;
+        node.ctx_options = NULL;
+        node.probe_graph = NULL;
+        node.probe = NULL;
+        node.ctx = NULL;
+        node.pos = ImVec2(i * 200, 0);
+        node.colapsed = false;
+        node.set_pos = true;
+
+        filter_nodes.push_back(node);
+    }
+
+    for (unsigned i = 0; i < labels.size(); i++) {
+        std::pair <int, int> p = labels[i];
+
+        for (unsigned j = i + 1; j < labels.size(); j++) {
+            std::pair <int, int> r = labels[j];
+
+            if ((p.second - p.first) != (r.second - r.first))
+                continue;
+
+            if (memcmp(buf.str + p.first, buf.str + r.first, p.second - p.first))
+                continue;
+
+            if (edge2pad[label2edge[i]].is_output == edge2pad[label2edge[j]].is_output)
+                continue;
+
+            filter_links.push_back(std::make_pair(label2edge[i], label2edge[j]));
+        }
+    }
+
+error:
+    av_bprint_finalize(&buf, NULL);
+
+    fclose(file);
+
+    need_filters_reinit = true;
+}
+
 static void export_filter_graph(char **out, size_t *out_size)
 {
     std::vector<bool> visited;
@@ -1954,6 +2121,23 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                         out_size = 0;
                         memset(file_name, 0, sizeof(file_name));
                     }
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Import FilterGraph", filter_graph_is_valid == false &&
+                             filter_links.size() == 0 &&
+                             filter_nodes.size() == 0)) {
+            if (ImGui::BeginMenu("Load Script")) {
+                static char file_name[1024] = { 0 };
+
+                ImGui::InputText("File name:", file_name, sizeof(file_name) - 1);
+                if (strlen(file_name) > 0 && ImGui::Button("Load")) {
+                    av_freep(&import_script_file_name);
+                    import_script_file_name = av_asprintf("%s", file_name);
+                    memset(file_name, 0, sizeof(file_name));
                 }
                 ImGui::EndMenu();
             }
@@ -2704,6 +2888,11 @@ restart_window:
 
                 need_filters_reinit = false;
             }
+        }
+
+        if (import_script_file_name != NULL) {
+            import_filter_graph(import_script_file_name);
+            av_freep(&import_script_file_name);
         }
 
         filters_setup();
