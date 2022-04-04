@@ -87,6 +87,7 @@ typedef struct BufferSink {
     int64_t delta;
     int64_t qpts;
     int64_t pts;
+    int frame_nb_samples;
 
     float *samples;
     unsigned nb_samples;
@@ -941,6 +942,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
     ImGui::Text("SPEED: %.5f", sink->speed);
     alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+    ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
     ImGui::Text("QUEUE: %d", queued);
     if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
         alSourcef(sink->source, AL_GAIN, sink->gain);
@@ -3007,6 +3009,7 @@ dequeue_consume_frames:
                         }
 
                         sink->pts = play_frame->pts;
+                        sink->frame_nb_samples = play_frame->nb_samples;
                         sink->samples[sink->sample_index++] = max;
                         sink->samples[sink->sample_index++] = min;
                         if (sink->sample_index >= sink->nb_samples)
