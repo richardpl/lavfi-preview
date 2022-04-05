@@ -28,6 +28,7 @@ extern "C" {
 #include <libavutil/dict.h>
 #include <libavutil/opt.h>
 #include <libavutil/parseutils.h>
+#include <libavutil/pixdesc.h>
 #include <libavutil/time.h>
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
@@ -1400,6 +1401,23 @@ static void draw_options(FilterNode *node, void *av_class, bool filter_private)
                 }
                 break;
             case AV_OPT_TYPE_PIXEL_FMT:
+                if (ImGui::BeginCombo("pixel format", 0, 0)) {
+                    const AVPixFmtDescriptor *pix_desc = NULL;
+                    AVPixelFormat fmt;
+
+                    av_opt_get_pixel_fmt(av_class, opt->name, 0, &fmt);
+                    while ((pix_desc = av_pix_fmt_desc_next(pix_desc))) {
+                        enum AVPixelFormat pix_fmt = av_pix_fmt_desc_get_id(pix_desc);
+                        const bool is_selected = av_pix_fmt_desc_get_id(pix_desc) == fmt;
+
+                        if (ImGui::Selectable(pix_desc->name, is_selected))
+                            av_opt_set_pixel_fmt(av_class, opt->name, pix_fmt, 0);
+
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
                 break;
             case AV_OPT_TYPE_SAMPLE_FMT:
                 break;
