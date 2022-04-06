@@ -2594,7 +2594,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     }
 
     const int links_selected = ImNodes::NumSelectedLinks();
-    if (links_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X) && filter_links.size() > 0) {
+    if (!ImGui::IsItemHovered() && links_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X) && filter_links.size() > 0) {
         static std::vector<int> selected_links;
 
         selected_links.resize(static_cast<size_t>(links_selected));
@@ -2612,7 +2612,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     }
 
     const int nodes_selected = ImNodes::NumSelectedNodes();
-    if (nodes_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X) && ImGui::GetIO().KeyShift) {
+    if (nodes_selected > 0 && !ImGui::IsItemHovered() && ImGui::IsKeyReleased(ImGuiKey_X) && ImGui::GetIO().KeyShift) {
         static std::vector<int> selected_nodes;
 
         selected_nodes.resize(static_cast<size_t>(nodes_selected));
@@ -2688,7 +2688,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         } while (i--);
     }
 
-    if (ImGui::IsKeyReleased(ImGuiKey_A) && ImGui::GetIO().KeyShift) {
+    if (!ImGui::IsItemHovered() && ImGui::IsKeyReleased(ImGuiKey_A) && ImGui::GetIO().KeyShift) {
         const AVFilter *buffersink  = avfilter_get_by_name("buffersink");
         const AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
         std::vector<int> unconnected_edges;
