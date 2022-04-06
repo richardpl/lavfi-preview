@@ -2486,25 +2486,246 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     ImGui::End();
 }
 
-static void show_commands(bool *p_open, bool focused)
+static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigned *toggle_filter,
+                                 bool is_opened, bool *clean_storage)
+{
+    if (ctx->filter->process_command) {
+        if (ImGui::TreeNode("Commands")) {
+            std::vector<OptStorage> opt_storage = filter_nodes[n].opt_storage;
+            const AVOption *opt = NULL;
+            unsigned opt_index = 0;
+
+            if (is_opened && *clean_storage) {
+                opt_storage.clear();
+                *clean_storage = false;
+            }
+
+            while ((opt = av_opt_next(ctx->priv, opt))) {
+                double min, max;
+                void *ptr;
+
+                if (!(opt->flags & AV_OPT_FLAG_RUNTIME_PARAM))
+                    continue;
+
+                if (!query_ranges((void *)&ctx->filter->priv_class, opt, &min, &max))
+                    continue;
+
+                ptr = av_opt_ptr(ctx->filter->priv_class, ctx->priv, opt->name);
+                if (!ptr)
+                    continue;
+
+                ImGui::PushID(opt_index);
+                switch (opt->type) {
+                    case AV_OPT_TYPE_FLAGS:
+                    case AV_OPT_TYPE_BOOL:
+                    case AV_OPT_TYPE_INT:
+                    case AV_OPT_TYPE_DOUBLE:
+                    case AV_OPT_TYPE_FLOAT:
+                    case AV_OPT_TYPE_INT64:
+                    case AV_OPT_TYPE_UINT64:
+                    case AV_OPT_TYPE_STRING:
+                        if (ImGui::Button("Send")) {
+                            char arg[1024] = { 0 };
+
+                            switch (opt->type) {
+                                case AV_OPT_TYPE_FLAGS:
+                                case AV_OPT_TYPE_BOOL:
+                                case AV_OPT_TYPE_INT:
+                                    snprintf(arg, sizeof(arg) - 1, "%d", opt_storage[opt_index].u.i32);
+                                    break;
+                                case AV_OPT_TYPE_INT64:
+                                    snprintf(arg, sizeof(arg) - 1, "%ld", opt_storage[opt_index].u.i64);
+                                    break;
+                                case AV_OPT_TYPE_UINT64:
+                                    snprintf(arg, sizeof(arg) - 1, "%lu", opt_storage[opt_index].u.u64);
+                                    break;
+                                case AV_OPT_TYPE_DOUBLE:
+                                    snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.dbl);
+                                    break;
+                                case AV_OPT_TYPE_FLOAT:
+                                    snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.flt);
+                                    break;
+                                case AV_OPT_TYPE_STRING:
+                                    snprintf(arg, strlen(opt_storage[opt_index].u.str) + 1, "%s", opt_storage[opt_index].u.str);
+                                    break;
+                                default:
+                                    break;
+                            }
+
+                            avfilter_graph_send_command(filter_graph, ctx->name, opt->name, arg, NULL, 0, 0);
+                        }
+                        ImGui::SameLine();
+                    default:
+                        break;
+                }
+
+                switch (opt->type) {
+                    case AV_OPT_TYPE_FLAGS:
+                    case AV_OPT_TYPE_BOOL:
+                        {
+                            int value = *(int *)ptr;
+                            int imin = min;
+                            int imax = max;
+
+                            if (opt_storage.size() <= opt_index) {
+                                OptStorage new_opt;
+
+                                new_opt.u.i32 = *(int *)ptr;
+                                opt_storage.push_back(new_opt);
+                            }
+
+                            value = opt_storage[opt_index].u.i32;
+                            if (ImGui::SliderInt(opt->name, &value, imin, imax)) {
+                                opt_storage[opt_index].u.i32 = value;
+                            }
+                        }
+                        break;
+                    case AV_OPT_TYPE_INT:
+                        {
+                            int value = *(int *)ptr;
+                            int imin = min;
+                            int imax = max;
+
+                            if (opt_storage.size() <= opt_index) {
+                                OptStorage new_opt;
+
+                                new_opt.u.i32 = *(int *)ptr;
+                                opt_storage.push_back(new_opt);
+                            }
+                            value = opt_storage[opt_index].u.i32;
+                            if (imax < INT_MAX/2 && imin > INT_MIN/2) {
+                                if (ImGui::SliderInt(opt->name, &value, imin, imax)) {
+                                    opt_storage[opt_index].u.i32 = value;
+                                }
+                            } else {
+                                if (ImGui::DragInt(opt->name, &value, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
+                                    opt_storage[opt_index].u.i32 = value;
+                                }
+                            }
+                        }
+                        break;
+                    case AV_OPT_TYPE_INT64:
+                        {
+                            int64_t value = *(int64_t *)ptr;
+                            int64_t imin = min;
+                            int64_t imax = max;
+
+                            if (opt_storage.size() <= opt_index) {
+                                OptStorage new_opt;
+
+                                new_opt.u.i64 = *(int64_t *)ptr;
+                                opt_storage.push_back(new_opt);
+                            }
+                            value = opt_storage[opt_index].u.i64;
+                            if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &imin, &imax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
+                                opt_storage[opt_index].u.i64 = value;
+                            }
+                        }
+                        break;
+                    case AV_OPT_TYPE_UINT64:
+                        {
+                            uint64_t value = *(uint64_t *)ptr;
+                            uint64_t umin = min;
+                            uint64_t umax = max;
+
+                            if (opt_storage.size() <= opt_index) {
+                                OptStorage new_opt;
+
+                                new_opt.u.u64 = *(uint64_t *)ptr;
+                                opt_storage.push_back(new_opt);
+                            }
+                            value = opt_storage[opt_index].u.u64;
+                            if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
+                                opt_storage[opt_index].u.u64 = value;
+                            }
+                        }
+                        break;
+                    case AV_OPT_TYPE_DOUBLE:
+                        {
+                            double value = *(double *)ptr;
+
+                            if (opt_storage.size() <= opt_index) {
+                                OptStorage new_opt;
+
+                                new_opt.u.dbl = *(double *)ptr;
+                                opt_storage.push_back(new_opt);
+                            }
+                            value = opt_storage[opt_index].u.dbl;
+                            if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, 1.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                opt_storage[opt_index].u.dbl = value;
+                            }
+                        }
+                        break;
+                    case AV_OPT_TYPE_FLOAT:
+                        {
+                            float fmax = max;
+                            float fmin = min;
+                            float value;
+
+                            if (opt_storage.size() <= opt_index) {
+                                OptStorage new_opt;
+
+                                new_opt.u.flt = *(float *)ptr;
+                                opt_storage.push_back(new_opt);
+                            }
+                            value = opt_storage[opt_index].u.flt;
+                            if (ImGui::DragFloat(opt->name, &value, 1.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp))
+                                opt_storage[opt_index].u.flt = value;
+                        }
+                        break;
+                    case AV_OPT_TYPE_STRING:
+                        {
+                            char string[1024] = { 0 };
+                            uint8_t *str = NULL;
+
+                            if (opt_storage.size() <= opt_index) {
+                                OptStorage new_opt;
+
+                                av_opt_get(ctx->priv, opt->name, 0, &str);
+                                new_opt.u.str = (char *)str;
+                                opt_storage.push_back(new_opt);
+                            }
+
+                            if (opt_storage[opt_index].u.str)
+                                memcpy(string, opt_storage[opt_index].u.str, std::min(sizeof(string) - 1, strlen(opt_storage[opt_index].u.str)));
+                            if (ImGui::InputText(opt->name, string, sizeof(string) - 1)) {
+                                av_freep(&opt_storage[opt_index].u.str);
+                                opt_storage[opt_index].u.str = av_strdup(string);
+                            }
+                        }
+                        break;
+                    default:
+                        break;
+                }
+
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", opt->help);
+
+                opt_index++;
+
+                ImGui::PopID();
+            }
+
+            filter_nodes[n].opt_storage = opt_storage;
+
+            ImGui::TreePop();
+        }
+    }
+
+    if (ctx->filter->flags & AVFILTER_FLAG_SUPPORT_TIMELINE) {
+        if (ImGui::TreeNode("Timeline")) {
+            if (ImGui::Button(ctx->is_disabled ? "Enable" : "Disable"))
+                *toggle_filter = n;
+            ImGui::TreePop();
+        }
+    }
+}
+
+static void draw_filters_commands(unsigned *toggle_filter)
 {
     static unsigned selected_filter = -1;
-    static unsigned toggle_filter = UINT_MAX;
 
-    if (filter_graph_is_valid == false || (
-        ((buffer_sinks.size() != mutexes.size() ||
-          buffer_sinks.size() == 0)) &&
-        ((abuffer_sinks.size() != amutexes.size() ||
-          abuffer_sinks.size() == 0))))
-        return;
-
-    if (focused)
-        ImGui::SetNextWindowFocus();
-    if (!ImGui::Begin("Filter Commands", p_open, 0)) {
-        ImGui::End();
-        return;
-    }
-    if (ImGui::BeginListBox("##Filters", ImVec2(-1, -1))) {
+    if (ImGui::BeginListBox("##Commands Box", ImVec2(-1, -1))) {
         static ImGuiTextFilter imgui_filter;
 
         imgui_filter.Draw();
@@ -2536,243 +2757,34 @@ static void show_commands(bool *p_open, bool focused)
                 is_opened = true;
             }
 
-            if (is_opened && selected_filter == n) {
-                if (ctx->filter->process_command) {
-                    if (ImGui::TreeNode("Commands")) {
-                        std::vector<OptStorage> opt_storage = filter_nodes[n].opt_storage;
-                        const AVOption *opt = NULL;
-                        unsigned opt_index = 0;
-
-                        if (is_opened && clean_storage) {
-                            opt_storage.clear();
-                            clean_storage = false;
-                        }
-
-                        while ((opt = av_opt_next(ctx->priv, opt))) {
-                            double min, max;
-                            void *ptr;
-
-                            if (!(opt->flags & AV_OPT_FLAG_RUNTIME_PARAM))
-                                continue;
-
-                            if (!query_ranges((void *)&ctx->filter->priv_class, opt, &min, &max))
-                                continue;
-
-                            ptr = av_opt_ptr(ctx->filter->priv_class, ctx->priv, opt->name);
-                            if (!ptr)
-                                continue;
-
-                            ImGui::PushID(opt_index);
-                            switch (opt->type) {
-                                case AV_OPT_TYPE_FLAGS:
-                                case AV_OPT_TYPE_BOOL:
-                                case AV_OPT_TYPE_INT:
-                                case AV_OPT_TYPE_DOUBLE:
-                                case AV_OPT_TYPE_FLOAT:
-                                case AV_OPT_TYPE_INT64:
-                                case AV_OPT_TYPE_UINT64:
-                                case AV_OPT_TYPE_STRING:
-                                    if (ImGui::Button("Send")) {
-                                        char arg[1024] = { 0 };
-
-                                        switch (opt->type) {
-                                            case AV_OPT_TYPE_FLAGS:
-                                            case AV_OPT_TYPE_BOOL:
-                                            case AV_OPT_TYPE_INT:
-                                                snprintf(arg, sizeof(arg) - 1, "%d", opt_storage[opt_index].u.i32);
-                                                break;
-                                            case AV_OPT_TYPE_INT64:
-                                                snprintf(arg, sizeof(arg) - 1, "%ld", opt_storage[opt_index].u.i64);
-                                                break;
-                                            case AV_OPT_TYPE_UINT64:
-                                                snprintf(arg, sizeof(arg) - 1, "%lu", opt_storage[opt_index].u.u64);
-                                                break;
-                                            case AV_OPT_TYPE_DOUBLE:
-                                                snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.dbl);
-                                                break;
-                                            case AV_OPT_TYPE_FLOAT:
-                                                snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.flt);
-                                                break;
-                                            case AV_OPT_TYPE_STRING:
-                                                snprintf(arg, strlen(opt_storage[opt_index].u.str) + 1, "%s", opt_storage[opt_index].u.str);
-                                                break;
-                                            default:
-                                                break;
-                                        }
-
-                                        avfilter_graph_send_command(filter_graph, ctx->name, opt->name, arg, NULL, 0, 0);
-                                    }
-                                    ImGui::SameLine();
-                                default:
-                                    break;
-                            }
-
-                            switch (opt->type) {
-                                case AV_OPT_TYPE_FLAGS:
-                                case AV_OPT_TYPE_BOOL:
-                                    {
-                                        int value = *(int *)ptr;
-                                        int imin = min;
-                                        int imax = max;
-
-                                        if (opt_storage.size() <= opt_index) {
-                                            OptStorage new_opt;
-
-                                            new_opt.u.i32 = *(int *)ptr;
-                                            opt_storage.push_back(new_opt);
-                                        }
-
-                                        value = opt_storage[opt_index].u.i32;
-                                        if (ImGui::SliderInt(opt->name, &value, imin, imax)) {
-                                            opt_storage[opt_index].u.i32 = value;
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_INT:
-                                    {
-                                        int value = *(int *)ptr;
-                                        int imin = min;
-                                        int imax = max;
-
-                                        if (opt_storage.size() <= opt_index) {
-                                            OptStorage new_opt;
-
-                                            new_opt.u.i32 = *(int *)ptr;
-                                            opt_storage.push_back(new_opt);
-                                        }
-                                        value = opt_storage[opt_index].u.i32;
-                                        if (imax < INT_MAX/2 && imin > INT_MIN/2) {
-                                            if (ImGui::SliderInt(opt->name, &value, imin, imax)) {
-                                                opt_storage[opt_index].u.i32 = value;
-                                            }
-                                        } else {
-                                            if (ImGui::DragInt(opt->name, &value, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
-                                                opt_storage[opt_index].u.i32 = value;
-                                            }
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_INT64:
-                                    {
-                                        int64_t value = *(int64_t *)ptr;
-                                        int64_t imin = min;
-                                        int64_t imax = max;
-
-                                        if (opt_storage.size() <= opt_index) {
-                                            OptStorage new_opt;
-
-                                            new_opt.u.i64 = *(int64_t *)ptr;
-                                            opt_storage.push_back(new_opt);
-                                        }
-                                        value = opt_storage[opt_index].u.i64;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &imin, &imax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
-                                            opt_storage[opt_index].u.i64 = value;
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_UINT64:
-                                    {
-                                        uint64_t value = *(uint64_t *)ptr;
-                                        uint64_t umin = min;
-                                        uint64_t umax = max;
-
-                                        if (opt_storage.size() <= opt_index) {
-                                            OptStorage new_opt;
-
-                                            new_opt.u.u64 = *(uint64_t *)ptr;
-                                            opt_storage.push_back(new_opt);
-                                        }
-                                        value = opt_storage[opt_index].u.u64;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
-                                            opt_storage[opt_index].u.u64 = value;
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_DOUBLE:
-                                    {
-                                        double value = *(double *)ptr;
-
-                                        if (opt_storage.size() <= opt_index) {
-                                            OptStorage new_opt;
-
-                                            new_opt.u.dbl = *(double *)ptr;
-                                            opt_storage.push_back(new_opt);
-                                        }
-                                        value = opt_storage[opt_index].u.dbl;
-                                        if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, 1.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                                            opt_storage[opt_index].u.dbl = value;
-                                        }
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_FLOAT:
-                                    {
-                                        float fmax = max;
-                                        float fmin = min;
-                                        float value;
-
-                                        if (opt_storage.size() <= opt_index) {
-                                            OptStorage new_opt;
-
-                                            new_opt.u.flt = *(float *)ptr;
-                                            opt_storage.push_back(new_opt);
-                                        }
-                                        value = opt_storage[opt_index].u.flt;
-                                        if (ImGui::DragFloat(opt->name, &value, 1.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp))
-                                            opt_storage[opt_index].u.flt = value;
-                                    }
-                                    break;
-                                case AV_OPT_TYPE_STRING:
-                                    {
-                                        char string[1024] = { 0 };
-                                        uint8_t *str = NULL;
-
-                                        if (opt_storage.size() <= opt_index) {
-                                            OptStorage new_opt;
-
-                                            av_opt_get(ctx->priv, opt->name, 0, &str);
-                                            new_opt.u.str = (char *)str;
-                                            opt_storage.push_back(new_opt);
-                                        }
-
-                                        if (opt_storage[opt_index].u.str)
-                                            memcpy(string, opt_storage[opt_index].u.str, std::min(sizeof(string) - 1, strlen(opt_storage[opt_index].u.str)));
-                                        if (ImGui::InputText(opt->name, string, sizeof(string) - 1)) {
-                                            av_freep(&opt_storage[opt_index].u.str);
-                                            opt_storage[opt_index].u.str = av_strdup(string);
-                                        }
-                                    }
-                                    break;
-                                default:
-                                    break;
-                            }
-
-                            if (ImGui::IsItemHovered())
-                                ImGui::SetTooltip("%s", opt->help);
-
-                            opt_index++;
-
-                            ImGui::PopID();
-                        }
-
-                        filter_nodes[n].opt_storage = opt_storage;
-
-                        ImGui::TreePop();
-                    }
-                }
-
-                if (ctx->filter->flags & AVFILTER_FLAG_SUPPORT_TIMELINE) {
-                    if (ImGui::TreeNode("Timeline")) {
-                        if (ImGui::Button(ctx->is_disabled ? "Enable" : "Disable")) {
-                            toggle_filter = n;
-                        }
-                        ImGui::TreePop();
-                    }
-                }
-            }
+            if (is_opened && selected_filter == n)
+                draw_filter_commands(ctx, n, toggle_filter, is_opened, &clean_storage);
         }
 
         ImGui::EndListBox();
     }
+}
+
+static void show_commands(bool *p_open, bool focused)
+{
+    static unsigned toggle_filter = UINT_MAX;
+
+    if (filter_graph_is_valid == false || (
+        ((buffer_sinks.size() != mutexes.size() ||
+          buffer_sinks.size() == 0)) &&
+        ((abuffer_sinks.size() != amutexes.size() ||
+          abuffer_sinks.size() == 0))))
+        return;
+
+    if (focused)
+        ImGui::SetNextWindowFocus();
+    if (!ImGui::Begin("Filter Commands", p_open, 0)) {
+        ImGui::End();
+        return;
+    }
+
+    draw_filters_commands(&toggle_filter);
+
     ImGui::End();
 
     if (toggle_filter < UINT_MAX) {
