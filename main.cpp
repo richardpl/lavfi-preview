@@ -1166,7 +1166,7 @@ static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
         ImGui::SetTooltip("%s", filter->description);
 }
 
-static void draw_options(FilterNode *node, void *av_class, bool filter_private)
+static void draw_options(FilterNode *node, void *av_class)
 {
     const AVOption *opt = NULL;
     const void *obj = av_class;
@@ -1544,9 +1544,9 @@ static void draw_node_options(FilterNode *node)
 
     if (!ImGui::BeginListBox("##List of Filter Options"))
         return;
-    draw_options(node, av_class_priv, 1);
+    draw_options(node, av_class_priv);
     ImGui::NewLine();
-    draw_options(node, av_class, 0);
+    draw_options(node, av_class);
 
     ImGui::EndListBox();
 }
