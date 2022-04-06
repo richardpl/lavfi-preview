@@ -417,10 +417,12 @@ static int filters_setup()
         filter_nodes[i].ctx = filter_ctx;
 
         av_freep(&filter_nodes[i].ctx_options);
-        ret = av_opt_serialize(filter_nodes[i].probe, 0, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
-                               &filter_nodes[i].ctx_options, '=', ':');
-        if (ret < 0)
-            av_log(NULL, AV_LOG_WARNING, "Cannot serialize filter ctx options.\n");
+        if (filter_nodes[i].ctx_options == NULL && filter_nodes[i].probe) {
+            ret = av_opt_serialize(filter_nodes[i].probe, 0, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
+                                   &filter_nodes[i].ctx_options, '=', ':');
+            if (ret < 0)
+                av_log(NULL, AV_LOG_WARNING, "Cannot serialize filter ctx options.\n");
+        }
 
         if (filter_nodes[i].filter_options == NULL && filter_nodes[i].probe) {
             ret = av_opt_serialize(filter_nodes[i].probe->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
@@ -1167,7 +1169,7 @@ static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
 static void draw_options(FilterNode *node, void *av_class, bool filter_private)
 {
     const AVOption *opt = NULL;
-    const void *obj = (const void *)(filter_private ? &node->filter->priv_class : (const void *)node->probe);
+    const void *obj = av_class;
     int last_offset = -1;
     double min, max;
     int index = 0;
@@ -1479,6 +1481,7 @@ static void draw_node_options(FilterNode *node)
 {
     AVFilterContext *probe_ctx;
     AVFilterGraph *probe_graph;
+    void *av_class_priv;
     void *av_class;
 
     if (!node->probe_graph)
@@ -1497,7 +1500,8 @@ static void draw_node_options(FilterNode *node)
     if (filter_graph_is_valid)
         return;
 
-    av_class = probe_ctx->priv;
+    av_class_priv = node->ctx ? node->ctx->priv : probe_ctx->priv;
+    av_class = node->ctx ? node->ctx : probe_ctx;
     if (!node->colapsed && !ImGui::Button("Options"))
         return;
 
@@ -1540,9 +1544,9 @@ static void draw_node_options(FilterNode *node)
 
     if (!ImGui::BeginListBox("##List of Filter Options"))
         return;
-    draw_options(node, av_class, 1);
+    draw_options(node, av_class_priv, 1);
     ImGui::NewLine();
-    draw_options(node, probe_ctx, 0);
+    draw_options(node, av_class, 0);
 
     ImGui::EndListBox();
 }
