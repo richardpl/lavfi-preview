@@ -1397,23 +1397,18 @@ static void draw_options(FilterNode *node, void *av_class)
                 break;
             case AV_OPT_TYPE_VIDEO_RATE:
                 {
-                    static AVRational rate = (AVRational){ 0, 0 };
                     int irate[2] = { 0, 0 };
+                    uint8_t *old_rate_str = NULL;
                     char rate_str[256];
 
-                    if (rate.num == 0 && rate.den == 0) {
-                        if (av_opt_get_video_rate(av_class, opt->name, 0, &rate))
-                            av_parse_video_rate(&rate, opt->default_val.str);
+                    av_opt_get(av_class, opt->name, 0, &old_rate_str);
+                    if (old_rate_str) {
+                        sscanf((const char *)old_rate_str, "%d/%d", &irate[0], &irate[1]);
+                        av_freep(&old_rate_str);
                     }
-                    irate[0] = rate.num;
-                    irate[1] = rate.den;
                     if (ImGui::DragInt2(opt->name, irate, 1, -8192, 8192)) {
-                        rate.num = irate[0];
-                        rate.den = irate[1];
-                        if (av_opt_set_video_rate(av_class, opt->name, rate, 0)) {
-                            snprintf(rate_str, sizeof(rate_str), "%d/%d", rate.num, rate.den);
-                            av_opt_set(av_class, opt->name, rate_str, 0);
-                        }
+                        snprintf(rate_str, sizeof(rate_str), "%d/%d", irate[0], irate[1]);
+                        av_opt_set(av_class, opt->name, rate_str, 0);
                     }
                 }
                 break;
