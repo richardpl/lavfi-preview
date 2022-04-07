@@ -695,6 +695,10 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("'.'");
     ImGui::Separator();
+    ImGui::Text("Toggle OSD:");
+    ImGui::SameLine(align);
+    ImGui::Text("O");
+    ImGui::Separator();
     ImGui::Text("Jump to #numbered Video output:");
     ImGui::SameLine(align);
     ImGui::Text("Ctrl + <number>");
@@ -772,44 +776,26 @@ static void draw_console(bool *p_open)
     ImGui::End();
 }
 
-static void draw_osd(bool *p_open, int64_t pts, BufferSink *sink)
+static void draw_osd(BufferSink *sink, int width, int height, int64_t pos)
 {
-    const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
-                                          ImGuiWindowFlags_AlwaysAutoResize |
-                                          ImGuiWindowFlags_NoSavedSettings |
-                                          ImGuiWindowFlags_NoNav |
-                                          ImGuiWindowFlags_NoMouseInputs |
-                                          ImGuiWindowFlags_NoFocusOnAppearing |
-                                          ImGuiWindowFlags_NoMove;
-    const int corner = 0;
-    const float PAD_X = 10.0f;
-    const float PAD_Y = 20.0f;
-
-    ImVec2 work_pos = ImGui::GetWindowPos();
-    ImVec2 work_size = ImGui::GetWindowSize();
-    ImVec2 window_pos, window_pos_pivot;
-    window_pos.x = (corner & 1) ? (work_pos.x + work_size.x - PAD_X) : (work_pos.x + PAD_X);
-    window_pos.y = (corner & 2) ? (work_pos.y + work_size.y - PAD_Y) : (work_pos.y + PAD_Y);
-    window_pos_pivot.x = (corner & 1) ? 1.0f : 0.0f;
-    window_pos_pivot.y = (corner & 2) ? 1.0f : 0.0f;
-    ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
-    ImGui::SetNextWindowBgAlpha(0.77f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-
-    if (!ImGui::Begin("##OSD", p_open, window_flags)) {
-        ImGui::End();
-        ImGui::PopStyleVar();
-        return;
-    }
-
-    ImGui::Text("TIME: %.5f", av_q2d(sink->time_base) * pts);
+    ImGui::Text("SIZE: %dx%d", width, height);
+    ImGui::SameLine();
+    ImGui::Text("|");
+    ImGui::SameLine();
+    ImGui::Text("TIME: %.5f", av_q2d(sink->time_base) * sink->pts);
+    ImGui::SameLine();
+    ImGui::Text("|");
     ImGui::SameLine();
     ImGui::Text("SPEED: %.5f", sink->speed);
     ImGui::SameLine();
+    ImGui::Text("|");
+    ImGui::SameLine();
     ImGui::Text("FPS: %d/%d (%.5f)", sink->frame_rate.num,
                 sink->frame_rate.den, av_q2d(sink->frame_rate));
-    ImGui::End();
-    ImGui::PopStyleVar();
+    ImGui::SameLine();
+    ImGui::Text("|");
+    ImGui::SameLine();
+    ImGui::Text("POS: %ld", pos);
 }
 
 static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
@@ -891,7 +877,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         ImGui::PopStyleVar();
 
     if (sink->show_osd)
-        draw_osd(&sink->show_osd, sink->pts, sink);
+        draw_osd(sink, width, height, new_frame->pkt_pos);
 
     if ((ImGui::IsItemHovered() || sink->fullscreen) && ImGui::IsKeyDown(ImGuiKey_Z)) {
         ImGuiIO& io = ImGui::GetIO();
