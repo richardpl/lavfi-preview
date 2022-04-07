@@ -675,6 +675,10 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("X");
     ImGui::Separator();
+    ImGui::Text("Clone Selected Filters:");
+    ImGui::SameLine(align);
+    ImGui::Text("Shift + C");
+    ImGui::Separator();
     ImGui::Text("Configure Graph:");
     ImGui::SameLine(align);
     ImGui::Text("Ctrl + Enter");
@@ -2067,6 +2071,34 @@ static void export_filter_graph(char **out, size_t *out_size)
     av_bprint_finalize(&buf, NULL);
 }
 
+static ImVec2 find_node_spot(ImVec2 start)
+{
+    ImVec2 pos = ImVec2(start.x + 80, start.y);
+    bool got_pos = false;
+
+    while (got_pos == false) {
+        got_pos = true;
+
+        for (unsigned i = 0; i < filter_nodes.size(); i++) {
+            FilterNode node = filter_nodes[i];
+
+            if (std::abs(pos.x - node.pos.x) <= 80 &&
+                std::abs(pos.y - node.pos.y) <= 80) {
+                got_pos = false;
+                break;
+            }
+        }
+
+        if (got_pos == true)
+            break;
+
+        pos.x += ((std::rand() % 3) - 1) * 100;
+        pos.y += ((std::rand() % 3) - 1) * 100;
+    }
+
+    return pos;
+}
+
 static void show_filtergraph_editor(bool *p_open, bool focused)
 {
     bool erased = false;
@@ -2682,6 +2714,51 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         } while (i--);
     }
 
+    const int copy_nodes_selected = ImNodes::NumSelectedNodes();
+    if (copy_nodes_selected > 0 && !ImGui::IsItemHovered() && ImGui::IsKeyReleased(ImGuiKey_C) && ImGui::GetIO().KeyShift) {
+        static std::vector<int> selected_nodes;
+
+        selected_nodes.resize(static_cast<size_t>(copy_nodes_selected));
+        ImNodes::GetSelectedNodes(selected_nodes.data());
+
+        for (unsigned i = 0; i < selected_nodes.size(); i++) {
+            const int e = selected_nodes[i];
+            FilterNode orig = filter_nodes[edge2pad[e].node];
+            FilterNode copy;
+
+            copy.filter = orig.filter;
+            copy.id = filter_nodes.size();
+            copy.filter_name = av_strdup(orig.filter->name);
+            copy.filter_label = av_asprintf("%s%d", copy.filter->name, copy.id);
+            copy.filter_options = NULL;
+            copy.ctx_options = NULL;
+            copy.probe_graph = avfilter_graph_alloc();
+            copy.probe = avfilter_graph_alloc_filter(copy.probe_graph, copy.filter, "probe");
+            copy.ctx = NULL;
+            copy.pos = find_node_spot(orig.pos);
+            copy.colapsed = false;
+            copy.set_pos = true;
+            copy.edge = editor_edge++;
+
+            av_opt_copy(copy.probe, orig.probe);
+            av_opt_copy(copy.probe->priv, orig.probe->priv);
+
+            edge2pad.push_back(Edge2Pad { copy.id, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
+
+            for (unsigned j = 0; j < orig.inpad_edges.size(); j++) {
+                copy.inpad_edges.push_back(editor_edge++);
+                edge2pad.push_back(Edge2Pad { copy.id, false, false, j, AVMEDIA_TYPE_UNKNOWN });
+            }
+
+            for (unsigned j = 0; j < orig.outpad_edges.size(); j++) {
+                copy.outpad_edges.push_back(editor_edge++);
+                edge2pad.push_back(Edge2Pad { copy.id, false, true, j, AVMEDIA_TYPE_UNKNOWN });
+            }
+
+            filter_nodes.push_back(copy);
+        }
+    }
+
     if (!ImGui::IsItemHovered() && ImGui::IsKeyReleased(ImGuiKey_A) && ImGui::GetIO().KeyShift) {
         const AVFilter *buffersink  = avfilter_get_by_name("buffersink");
         const AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
@@ -2712,6 +2789,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         for (unsigned i = 0; i < unconnected_edges.size(); i++) {
             const int e = unconnected_edges[i];
             enum AVMediaType type = edge2pad[e].type;
+            FilterNode src = filter_nodes[edge2pad[e].node];
             FilterNode node;
 
             node.filter = type == AVMEDIA_TYPE_AUDIO ? abuffersink : buffersink;
@@ -2723,7 +2801,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             node.probe_graph = NULL;
             node.probe = NULL;
             node.ctx = NULL;
-            node.pos = ImVec2(filter_nodes[edge2pad[e].node].pos.x + 100 * (i + 1), filter_nodes[edge2pad[e].node].pos.y + 100 * (i + 1));
+            node.pos = find_node_spot(src.pos);
             node.colapsed = false;
             node.set_pos = true;
             node.edge = editor_edge++;
