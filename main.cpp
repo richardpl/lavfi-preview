@@ -2621,7 +2621,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
     const int links_selected = ImNodes::NumSelectedLinks();
     if (!ImGui::IsItemHovered() && links_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X) && filter_links.size() > 0) {
-        static std::vector<int> selected_links;
+        std::vector<int> selected_links;
 
         selected_links.resize(static_cast<size_t>(links_selected));
         ImNodes::GetSelectedLinks(selected_links.data());
@@ -2637,18 +2637,20 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         }
     }
 
-    const int nodes_selected = ImNodes::NumSelectedNodes();
-    if (nodes_selected > 0 && !ImGui::IsItemHovered() && ImGui::IsKeyReleased(ImGuiKey_X) && ImGui::GetIO().KeyShift) {
-        static std::vector<int> selected_nodes;
+    const unsigned nodes_selected = ImNodes::NumSelectedNodes();
+    if (nodes_selected > 0 && nodes_selected <= filter_nodes.size() && !ImGui::IsItemHovered() && ImGui::IsKeyReleased(ImGuiKey_X) && ImGui::GetIO().KeyShift) {
+        std::vector<int> selected_nodes;
 
         selected_nodes.resize(static_cast<size_t>(nodes_selected));
         ImNodes::GetSelectedNodes(selected_nodes.data());
         std::sort(selected_nodes.begin(), selected_nodes.end(), std::greater <>());
 
         for (unsigned node_id = 0; node_id < selected_nodes.size(); node_id++) {
-            const unsigned int edge = selected_nodes[node_id];
+            const int edge = selected_nodes[node_id];
+            if (edge < 0)
+                continue;
             const unsigned node = edge2pad[edge].node;
-            static std::vector<int> removed_edges;
+            std::vector<int> removed_edges;
 
             edge2pad[edge].removed = true;
             edge2pad[edge].is_output = false;
@@ -2675,9 +2677,11 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             erased = true;
 
             for (unsigned r = 0; r < removed_edges.size(); r++) {
-                static std::vector<unsigned> selected_links;
+                std::vector<unsigned> selected_links;
                 const int removed_edge = removed_edges[r];
 
+                if (edge < 0)
+                    continue;
                 edge2pad[removed_edge].type = AVMEDIA_TYPE_UNKNOWN;
                 edge2pad[removed_edge].is_output = false;
                 edge2pad[removed_edge].removed = true;
@@ -2714,15 +2718,17 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         } while (i--);
     }
 
-    const int copy_nodes_selected = ImNodes::NumSelectedNodes();
-    if (copy_nodes_selected > 0 && !ImGui::IsItemHovered() && ImGui::IsKeyReleased(ImGuiKey_C) && ImGui::GetIO().KeyShift) {
-        static std::vector<int> selected_nodes;
+    const unsigned copy_nodes_selected = ImNodes::NumSelectedNodes();
+    if (copy_nodes_selected > 0 && copy_nodes_selected <= filter_nodes.size() && !ImGui::IsItemHovered() && ImGui::IsKeyReleased(ImGuiKey_C) && ImGui::GetIO().KeyShift) {
+        std::vector<int> selected_nodes;
 
         selected_nodes.resize(static_cast<size_t>(copy_nodes_selected));
         ImNodes::GetSelectedNodes(selected_nodes.data());
 
         for (unsigned i = 0; i < selected_nodes.size(); i++) {
             const int e = selected_nodes[i];
+            if (e < 0)
+                continue;
             FilterNode orig = filter_nodes[edge2pad[e].node];
             FilterNode copy;
 
@@ -2788,6 +2794,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
         for (unsigned i = 0; i < unconnected_edges.size(); i++) {
             const int e = unconnected_edges[i];
+            if (e < 0)
+                continue;
             enum AVMediaType type = edge2pad[e].type;
             FilterNode src = filter_nodes[edge2pad[e].node];
             FilterNode node;
