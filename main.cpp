@@ -306,6 +306,13 @@ static void kill_video_sink_threads()
     }
 }
 
+static int get_nb_filter_threads(const AVFilter *filter)
+{
+    if (filter->flags & AVFILTER_FLAG_SLICE_THREADS)
+        return 0;
+    return 1;
+}
+
 static int filters_setup()
 {
     const AVFilter *new_filter;
@@ -368,6 +375,7 @@ static int filters_setup()
         }
 
         av_opt_set_defaults(filter_ctx);
+        filter_ctx->nb_threads = get_nb_filter_threads(filter_ctx->filter);
 
         if (!strcmp(filter_ctx->filter->name, "buffersink")) {
             BufferSink new_sink;
