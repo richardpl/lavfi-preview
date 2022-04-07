@@ -778,24 +778,20 @@ static void draw_console(bool *p_open)
 
 static void draw_osd(BufferSink *sink, int width, int height, int64_t pos)
 {
-    ImGui::Text("SIZE: %dx%d", width, height);
-    ImGui::SameLine();
-    ImGui::Text("|");
-    ImGui::SameLine();
-    ImGui::Text("TIME: %.5f", av_q2d(sink->time_base) * sink->pts);
-    ImGui::SameLine();
-    ImGui::Text("|");
-    ImGui::SameLine();
-    ImGui::Text("SPEED: %.5f", sink->speed);
-    ImGui::SameLine();
-    ImGui::Text("|");
-    ImGui::SameLine();
-    ImGui::Text("FPS: %d/%d (%.5f)", sink->frame_rate.num,
-                sink->frame_rate.den, av_q2d(sink->frame_rate));
-    ImGui::SameLine();
-    ImGui::Text("|");
-    ImGui::SameLine();
-    ImGui::Text("POS: %ld", pos);
+    char osd_text[1024];
+
+    snprintf(osd_text, sizeof(osd_text), "SIZE: %dx%d | TIME: %.5f | SPEED: %5f | FPS: %d/%d (%.5f) | POS: %ld",
+             width, height,
+             av_q2d(sink->time_base) * sink->pts,
+             sink->speed,
+             sink->frame_rate.num, sink->frame_rate.den, av_q2d(sink->frame_rate), pos);
+
+    if (sink->fullscreen)
+        ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetCursorPos(),
+                                                  ImVec2(ImGui::CalcTextSize(osd_text).x + 15, ImGui::GetFontSize() * 1.8f),
+                                                  ImGui::GetColorU32(ImGuiCol_WindowBg, 0.5f));
+
+    ImGui::Text(osd_text);
 }
 
 static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
