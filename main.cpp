@@ -87,9 +87,11 @@ typedef struct BufferSink {
     GLint downscale_interpolator;
     GLint upscale_interpolator;
 
+    int64_t frame_number;
     int64_t delta;
     int64_t qpts;
     int64_t pts;
+    int64_t pos;
     int frame_nb_samples;
 
     float *samples;
@@ -375,7 +377,8 @@ static int filters_setup()
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
             new_sink.muted = false;
-            new_sink.show_osd = false;
+            new_sink.show_osd = true;
+            new_sink.frame_number = 0;
             new_sink.upscale_interpolator = global_upscale_interpolation;
             new_sink.downscale_interpolator = global_downscale_interpolation;
             ret = av_opt_set_int_list(filter_ctx, "pix_fmts", pix_fmts,
@@ -394,9 +397,10 @@ static int filters_setup()
             new_sink.have_window_pos = false;
             new_sink.fullscreen = false;
             new_sink.muted = false;
-            new_sink.show_osd = false;
+            new_sink.show_osd = true;
             new_sink.upscale_interpolator = 0;
             new_sink.downscale_interpolator = 0;
+            new_sink.frame_number = 0;
             ret = av_opt_set_int_list(filter_ctx, "sample_fmts", sample_fmts,
                                       AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
@@ -780,7 +784,8 @@ static void draw_osd(BufferSink *sink, int width, int height, int64_t pos)
 {
     char osd_text[1024];
 
-    snprintf(osd_text, sizeof(osd_text), "SIZE: %dx%d | TIME: %.5f | SPEED: %5f | FPS: %d/%d (%.5f) | POS: %ld",
+    snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %dx%d | TIME: %.5f | SPEED: %5f | FPS: %d/%d (%.5f) | POS: %ld",
+             sink->frame_number - 1,
              width, height,
              av_q2d(sink->time_base) * sink->pts,
              sink->speed,
@@ -801,7 +806,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     int width, height, style = 0;
 
     if (!*p_open || !new_frame)
-        return;
+        goto end;
 
     sink->pts = new_frame->pts;
 
@@ -834,8 +839,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     }
 
     if (!ImGui::Begin(sink->label, p_open, flags)) {
-        ImGui::End();
-        return;
+        goto end;
     }
 
     if (sink->fullscreen == false)
@@ -899,6 +903,13 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         ImGui::EndTooltip();
     }
     ImGui::End();
+
+end:
+
+    if (new_frame && new_frame->nb_samples == 0) {
+        sink->frame_number++;
+        new_frame->nb_samples = 1;
+    }
 }
 
 static void draw_aframe(bool *p_open, BufferSink *sink)
@@ -932,6 +943,8 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
             show_buffersink_window = false;
             filter_graph_is_valid = false;
         }
+        if (ImGui::IsKeyReleased(ImGuiKey_O))
+            sink->show_osd = !sink->show_osd;
     }
 
     if (ImGui::IsKeyDown(ImGuiKey_0 + sink->id) && ImGui::GetIO().KeyAlt)
@@ -939,11 +952,15 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
 
     ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
     ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -audio_sample_range[0], audio_sample_range[1], window_size);
-    ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
-    ImGui::Text("SPEED: %.5f", sink->speed);
-    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-    ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
-    ImGui::Text("QUEUE: %d", queued);
+    if (sink->show_osd) {
+        ImGui::Text("FRAME: %ld", sink->frame_number);
+        ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
+        ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
+        ImGui::Text("SPEED: %.5f", sink->speed);
+        alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+        ImGui::Text("POS:   %ld", sink->pos);
+        ImGui::Text("QUEUE: %d", queued);
+    }
     if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
         alSourcef(sink->source, AL_GAIN, sink->gain);
     if (ImGui::DragFloat3("Position", sink->position, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
@@ -3108,7 +3125,9 @@ dequeue_consume_frames:
                             min = std::min(min, src[n]);
                         }
 
+                        sink->frame_number++;
                         sink->pts = play_frame->pts;
+                        sink->pos = play_frame->pkt_pos;
                         sink->frame_nb_samples = play_frame->nb_samples;
                         sink->samples[sink->sample_index++] = max;
                         sink->samples[sink->sample_index++] = min;
