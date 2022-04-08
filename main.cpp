@@ -796,7 +796,7 @@ static void draw_osd(BufferSink *sink, int width, int height, int64_t pos)
 {
     char osd_text[1024];
 
-    snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %dx%d | TIME: %.5f | SPEED: %5f | FPS: %d/%d (%.5f) | POS: %ld",
+    snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %dx%d | TIME: %.5f | SPEED: %011.5f | FPS: %d/%d (%.5f) | POS: %ld",
              sink->frame_number - 1,
              width, height,
              av_q2d(sink->time_base) * sink->pts,
@@ -968,7 +968,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
         ImGui::Text("FRAME: %ld", sink->frame_number);
         ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
         ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
-        ImGui::Text("SPEED: %.5f", sink->speed);
+        ImGui::Text("SPEED: %011.5f", sink->speed);
         alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
         ImGui::Text("POS:   %ld", sink->pos);
         ImGui::Text("QUEUE: %d", queued);
