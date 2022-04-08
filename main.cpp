@@ -111,7 +111,6 @@ typedef struct FilterNode {
     char *ctx_options;
     char *filter_options;
     AVFilterContext *probe;
-    AVFilterGraph   *probe_graph;
     AVFilterContext *ctx;
 
     std::vector<int> inpad_edges;
@@ -163,6 +162,7 @@ int width = 1280;
 int height = 720;
 bool filter_graph_is_valid = false;
 AVFilterGraph *filter_graph = NULL;
+AVFilterGraph *probe_graph = NULL;
 char *graphdump_text = NULL;
 float audio_sample_range[2] = { 1.f, 1.f };
 float audio_window_size[2] = { 0, 100 };
@@ -429,14 +429,15 @@ static int filters_setup()
         filter_nodes[i].ctx = filter_ctx;
 
         av_freep(&filter_nodes[i].ctx_options);
-        if (filter_nodes[i].ctx_options == NULL && filter_nodes[i].probe) {
+        if (filter_nodes[i].probe) {
             ret = av_opt_serialize(filter_nodes[i].probe, 0, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
                                    &filter_nodes[i].ctx_options, '=', ':');
             if (ret < 0)
                 av_log(NULL, AV_LOG_WARNING, "Cannot serialize filter ctx options.\n");
         }
 
-        if (filter_nodes[i].filter_options == NULL && filter_nodes[i].probe) {
+        av_freep(&filter_nodes[i].filter_options);
+        if (filter_nodes[i].probe) {
             ret = av_opt_serialize(filter_nodes[i].probe->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
                                    &filter_nodes[i].filter_options, '=', ':');
             if (ret < 0)
@@ -745,7 +746,6 @@ static void add_filter_node(const AVFilter *filter, ImVec2 pos)
     node.filter_label = av_asprintf("%s%d", filter->name, node.id);
     node.filter_options = NULL;
     node.ctx_options = NULL;
-    node.probe_graph = NULL;
     node.probe = NULL;
     node.ctx = NULL;
     node.pos = pos;
@@ -1731,13 +1731,11 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 static void draw_node_options(FilterNode *node)
 {
     AVFilterContext *probe_ctx;
-    AVFilterGraph *probe_graph;
     void *av_class_priv;
     void *av_class;
 
-    if (!node->probe_graph)
-        node->probe_graph = avfilter_graph_alloc();
-    probe_graph = node->probe_graph;
+    if (!probe_graph)
+        probe_graph = avfilter_graph_alloc();
     if (!probe_graph)
         return;
     probe_graph->nb_threads = 1;
@@ -1765,8 +1763,8 @@ static void draw_node_options(FilterNode *node)
         return;
     }
 
-    av_class_priv = node->ctx ? node->ctx->priv : probe_ctx->priv;
-    av_class = node->ctx ? node->ctx : probe_ctx;
+    av_class_priv = probe_ctx->priv;
+    av_class = probe_ctx;
     if (!node->colapsed && !ImGui::Button("Options"))
         return;
 
@@ -1793,9 +1791,7 @@ static void draw_node_options(FilterNode *node)
             av_freep(&node->filter_label);
             av_freep(&node->filter_options);
             av_freep(&node->ctx_options);
-            if (!node->probe_graph)
-                avfilter_free(node->probe);
-            avfilter_graph_free(&node->probe_graph);
+            avfilter_free(node->probe);
             node->probe = NULL;
             avfilter_free(node->ctx);
             node->ctx = NULL;
@@ -1842,6 +1838,11 @@ static void import_filter_graph(const char *file_name)
         av_log(NULL, AV_LOG_ERROR, "Cannot open '%s' script.\n", file_name);
         return;
     }
+
+    if (!probe_graph)
+        probe_graph = avfilter_graph_alloc();
+    if (!probe_graph)
+        return;
 
     av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
 
@@ -1921,6 +1922,7 @@ static void import_filter_graph(const char *file_name)
         FilterNode node;
         std::pair <int, int> p = filters[i];
         char *opts = NULL;
+        int ret;
 
         for (int j = p.first; j < p.second; j++) {
             if (buf.str[j] == '=') {
@@ -1953,12 +1955,15 @@ static void import_filter_graph(const char *file_name)
         node.filter_label = av_asprintf("%s%d", node.filter_name, node.id);
         node.filter_options = opts;
         node.ctx_options = NULL;
-        node.probe_graph = NULL;
-        node.probe = NULL;
+        node.probe = avfilter_graph_alloc_filter(probe_graph, node.filter, "probe");
         node.ctx = NULL;
         node.pos = find_node_spot(ImVec2(300, 300));
         node.colapsed = false;
         node.set_pos = true;
+
+        ret = av_opt_set_from_string(node.probe->priv, node.filter_options, NULL, "=", ":");
+        if (ret < 0)
+            av_log(NULL, AV_LOG_ERROR, "Error setting probe filter private options.\n");
 
         filter_nodes.push_back(node);
     }
@@ -2671,9 +2676,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             av_freep(&filter_nodes[node].filter_label);
             av_freep(&filter_nodes[node].filter_options);
             av_freep(&filter_nodes[node].ctx_options);
-            if (!filter_nodes[node].probe_graph)
-                avfilter_free(filter_nodes[node].probe);
-            avfilter_graph_free(&filter_nodes[node].probe_graph);
+            avfilter_free(filter_nodes[node].probe);
             filter_nodes[node].probe = NULL;
 
             removed_edges.push_back(filter_nodes[node].edge);
@@ -2748,8 +2751,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             copy.filter_label = av_asprintf("%s%d", copy.filter->name, copy.id);
             copy.filter_options = NULL;
             copy.ctx_options = NULL;
-            copy.probe_graph = avfilter_graph_alloc();
-            copy.probe = avfilter_graph_alloc_filter(copy.probe_graph, copy.filter, "probe");
+            copy.probe = avfilter_graph_alloc_filter(probe_graph, copy.filter, "probe");
             copy.ctx = NULL;
             copy.pos = find_node_spot(orig.pos);
             copy.colapsed = false;
@@ -2816,7 +2818,6 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             node.filter_label = av_asprintf("%s%d", node.filter->name, node.id);
             node.filter_options = NULL;
             node.ctx_options = NULL;
-            node.probe_graph = NULL;
             node.probe = NULL;
             node.ctx = NULL;
             node.pos = find_node_spot(src.pos);
@@ -3380,9 +3381,7 @@ dequeue_render_frames:
         av_freep(&node->filter_label);
         av_freep(&node->filter_options);
         av_freep(&node->ctx_options);
-        if (!node->probe_graph)
-            avfilter_free(node->probe);
-        avfilter_graph_free(&node->probe_graph);
+        avfilter_free(node->probe);
         node->probe = NULL;
         node->ctx = NULL;
     }
@@ -3392,6 +3391,8 @@ dequeue_render_frames:
     av_freep(&graphdump_text);
 
     avfilter_graph_free(&filter_graph);
+    avfilter_graph_free(&probe_graph);
+
     filter_links.clear();
 
     ImGui_ImplOpenGL3_Shutdown();
