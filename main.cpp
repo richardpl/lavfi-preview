@@ -2811,6 +2811,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             }
 
             if (ee == connected_edges.size() &&
+                edge2pad[e].type != AVMEDIA_TYPE_UNKNOWN &&
                 edge2pad[e].is_output == true &&
                 edge2pad[e].removed == false) {
                 unconnected_edges.push_back(e);
