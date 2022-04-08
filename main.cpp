@@ -808,7 +808,7 @@ static void draw_osd(BufferSink *sink, int width, int height, int64_t pos)
                                                   ImVec2(ImGui::CalcTextSize(osd_text).x + 15, ImGui::GetFontSize() * 1.8f),
                                                   ImGui::GetColorU32(ImGuiCol_WindowBg, 0.5f));
 
-    ImGui::Text(osd_text);
+    ImGui::TextWrapped(osd_text);
 }
 
 static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
@@ -839,6 +839,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         style = 1;
     } else {
+        ImGui::SetNextWindowSizeConstraints(ImVec2(width + 20, height), ImVec2(width + 20, height + 200));
         if (sink->have_window_pos == true) {
             ImGui::SetNextWindowPos(sink->window_pos);
             sink->have_window_pos = false;
