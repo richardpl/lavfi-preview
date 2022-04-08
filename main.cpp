@@ -1816,6 +1816,8 @@ static void draw_node_options(FilterNode *node)
     ImGui::EndListBox();
 }
 
+static ImVec2 find_node_spot(ImVec2 start);
+
 static void import_filter_graph(const char *file_name)
 {
     FILE *file = av_fopen_utf8(file_name, "r");
@@ -1954,7 +1956,7 @@ static void import_filter_graph(const char *file_name)
         node.probe_graph = NULL;
         node.probe = NULL;
         node.ctx = NULL;
-        node.pos = ImVec2(i * 200, 0);
+        node.pos = find_node_spot(ImVec2(300, 300));
         node.colapsed = false;
         node.set_pos = true;
 
