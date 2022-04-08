@@ -38,6 +38,35 @@ extern "C" {
 
 #define AL_BUFFERS 16
 
+typedef struct FrameInfo {
+    int width, height;
+    int nb_samples;
+    int format;
+    int key_frame;
+    enum AVPictureType pict_type;
+    AVRational sample_aspect_ratio;
+    int64_t pts;
+    int64_t pkt_dts;
+    AVRational time_base;
+    int coded_picture_number;
+    int display_picture_number;
+    int interlaced_frame;
+    int top_field_first;
+    int sample_rate;
+    enum AVColorRange color_range;
+    enum AVColorPrimaries color_primaries;
+    enum AVColorTransferCharacteristic color_trc;
+    enum AVColorSpace colorspace;
+    enum AVChromaLocation chroma_location;
+    int64_t pkt_pos;
+    int64_t pkt_duration;
+    int pkt_size;
+    size_t crop_top;
+    size_t crop_bottom;
+    size_t crop_left;
+    size_t crop_right;
+} FrameInfo;
+
 typedef struct Edge2Pad {
     unsigned node;
     bool removed;
@@ -143,6 +172,7 @@ char *import_script_file_name = NULL;
 bool need_filters_reinit = true;
 bool framestep = false;
 bool paused = true;
+bool show_info = false;
 bool show_help = false;
 bool show_console = false;
 bool show_log_window = false;
@@ -195,6 +225,8 @@ ALCdevice *al_dev = NULL;
 ALCcontext *al_ctx = NULL;
 float listener_direction[6] = { 0, 0, -1, 0, 1, 0 };
 float listener_position[3] = { 0, 0, 0 };
+
+FrameInfo frame_info;
 
 static void clear_ring_buffer(ring_buffer_t *ring_buffer)
 {
@@ -616,6 +648,67 @@ static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->data[0]);
 }
 
+static void draw_info(bool *p_open, FrameInfo *frame)
+{
+    const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
+                                          ImGuiWindowFlags_AlwaysAutoResize |
+                                          ImGuiWindowFlags_NoSavedSettings |
+                                          ImGuiWindowFlags_NoNav |
+                                          ImGuiWindowFlags_NoMouseInputs |
+                                          ImGuiWindowFlags_NoFocusOnAppearing |
+                                          ImGuiWindowFlags_NoMove;
+
+    ImGui::SetNextWindowPos(ImVec2(display_w/2, display_h/2), 0, ImVec2(0.5, 0.5));
+    ImGui::SetNextWindowBgAlpha(0.7f);
+    ImGui::SetNextWindowFocus();
+
+    if (!ImGui::Begin("##Info", p_open, window_flags)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Separator();
+    if (frame->width && frame->height) {
+        ImGui::Text("SIZE: %dx%d", frame->width, frame->height);
+        ImGui::Separator();
+        ImGui::Text("KEY FRAME: %d", frame->key_frame);
+        ImGui::Separator();
+        ImGui::Text("PICTURE TYPE: %c", av_get_picture_type_char(frame->pict_type));
+        ImGui::Separator();
+        ImGui::Text("SAR: %dx%d", frame->sample_aspect_ratio.num, frame->sample_aspect_ratio.den);
+        ImGui::Separator();
+        ImGui::Text("COLOR RANGE: %s", av_color_range_name(frame->color_range));
+        ImGui::Separator();
+        ImGui::Text("COLOR PRIMARIES: %s", av_color_primaries_name(frame->color_primaries));
+        ImGui::Separator();
+        ImGui::Text("COLOR TRC: %s", av_color_transfer_name(frame->color_trc));
+        ImGui::Separator();
+        ImGui::Text("COLOR SPACE: %s", av_color_space_name(frame->colorspace));
+        ImGui::Separator();
+        ImGui::Text("CHROMA LOCATION: %s", av_chroma_location_name(frame->chroma_location));
+        ImGui::Separator();
+        ImGui::Text("PIXEL FORMAT: %s", av_get_pix_fmt_name((enum AVPixelFormat)frame->format));
+        ImGui::Separator();
+    } else if (frame->nb_samples) {
+        ImGui::Text("SAMPLES: %d", frame->nb_samples);
+        ImGui::Separator();
+        ImGui::Text("SAMPLE RATE: %d", frame->sample_rate);
+        ImGui::Separator();
+        ImGui::Text("SAMPLE FORMAT: %s", av_get_sample_fmt_name((enum AVSampleFormat)frame->format));
+        ImGui::Separator();
+    }
+    ImGui::Text("PTS: %ld", frame->pts);
+    ImGui::Separator();
+    ImGui::Text("TIME BASE: %d/%d", frame->time_base.num, frame->time_base.den);
+    ImGui::Separator();
+    ImGui::Text("PACKET POSITION: %ld", frame->pkt_pos);
+    ImGui::Separator();
+    ImGui::Text("PACKET SIZE: %d", frame->pkt_size);
+    ImGui::Separator();
+    ImGui::Text("PACKET DURATION: %ld", frame->pkt_duration);
+    ImGui::End();
+}
+
 static void draw_help(bool *p_open)
 {
     const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
@@ -728,6 +821,10 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("M");
     ImGui::Separator();
+    ImGui::Text("Show Extended Info:");
+    ImGui::SameLine(align);
+    ImGui::Text("I");
+    ImGui::Separator();
     ImGui::Text("Exit from output:");
     ImGui::SameLine(align);
     ImGui::Text("Shift + Q");
@@ -813,6 +910,40 @@ static void draw_osd(BufferSink *sink, int width, int height, int64_t pos)
     ImGui::TextWrapped(osd_text);
 }
 
+static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
+{
+    if (!ImGui::IsKeyDown(ImGuiKey_I))
+        return;
+
+    frame_info->width = frame->width;
+    frame_info->height = frame->height;
+    frame_info->nb_samples = frame->nb_samples;
+    frame_info->format = frame->format;
+    frame_info->key_frame = frame->key_frame;
+    frame_info->pict_type = frame->pict_type;
+    frame_info->sample_aspect_ratio = frame->sample_aspect_ratio;
+    frame_info->pts = frame->pts;
+    frame_info->pkt_dts = frame->pkt_dts;
+    frame_info->time_base = frame->time_base;
+    frame_info->coded_picture_number = frame->coded_picture_number;
+    frame_info->display_picture_number = frame->display_picture_number;
+    frame_info->interlaced_frame = frame->interlaced_frame;
+    frame_info->top_field_first = frame->top_field_first;
+    frame_info->sample_rate = frame->sample_rate;
+    frame_info->color_range = frame->color_range;
+    frame_info->color_primaries = frame->color_primaries;
+    frame_info->color_trc = frame->color_trc;
+    frame_info->colorspace = frame->colorspace;
+    frame_info->chroma_location = frame->chroma_location;
+    frame_info->pkt_pos = frame->pkt_pos;
+    frame_info->pkt_duration = frame->pkt_duration;
+    frame_info->pkt_size = frame->pkt_size;
+    frame_info->crop_top = frame->crop_top;
+    frame_info->crop_bottom = frame->crop_bottom;
+    frame_info->crop_left = frame->crop_left;
+    frame_info->crop_right = frame->crop_right;
+}
+
 static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
                        BufferSink *sink)
 {
@@ -823,6 +954,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     if (!*p_open || !new_frame)
         goto end;
 
+    update_frame_info(&frame_info, new_frame);
     sink->pts = new_frame->pts;
 
     load_frame(texture, &width, &height, new_frame, sink);
@@ -3337,6 +3469,9 @@ dequeue_consume_frames:
         show_help = ImGui::IsKeyDown(ImGuiKey_F1);
         if (show_help)
             draw_help(&show_help);
+        show_info = ImGui::IsKeyDown(ImGuiKey_I) && !io.WantTextInput;
+        if (show_info)
+            draw_info(&show_info, &frame_info);
         show_console ^= ImGui::IsKeyReleased(ImGuiKey_Escape);
         if (show_console)
             draw_console(&show_console);
