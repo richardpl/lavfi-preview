@@ -888,9 +888,6 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     if (style)
         ImGui::PopStyleVar();
 
-    if (sink->show_osd)
-        draw_osd(sink, width, height, new_frame->pkt_pos);
-
     if ((ImGui::IsItemHovered() || sink->fullscreen) && ImGui::IsKeyDown(ImGuiKey_Z)) {
         ImGuiIO& io = ImGui::GetIO();
         ImVec2 size = ImGui::GetWindowSize();
@@ -914,6 +911,10 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         ImGui::Image((void*)(intptr_t)*texture, ImVec2(region_sz * zoom, region_sz * zoom), uv0, uv1, tint_col, border_col);
         ImGui::EndTooltip();
     }
+
+    if (sink->show_osd)
+        draw_osd(sink, width, height, new_frame->pkt_pos);
+
     ImGui::End();
 
 end:
