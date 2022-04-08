@@ -2588,9 +2588,22 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     for (unsigned i = 0; i < filter_links.size(); i++) {
         const std::pair<int, int> p = filter_links[i];
 
-        if (edge2pad[p.first].type  == AVMEDIA_TYPE_UNKNOWN ||
-            edge2pad[p.second].type == AVMEDIA_TYPE_UNKNOWN)
+        if (edge2pad[p.first].removed  == true ||
+            edge2pad[p.second].removed == true) {
+            filter_links.erase(filter_links.begin() + i);
             continue;
+        }
+
+        if (edge2pad[p.first].type  == AVMEDIA_TYPE_UNKNOWN ||
+            edge2pad[p.second].type == AVMEDIA_TYPE_UNKNOWN) {
+            filter_links.erase(filter_links.begin() + i);
+            continue;
+        }
+
+        if (edge2pad[p.first].is_output == edge2pad[p.second].is_output) {
+            filter_links.erase(filter_links.begin() + i);
+            continue;
+        }
 
         ImNodes::Link(i, p.first, p.second);
     }
