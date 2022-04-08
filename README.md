@@ -4,6 +4,6 @@ GUI for libavfilter
 
 GUI to preview filtergraphs from libavfilter.
 
-Depends on ImGui, FFmpeg, glfw, OpenGL3 and OpenAL-Soft.
+Depends on ImGui, FFmpeg >=5.0, glfw, OpenGL3 and OpenAL-Soft.
 
 For list of useful keys press F1 while running.
