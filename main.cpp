@@ -803,10 +803,12 @@ static void draw_osd(BufferSink *sink, int width, int height, int64_t pos)
              sink->speed,
              sink->frame_rate.num, sink->frame_rate.den, av_q2d(sink->frame_rate), pos);
 
-    if (sink->fullscreen)
+    if (sink->fullscreen) {
+        ImGui::SetCursorPos(ImVec2(20, 20));
         ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetCursorPos(),
-                                                  ImVec2(ImGui::CalcTextSize(osd_text).x + 15, ImGui::GetFontSize() * 1.8f),
+                                                  ImVec2(ImGui::CalcTextSize(osd_text).x + 25, ImGui::GetFontSize() * 2.8f),
                                                   ImGui::GetColorU32(ImGuiCol_WindowBg, 0.5f));
+    }
 
     ImGui::TextWrapped(osd_text);
 }
@@ -815,7 +817,8 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
                        BufferSink *sink)
 {
     ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
-    int width, height, style = 0;
+    int width, height;
+    bool style = false;
 
     if (!*p_open || !new_frame)
         goto end;
@@ -837,7 +840,8 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         flags |= ImGuiWindowFlags_NoResize;
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-        style = 1;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        style = true;
     } else {
         ImGui::SetNextWindowSizeConstraints(ImVec2(width + 20, height), ImVec2(width + 20, height + 200));
         if (sink->have_window_pos == true) {
@@ -886,9 +890,6 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         ImGui::Image((void*)(intptr_t)*texture, ImVec2(width, height));
     }
 
-    if (style)
-        ImGui::PopStyleVar();
-
     if ((ImGui::IsItemHovered() || sink->fullscreen) && ImGui::IsKeyDown(ImGuiKey_Z)) {
         ImGuiIO& io = ImGui::GetIO();
         ImVec2 size = ImGui::GetWindowSize();
@@ -915,6 +916,11 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
 
     if (sink->show_osd)
         draw_osd(sink, width, height, new_frame->pkt_pos);
+
+    if (style) {
+        ImGui::PopStyleVar();
+        ImGui::PopStyleVar();
+    }
 
     ImGui::End();
 
