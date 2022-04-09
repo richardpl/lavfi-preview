@@ -269,6 +269,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
     while (sink->ctx) {
         std::unique_lock lk(*mutex);
         cv->wait(lk, [sink]{ return sink->ready == true; });
+        mutex->unlock();
         if (need_filters_reinit)
             break;
         if (sink->ready == false)
