@@ -572,6 +572,9 @@ error:
         sink->pts = AV_NOPTS_VALUE;
         sink->sample_index = 0;
         sink->samples = NULL;
+        sink->pos = 0;
+        sink->frame_number = 0;
+        sink->frame_nb_samples = 0;
         sink->nb_samples = 0;
         sink->render_ring_size = 2;
         ring_buffer_init(&sink->consume_frames);
@@ -603,6 +606,9 @@ error:
         sink->frame_rate = av_make_q(av_buffersink_get_sample_rate(sink->ctx), 1);
         sink->sample_index = 0;
         sink->nb_samples = 512;
+        sink->pos = 0;
+        sink->frame_number = 0;
+        sink->frame_nb_samples = 0;
         sink->pts = AV_NOPTS_VALUE;
         sink->samples = (float *)av_calloc(sink->nb_samples, sizeof(float));
         sink->render_ring_size = 2;
