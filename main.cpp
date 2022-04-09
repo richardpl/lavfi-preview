@@ -289,8 +289,10 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
             end = av_gettime_relative();
             if (end > start && filter_frame)
                 sink->speed = 1000000. * (std::max(filter_frame->nb_samples, 1)) * av_q2d(av_inv_q(sink->frame_rate)) / (end - start);
-            if (ret < 0 && ret != AVERROR(EAGAIN))
+            if (ret < 0 && ret != AVERROR(EAGAIN)) {
+                av_frame_free(&filter_frame);
                 break;
+            }
 
             ring_buffer_enqueue(&sink->consume_frames, filter_frame);
         }
