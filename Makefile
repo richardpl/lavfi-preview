@@ -35,23 +35,8 @@ LIBS =
 ##---------------------------------------------------------------------
 
 ifeq ($(UNAME_S), Linux) #LINUX
-	LIBS += $(LINUX_GL_LIBS) `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs glfw3`
-	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libavutil`
-	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libavcodec`
-	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libavformat`
-	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libswresample`
-	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libswscale`
-	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs libavfilter`
-	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs openal`
-
-	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags glfw3`
-	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libavutil`
-	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libavcodec`
-	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libavformat`
-	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libswresample`
-	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libswscale`
-	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags libavfilter`
-	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags openal`
+	LIBS += $(LINUX_GL_LIBS) `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
+	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
 	CFLAGS = $(CXXFLAGS)
 endif
 
