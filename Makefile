@@ -27,9 +27,9 @@ SOURCES += $(GLAD_DIR)/src/glad.c
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
 UNAME_S := $(shell uname -s)
 
-CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR) -I$(GLAD_DIR)/include
-CXXFLAGS += -g -Wall -Wformat
-LIBS =
+CXXFLAGS ?= -g -Wall -Wformat
+CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR) -I$(GLAD_DIR)/include
+LIBS ?=
 
 ##---------------------------------------------------------------------
 ## BUILD FLAGS PER PLATFORM
@@ -38,8 +38,9 @@ LIBS =
 ifeq ($(UNAME_S), Linux) #LINUX
 	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
 	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
-	CFLAGS = $(CXXFLAGS)
 endif
+
+CFLAGS = $(CXXFLAGS)
 
 ##---------------------------------------------------------------------
 ## BUILD RULES
