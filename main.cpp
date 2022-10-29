@@ -196,6 +196,8 @@ AVFilterGraph *probe_graph = NULL;
 char *graphdump_text = NULL;
 float audio_sample_range[2] = { 1.f, 1.f };
 float audio_window_size[2] = { 0, 100 };
+float osd_fullscreen_pos[2] = { 0.01f, 0.01f };
+float osd_transparency = 0.5f;
 
 int editor_edge = 0;
 ImNodesEditorContext *node_editor_context;
@@ -910,13 +912,17 @@ static void draw_osd(BufferSink *sink, int width, int height, int64_t pos)
              sink->frame_rate.num, sink->frame_rate.den, av_q2d(sink->frame_rate), pos);
 
     if (sink->fullscreen) {
-        ImGui::SetCursorPos(ImVec2(20, 20));
-        ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetCursorPos(),
-                                                  ImVec2(ImGui::CalcTextSize(osd_text).x + 25, ImGui::GetFontSize() * 2.8f),
-                                                  ImGui::GetColorU32(ImGuiCol_WindowBg, 0.5f));
+        ImVec2 max_size = ImGui::GetIO().DisplaySize;
+        ImVec2 tsize = ImGui::CalcTextSize(osd_text);
+        ImVec2 start_pos = ImVec2(std::min(max_size.x * osd_fullscreen_pos[0], max_size.x - tsize.x - 25), std::min(max_size.y * osd_fullscreen_pos[1], max_size.y - tsize.y - 25));
+        ImVec2 stop_pos = ImVec2(std::min(start_pos.x + tsize.x + 25, max_size.x), std::min(start_pos.y + tsize.y + 25, max_size.y));
+        ImGui::GetWindowDrawList()->AddRectFilled(start_pos, stop_pos,
+                                                  ImGui::GetColorU32(ImGuiCol_WindowBg, osd_transparency));
+        ImGui::SetCursorPos(ImVec2(std::min(start_pos.x + 12, max_size.x - tsize.x - 12), std::min(start_pos.y + 12, max_size.y - tsize.y - 12)));
+        ImGui::Text(osd_text);
+    } else {
+        ImGui::TextWrapped(osd_text);
     }
-
-    ImGui::TextWrapped(osd_text);
 }
 
 static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
@@ -2473,6 +2479,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 static int item_current_idx[2] = { 0, 0 };
                 const int flags = 0;
 
+                ImGui::DragFloat2("OSD Fullscreen Position", osd_fullscreen_pos, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                ImGui::DragFloat("OSD Fullscreen Transparency", &osd_transparency, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                 if (ImGui::BeginCombo("Upscaler", items[item_current_idx[0]], flags)) {
                     for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
                         const bool is_selected = (item_current_idx[0] == n);
