@@ -1021,7 +1021,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
             sink->show_osd = !sink->show_osd;
     }
 
-    if (ImGui::IsKeyDown(ImGuiKey_0 + sink->id) && ImGui::GetIO().KeyCtrl)
+    if (ImGui::IsKeyDown((ImGuiKey)(ImGuiKey_0 + sink->id)) && ImGui::GetIO().KeyCtrl)
         focus_buffersink_window = sink->id;
 
     if (sink->fullscreen) {
@@ -1109,7 +1109,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
             sink->show_osd = !sink->show_osd;
     }
 
-    if (ImGui::IsKeyDown(ImGuiKey_0 + sink->id) && ImGui::GetIO().KeyAlt)
+    if (ImGui::IsKeyDown((ImGuiKey)(ImGuiKey_0 + sink->id)) && ImGui::GetIO().KeyAlt)
         focus_abuffersink_window = sink->id;
 
     ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
