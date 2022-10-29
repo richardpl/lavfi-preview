@@ -18,15 +18,16 @@ PKG_CONFIG_PATH = /usr/local/lib/pkgconfig
 EXE = lavfi-preview
 IMGUI_DIR = imgui
 IMNODES_DIR = imnodes
+GLAD_DIR = glad
 SOURCES = main.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp
 SOURCES += $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
 SOURCES += $(IMNODES_DIR)/imnodes.cpp
+SOURCES += $(GLAD_DIR)/src/glad.c
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
 UNAME_S := $(shell uname -s)
-LINUX_GL_LIBS = -lGL
 
-CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR)
+CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR) -I$(GLAD_DIR)/include
 CXXFLAGS += -g -Wall -Wformat
 LIBS =
 
@@ -35,7 +36,7 @@ LIBS =
 ##---------------------------------------------------------------------
 
 ifeq ($(UNAME_S), Linux) #LINUX
-	LIBS += $(LINUX_GL_LIBS) `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
+	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
 	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
 	CFLAGS = $(CXXFLAGS)
 endif
@@ -55,6 +56,9 @@ endif
 
 %.o:$(IMNODES_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+%.o:$(GLAD_DIR)/src/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 all: $(EXE)
 	@echo Build complete for lavfi-preview
