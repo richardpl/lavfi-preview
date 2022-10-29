@@ -997,6 +997,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     }
 
     if (!ImGui::Begin(sink->label, p_open, flags)) {
+        ImGui::End();
         goto end;
     }
 
