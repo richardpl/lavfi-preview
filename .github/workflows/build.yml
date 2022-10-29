@@ -1,0 +1,57 @@
+name: Build
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  workflow_dispatch: ~
+  schedule:
+    - cron: '0 16 * * *'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [win64,linux64,linuxarm64]
+    container: ghcr.io/btbn/ffmpeg-builds/${{ matrix.target }}-gpl:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build FFmpeg
+        run: |
+          set -e
+          git clone --filter=blob:none https://github.com/FFmpeg/FFmpeg.git /FFmpeg
+          cd /FFmpeg
+          ./configure --prefix="$FFBUILD_PREFIX" --pkg-config-flags="--static" $FFBUILD_TARGET_FLAGS \
+            --disable-shared --enable-static --disable-programs --disable-doc --enable-gpl --enable-version3 \
+            --enable-zlib --enable-libx264 --enable-libx265 --enable-libvpx --enable-libass --enable-libmp3lame \
+            --enable-libzimg
+          make -j$(nproc)
+          make install
+      - name: Build GLFW
+        run: |
+          set -e
+          git clone --filter=blob:none https://github.com/glfw/glfw.git /glfw
+          cd /glfw
+          mkdir build && cd build
+          cmake -GNinja -DCMAKE_TOOLCHAIN_FILE="$FFBUILD_CMAKE_TOOLCHAIN" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$FFBUILD_PREFIX" \
+            -DBUILD_SHARED_LIBS=OFF -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF ..
+          ninja -j$(nproc)
+          ninja install
+      - name: Build
+        run: |
+          set -e
+          make -j$(nproc) CC="${FFBUILD_CROSS_PREFIX}gcc" CXX="${FFBUILD_CROSS_PREFIX}g++" \
+            PKG_CONFIG_FLAGS="--static" PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
+          ${FFBUILD_CROSS_PREFIX}strip --strip-unneeded lavfi-preview*
+          mkdir -p artifacts/${{ matrix.target }}
+          mv lavfi-preview* artifacts/${{ matrix.target }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: lavfi-preview
+          path: artifacts/*

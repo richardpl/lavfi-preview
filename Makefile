@@ -15,6 +15,7 @@
 #CXX = clang++
 
 PKG_CONFIG_PATH = /usr/local/lib/pkgconfig
+PKG_CONFIG_FLAGS = --shared
 EXE = lavfi-preview
 IMGUI_DIR = imgui
 IMNODES_DIR = imnodes
@@ -36,8 +37,8 @@ LIBS ?=
 ##---------------------------------------------------------------------
 
 ifeq ($(UNAME_S), Linux) #LINUX
-	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --shared --libs glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
-	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) --cflags glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
+	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) $(PKG_CONFIG_FLAGS) --libs glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
+	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) $(PKG_CONFIG_FLAGS) --cflags glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter openal`
 endif
 
 CFLAGS = $(CXXFLAGS)
