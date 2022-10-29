@@ -11,11 +11,11 @@
 #include "imnodes.h"
 
 #include <stdio.h>
-#if defined(IMGUI_IMPL_OPENGL_ES2)
-#include <GLES2/gl2.h>
-#endif
-#include <GLFW/glfw3.h> // Will drag system OpenGL headers
 #include <unistd.h>
+
+#define GLFW_INCLUDE_NONE
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
 
 #include <AL/alc.h>
 #include <AL/al.h>
@@ -3233,6 +3233,7 @@ restart_window:
     if (window == NULL)
         return 1;
     glfwMakeContextCurrent(window);
+    gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
     glfwSwapInterval(1); // Enable vsync
 
     av_log_set_callback(log_callback);
