@@ -5,6 +5,10 @@ on:
     paths-ignore:
       - '**.md'
       - 'LICENSE'
+    branches:
+      - '*'
+    tags:
+      - 'v*'
   workflow_dispatch: ~
   schedule:
     - cron: '0 16 * * *'
@@ -48,10 +52,31 @@ jobs:
           make -j$(nproc) CC="${FFBUILD_CROSS_PREFIX}gcc" CXX="${FFBUILD_CROSS_PREFIX}g++" \
             PKG_CONFIG_FLAGS="--static" PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
           ${FFBUILD_CROSS_PREFIX}strip --strip-unneeded lavfi-preview*
-          mkdir -p artifacts/${{ matrix.target }}
-          mv lavfi-preview* artifacts/${{ matrix.target }}
+          mkdir artifacts
+          mv lavfi-preview* artifacts/lavfi-preview-${{ matrix.target }}$(test -f *.exe && echo .exe)
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
           name: lavfi-preview
           path: artifacts/*
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: lavfi-preview
+          path: artifacts
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAGNAME="${GITHUB_REF#refs/*/}"
+          xz -9 -e artifacts/*
+          hub release create $(for a in artifacts/*; do echo -a $a; done) -m "Release $TAGNAME" "$TAGNAME"
