@@ -1903,7 +1903,7 @@ static void draw_node_options(FilterNode *node)
         return;
 
     if (filter_graph_is_valid) {
-        static unsigned toggle_filter = INT_MAX;
+        static unsigned toggle_filter = UINT_MAX;
         static bool clean_storage = true;
 
         draw_filter_commands(node->ctx, node->id, &toggle_filter, true, &clean_storage, false);
