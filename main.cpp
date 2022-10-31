@@ -1634,7 +1634,7 @@ static void draw_options(FilterNode *node, void *av_class)
                 break;
         }
 
-        if (ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
+        if (ImNodes::IsNodeSelected(node->edge) && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
             ImGui::SetTooltip("%s", opt->help);
     }
 }
