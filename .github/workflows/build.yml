@@ -25,20 +25,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Build FFmpeg
+      - name: Clone FFmpeg
+        id: ffclone
         run: |
-          set -e
+          set -xe
           git clone --filter=blob:none https://github.com/FFmpeg/FFmpeg.git /FFmpeg
+          echo "ffsha=$(git -C /FFmpeg rev-parse --verify HEAD)" >> $GITHUB_OUTPUT
+      - name: Cache FFmpeg
+        id: ffcache
+        uses: actions/cache@v3
+        with:
+          path: /FFmpeg
+          key: ffcache-${{ matrix.target }}-${{ steps.ffclone.outputs.ffsha }}
+      - name: Build FFmpeg
+        if: ${{ steps.ffcache.outputs.cache-hit != 'true' }}
+        run: |
+          set -xe
           cd /FFmpeg
           ./configure --prefix="$FFBUILD_PREFIX" --pkg-config-flags="--static" $FFBUILD_TARGET_FLAGS \
-            --disable-shared --enable-static --disable-programs --disable-doc --enable-gpl --enable-version3 \
+            --disable-debug --disable-shared --enable-static --disable-programs --disable-doc --enable-gpl --enable-version3 \
             --enable-zlib --enable-libx264 --enable-libx265 --enable-libvpx --enable-libass --enable-libmp3lame \
             --enable-libzimg
           make -j$(nproc)
+      - name: Install FFmpeg
+        run: |
+          set -xe
+          cd /FFmpeg
           make install
       - name: Build GLFW
         run: |
-          set -e
+          set -xe
           git clone --filter=blob:none https://github.com/glfw/glfw.git /glfw
           cd /glfw
           mkdir build && cd build
@@ -48,12 +64,16 @@ jobs:
           ninja install
       - name: Build
         run: |
-          set -e
+          set -xe
           make -j$(nproc) CC="${FFBUILD_CROSS_PREFIX}gcc" CXX="${FFBUILD_CROSS_PREFIX}g++" \
             PKG_CONFIG_FLAGS="--static" PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
+      - name: Prepare artifacts
+        run: |
+          set -xe
           ${FFBUILD_CROSS_PREFIX}strip --strip-unneeded lavfi-preview*
           mkdir artifacts
           mv lavfi-preview* artifacts/lavfi-preview-${{ matrix.target }}$(test -f *.exe && echo .exe)
+          xz -9 -e artifacts/*
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
@@ -76,7 +96,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          set -e
+          set -xe
           TAGNAME="${GITHUB_REF#refs/*/}"
-          xz -9 -e artifacts/*
           hub release create $(for a in artifacts/*; do echo -a $a; done) -m "Release $TAGNAME" "$TAGNAME"
