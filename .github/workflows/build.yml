@@ -31,12 +31,13 @@ jobs:
           set -xe
           git clone --filter=blob:none https://github.com/FFmpeg/FFmpeg.git /FFmpeg
           echo "ffsha=$(git -C /FFmpeg rev-parse --verify HEAD)" >> $GITHUB_OUTPUT
+          echo "contsha=$(curl --unix-socket /var/run/docker.sock http://localhost/containers/${HOSTNAME}/json | python3 -c "import sys, json; print(json.load(sys.stdin)['Image'].rpartition(':')[2])")" >> $GITHUB_OUTPUT
       - name: Cache FFmpeg
         id: ffcache
         uses: actions/cache@v3
         with:
           path: /FFmpeg
-          key: ffcache-${{ matrix.target }}-${{ steps.ffclone.outputs.ffsha }}
+          key: ffcache-${{ matrix.target }}-${{ steps.ffclone.outputs.ffsha }}-${{ steps.ffclone.outputs.contsha }}
       - name: Build FFmpeg
         if: ${{ steps.ffcache.outputs.cache-hit != 'true' }}
         run: |
