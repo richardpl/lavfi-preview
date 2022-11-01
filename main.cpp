@@ -166,6 +166,7 @@ bool show_commands_window = false;
 bool show_filtergraph_editor_window = true;
 bool show_mini_map = true;
 int mini_map_location = ImNodesMiniMapLocation_BottomRight;
+int style_colors = 1;
 
 char *import_script_file_name = NULL;
 
@@ -2270,6 +2271,24 @@ static ImVec2 find_node_spot(ImVec2 start)
     return pos;
 }
 
+static void set_style_colors(int style)
+{
+    switch (style) {
+    case 0:
+        ImGui::StyleColorsClassic();
+        ImNodes::StyleColorsClassic();
+        break;
+    case 1:
+        ImGui::StyleColorsDark();
+        ImNodes::StyleColorsDark();
+        break;
+    case 2:
+        ImGui::StyleColorsLight();
+        ImNodes::StyleColorsLight();
+        break;
+    }
+}
+
 static void show_filtergraph_editor(bool *p_open, bool focused)
 {
     bool erased = false;
@@ -2598,17 +2617,15 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
             if (ImGui::BeginMenu("Visual Color Style")) {
                 if (ImGui::MenuItem("Classic")) {
-                    ImGui::StyleColorsClassic();
-                    ImNodes::StyleColorsClassic();
+                    style_colors = 0;
                 }
                 if (ImGui::MenuItem("Dark")) {
-                    ImGui::StyleColorsDark();
-                    ImNodes::StyleColorsDark();
+                    style_colors = 1;
                 }
                 if (ImGui::MenuItem("Light")) {
-                    ImGui::StyleColorsLight();
-                    ImNodes::StyleColorsLight();
+                    style_colors = 2;
                 }
+                set_style_colors(style_colors);
                 ImGui::EndMenu();
             }
 
@@ -3269,7 +3286,7 @@ restart_window:
     io.WantCaptureKeyboard = true;
 
     // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
+    set_style_colors(style_colors);
     if (highDPIscaleFactor > 1.f) {
         ImGuiStyle &style = ImGui::GetStyle();
         style.ScaleAllSizes(highDPIscaleFactor);
