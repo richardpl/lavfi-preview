@@ -3229,6 +3229,13 @@ int main(int, char**)
     //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 
 restart_window:
+    float highDPIscaleFactor = 1.f;
+    float xscale, yscale;
+    glfwGetMonitorContentScale(glfwGetPrimaryMonitor(), &xscale, &yscale);
+    if (xscale > 1.f || yscale > 1.f) {
+        highDPIscaleFactor = xscale;
+        glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+    }
     GLFWmonitor *monitor = glfwGetPrimaryMonitor();
     if (monitor) {
         const GLFWvidmode *mode = glfwGetVideoMode(monitor);
@@ -3263,6 +3270,10 @@ restart_window:
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
+    if (highDPIscaleFactor > 1.f) {
+        ImGuiStyle &style = ImGui::GetStyle();
+        style.ScaleAllSizes(highDPIscaleFactor);
+    }
 
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);
