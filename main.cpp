@@ -1942,22 +1942,6 @@ static void draw_node_options(FilterNode *node)
             if (audio_sink_threads[i].joinable())
                 return;
         }
-
-        if (ImGui::Button("Remove")) {
-            av_freep(&node->filter_name);
-            av_freep(&node->filter_label);
-            av_freep(&node->filter_options);
-            av_freep(&node->ctx_options);
-            avfilter_free(node->probe);
-            node->probe = NULL;
-            avfilter_free(node->ctx);
-            node->ctx = NULL;
-            node->colapsed = false;
-            edge2pad[node->edge].is_output = false;
-            edge2pad[node->edge].removed = true;
-            filter_nodes.erase(filter_nodes.begin() + node->id);
-            return;
-        }
     }
 
     if (!ImGui::BeginListBox("##List of Filter Options"))
