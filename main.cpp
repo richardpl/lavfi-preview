@@ -48,8 +48,6 @@ typedef struct FrameInfo {
     int64_t pts;
     int64_t pkt_dts;
     AVRational time_base;
-    int coded_picture_number;
-    int display_picture_number;
     int interlaced_frame;
     int top_field_first;
     int sample_rate;
@@ -941,8 +939,6 @@ static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
     frame_info->pts = frame->pts;
     frame_info->pkt_dts = frame->pkt_dts;
     frame_info->time_base = frame->time_base;
-    frame_info->coded_picture_number = frame->coded_picture_number;
-    frame_info->display_picture_number = frame->display_picture_number;
     frame_info->interlaced_frame = frame->interlaced_frame;
     frame_info->top_field_first = frame->top_field_first;
     frame_info->sample_rate = frame->sample_rate;
