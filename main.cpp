@@ -1342,8 +1342,13 @@ static void draw_options(FilterNode *node, void *av_class)
         if (last_offset == opt->offset)
             continue;
         last_offset = opt->offset;
+
+        if (opt->flags & AV_OPT_FLAG_READONLY)
+            continue;
+
         if (!query_ranges((void *)obj, opt, &min, &max))
             continue;
+
         switch (opt->type) {
             case AV_OPT_TYPE_INT64:
                 {
@@ -1665,6 +1670,9 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                 if (!(opt->flags & AV_OPT_FLAG_RUNTIME_PARAM))
                     continue;
 
+                if (opt->flags & AV_OPT_FLAG_READONLY)
+                    continue;
+
                 if (!query_ranges((void *)&ctx->filter->priv_class, opt, &min, &max))
                     continue;
 
@@ -1868,6 +1876,79 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
             tree ? ImGui::TreePop() : ImGui::EndListBox();
         }
+    }
+
+    if (tree ? ImGui::TreeNode("Exports") : ImGui::BeginListBox("##Exports", ImVec2(200, 100))) {
+        const AVOption *opt = NULL;
+        unsigned opt_index = 0;
+
+        while ((opt = av_opt_next(ctx->priv, opt))) {
+            double min, max;
+            void *ptr;
+
+            if (!(opt->flags & AV_OPT_FLAG_EXPORT))
+                continue;
+
+            ptr = av_opt_ptr(ctx->filter->priv_class, ctx->priv, opt->name);
+            if (!ptr)
+                continue;
+
+            ImGui::PushID(opt_index);
+            switch (opt->type) {
+                case AV_OPT_TYPE_FLAGS:
+                case AV_OPT_TYPE_BOOL:
+                case AV_OPT_TYPE_INT:
+                    {
+                        int value = *(int *)ptr;
+
+                        ImGui::LabelText("##export", "%s: %d", opt->name, value);
+                    }
+                    break;
+                case AV_OPT_TYPE_INT64:
+                    {
+                        int64_t value = *(int64_t *)ptr;
+
+                        ImGui::LabelText("##export", "%s: %ld", opt->name, value);
+                    }
+                    break;
+                case AV_OPT_TYPE_UINT64:
+                    {
+                        uint64_t value = *(uint64_t *)ptr;
+
+                        ImGui::LabelText("##export", "%s: %lu", opt->name, value);
+                    }
+                    break;
+                case AV_OPT_TYPE_DOUBLE:
+                    {
+                        double value = *(double *)ptr;
+
+                        ImGui::LabelText("##export", "%s: %g", opt->name, value);
+                    }
+                    break;
+                case AV_OPT_TYPE_FLOAT:
+                    {
+                        float value = *(float *)ptr;
+
+                        ImGui::LabelText("##export", "%s: %f", opt->name, value);
+                    }
+                    break;
+                case AV_OPT_TYPE_STRING:
+                    {
+                    }
+                    break;
+                default:
+                    break;
+            }
+
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", opt->help);
+
+            opt_index++;
+
+            ImGui::PopID();
+        }
+
+        tree ? ImGui::TreePop() : ImGui::EndListBox();
     }
 
     if (ctx->filter->flags & AVFILTER_FLAG_SUPPORT_TIMELINE) {
