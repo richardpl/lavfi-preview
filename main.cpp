@@ -413,6 +413,20 @@ static int filters_setup()
         av_opt_set_defaults(filter_ctx);
         filter_ctx->nb_threads = get_nb_filter_threads(filter_ctx->filter);
 
+        filter_nodes[i].ctx = filter_ctx;
+
+        ret = av_opt_copy(filter_ctx, filter_nodes[i].probe);
+        if (ret < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Cannot copy options for filter.\n");
+            goto error;
+        }
+
+        ret = av_opt_copy(filter_ctx->priv, filter_nodes[i].probe->priv);
+        if (ret < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Cannot copy private options for filter.\n");
+            goto error;
+        }
+
         if (!strcmp(filter_ctx->filter->name, "buffersink")) {
             BufferSink new_sink;
 
@@ -462,39 +476,9 @@ static int filters_setup()
             abuffer_sinks.push_back(new_sink);
         }
 
-        filter_nodes[i].ctx = filter_ctx;
-
-        av_freep(&filter_nodes[i].ctx_options);
-        if (filter_nodes[i].probe) {
-            ret = av_opt_serialize(filter_nodes[i].probe, 0, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
-                                   &filter_nodes[i].ctx_options, '=', ':');
-            if (ret < 0)
-                av_log(NULL, AV_LOG_WARNING, "Cannot serialize filter ctx options.\n");
-        }
-
-        av_freep(&filter_nodes[i].filter_options);
-        if (filter_nodes[i].probe) {
-            ret = av_opt_serialize(filter_nodes[i].probe->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
-                                   &filter_nodes[i].filter_options, '=', ':');
-            if (ret < 0)
-                av_log(NULL, AV_LOG_WARNING, "Cannot serialize filter private options.\n");
-        }
-
-        ret = av_opt_set_from_string(filter_ctx, filter_nodes[i].ctx_options, NULL, "=", ":");
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Error setting filter ctx options.\n");
-            goto error;
-        }
-
-        ret = av_opt_set_from_string(filter_ctx->priv, filter_nodes[i].filter_options, NULL, "=", ":");
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Error setting filter private options.\n");
-            goto error;
-        }
-
         ret = avfilter_init_str(filter_ctx, NULL);
         if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot init str for filter.\n");
+            av_log(NULL, AV_LOG_ERROR, "Cannot init filter.\n");
             goto error;
         }
     }
