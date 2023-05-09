@@ -460,7 +460,7 @@ static int filters_setup()
             new_sink.downscale_interpolator = 0;
             new_sink.frame_number = 0;
             ret = av_opt_set_int_list(filter_ctx, "sample_fmts", sample_fmts,
-                                      AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+                                      AV_SAMPLE_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
                 av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample formats.\n");
                 goto error;
