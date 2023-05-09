@@ -33,6 +33,7 @@ extern "C" {
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
 #include <libavformat/avformat.h>
+#include <libavdevice/avdevice.h>
 #include "ringbuffer/ringbuffer.c"
 }
 
@@ -3265,6 +3266,8 @@ static void show_log(bool *p_open, bool focused)
 int main(int, char**)
 {
     ALCint attribs[] = { ALC_FREQUENCY, output_sample_rate, 0, 0 };
+
+    avdevice_register_all();
 
     al_dev = alcOpenDevice(NULL);
     if (!al_dev) {
