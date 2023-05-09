@@ -1883,7 +1883,6 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
         unsigned opt_index = 0;
 
         while ((opt = av_opt_next(ctx->priv, opt))) {
-            double min, max;
             void *ptr;
 
             if (!(opt->flags & AV_OPT_FLAG_EXPORT))
