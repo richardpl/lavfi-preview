@@ -89,6 +89,7 @@ typedef struct OptStorage {
 typedef struct BufferSink {
     unsigned id;
     char *label;
+    char *description;
     AVFilterContext *ctx;
     AVRational time_base;
     AVRational frame_rate;
@@ -321,6 +322,7 @@ static void kill_audio_sink_threads()
         }
 
         av_freep(&sink->label);
+        av_freep(&sink->description);
         av_freep(&sink->samples);
         alDeleteSources(1, &sink->source);
         alDeleteBuffers(AL_BUFFERS, sink->buffers);
@@ -339,6 +341,7 @@ static void kill_video_sink_threads()
         }
 
         av_freep(&sink->label);
+        av_freep(&sink->description);
         glDeleteTextures(1, &sink->texture);
     }
 }
@@ -554,6 +557,7 @@ error:
 
         sink->id = i;
         sink->label = av_asprintf("Video FilterGraph Output %d", i);
+        sink->description = NULL;
         sink->time_base = av_buffersink_get_time_base(sink->ctx);
         sink->frame_rate = av_buffersink_get_frame_rate(sink->ctx);
         sink->pts = AV_NOPTS_VALUE;
@@ -585,10 +589,16 @@ error:
     audio_sink_threads.swap(athread_list);
 
     for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
+        char layout_name[512] = { 0 };
         BufferSink *sink = &abuffer_sinks[i];
+        AVChannelLayout layout;
+
+        av_buffersink_get_ch_layout(sink->ctx, &layout);
+        av_channel_layout_describe(&layout, layout_name, sizeof(layout_name));
 
         sink->id = i;
         sink->label = av_asprintf("Audio FilterGraph Output %d", i);
+        sink->description = av_asprintf("%s", layout_name);
         sink->time_base = av_buffersink_get_time_base(sink->ctx);
         sink->frame_rate = av_make_q(av_buffersink_get_sample_rate(sink->ctx), 1);
         sink->sample_index = 0;
@@ -1081,6 +1091,8 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     }
 
     if (ImGui::IsWindowFocused()) {
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", sink->description);
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
             paused = !paused;
         if (ImGui::IsKeyReleased(ImGuiKey_M))
