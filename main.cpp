@@ -2242,8 +2242,12 @@ static void export_filter_graph(char **out, size_t *out_size)
             }
 
             av_bprintf(&buf, "%s", filter_nodes[node].filter_name);
-            if (strlen(filter_nodes[node].filter_options) > 0)
+            av_freep(&filter_nodes[node].filter_options);
+            av_opt_serialize(filter_nodes[node].ctx->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
+                             &filter_nodes[node].filter_options, '=', ':');
+            if (filter_nodes[node].filter_options && (strlen(filter_nodes[node].filter_options) > 0))
                 av_bprintf(&buf, "=%s", filter_nodes[node].filter_options);
+            av_freep(&filter_nodes[node].filter_options);
 
             for (unsigned i = 0; i < filter_links.size(); i++) {
                 const std::pair<int, int> p = filter_links[i];
