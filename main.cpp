@@ -2,6 +2,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <sstream>
 #include <vector>
 
 #include "imgui.h"
@@ -130,6 +131,7 @@ typedef struct BufferSink {
 
 typedef struct FilterNode {
     unsigned id;
+    bool imported_id;
     bool set_pos;
     ImVec2 pos;
     int edge;
@@ -2135,6 +2137,8 @@ static void import_filter_graph(const char *file_name)
     for (unsigned i = 0; i < filters.size(); i++) {
         FilterNode node;
         std::pair <int, int> p = filters[i];
+        std::string filter_name;
+        std::string instance_name;
         char *opts = NULL;
         int ret;
 
@@ -2169,12 +2173,16 @@ static void import_filter_graph(const char *file_name)
             av_log(NULL, AV_LOG_ERROR, "Could not get filter name.\n");
             goto error;
         }
-        node.filter = avfilter_get_by_name(node.filter_name);
+        std::istringstream full_name(node.filter_name);
+        std::getline(full_name, filter_name, '@');
+        std::getline(full_name, instance_name, '@');
+        node.filter = avfilter_get_by_name(filter_name.c_str());
         if (!node.filter) {
             av_log(NULL, AV_LOG_ERROR, "Could not get filter by name: %s.\n", node.filter_name);
             goto error;
         }
-        node.filter_label = av_asprintf("%s%d", node.filter_name, node.id);
+        node.imported_id = instance_name.length() > 0;
+        node.filter_label = node.imported_id ? av_asprintf("%s@%s", node.filter->name, instance_name.c_str()) : av_asprintf("%s%d", node.filter->name, node.id);
         node.filter_options = opts;
         node.ctx_options = NULL;
         node.probe = avfilter_graph_alloc_filter(probe_graph, node.filter, "probe");
@@ -2261,7 +2269,10 @@ static void export_filter_graph(char **out, size_t *out_size)
                 av_bprintf(&buf, "[e%d]", i);
             }
 
-            av_bprintf(&buf, "%s", filter_nodes[node].filter_name);
+            if (filter_nodes[node].imported_id)
+                av_bprintf(&buf, "%s", filter_nodes[node].filter_label);
+            else
+                av_bprintf(&buf, "%s", filter_nodes[node].filter_name);
             av_freep(&filter_nodes[node].filter_options);
             av_opt_serialize(filter_nodes[node].ctx->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
                              &filter_nodes[node].filter_options, '=', ':');
