@@ -2165,7 +2165,15 @@ static void import_filter_graph(const char *file_name)
         node.id = filter_nodes.size();
         node.edge = filter2edge[i];
         node.filter_name = av_asprintf("%.*s", p.second - p.first, buf.str + p.first);
+        if (!node.filter_name) {
+            av_log(NULL, AV_LOG_ERROR, "Could not get filter name.\n");
+            goto error;
+        }
         node.filter = avfilter_get_by_name(node.filter_name);
+        if (!node.filter) {
+            av_log(NULL, AV_LOG_ERROR, "Could not get filter by name: %s.\n", node.filter_name);
+            goto error;
+        }
         node.filter_label = av_asprintf("%s%d", node.filter_name, node.id);
         node.filter_options = opts;
         node.ctx_options = NULL;
