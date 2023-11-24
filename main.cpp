@@ -855,6 +855,7 @@ static void add_filter_node(const AVFilter *filter, ImVec2 pos)
     node.pos = pos;
     node.colapsed = false;
     node.set_pos = true;
+    node.imported_id = false;
 
     filter_nodes.push_back(node);
 }
