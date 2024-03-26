@@ -59,7 +59,7 @@ typedef struct FrameInfo {
     enum AVColorSpace colorspace;
     enum AVChromaLocation chroma_location;
     int64_t pkt_pos;
-    int64_t pkt_duration;
+    int64_t duration;
     int pkt_size;
     size_t crop_top;
     size_t crop_bottom;
@@ -706,13 +706,13 @@ static void draw_info(bool *p_open, FrameInfo *frame)
     }
     ImGui::Text("PTS: %ld", frame->pts);
     ImGui::Separator();
+    ImGui::Text("DURATION: %ld", frame->duration);
+    ImGui::Separator();
     ImGui::Text("TIME BASE: %d/%d", frame->time_base.num, frame->time_base.den);
     ImGui::Separator();
     ImGui::Text("PACKET POSITION: %ld", frame->pkt_pos);
     ImGui::Separator();
     ImGui::Text("PACKET SIZE: %d", frame->pkt_size);
-    ImGui::Separator();
-    ImGui::Text("PACKET DURATION: %ld", frame->pkt_duration);
     ImGui::End();
 }
 
@@ -946,7 +946,7 @@ static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
     frame_info->colorspace = frame->colorspace;
     frame_info->chroma_location = frame->chroma_location;
     frame_info->pkt_pos = frame->pkt_pos;
-    frame_info->pkt_duration = frame->pkt_duration;
+    frame_info->duration = frame->duration;
     frame_info->pkt_size = frame->pkt_size;
     frame_info->crop_top = frame->crop_top;
     frame_info->crop_bottom = frame->crop_bottom;
@@ -2033,7 +2033,7 @@ static ImVec2 find_node_spot(ImVec2 start);
 
 static void import_filter_graph(const char *file_name)
 {
-    FILE *file = av_fopen_utf8(file_name, "r");
+    FILE *file = fopen(file_name, "r");
     std::vector<char *> filter_opts;
     std::vector<std::pair <int, int>> labels;
     std::vector<std::pair <int, int>> filters;
