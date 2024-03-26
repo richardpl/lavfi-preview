@@ -99,4 +99,4 @@ jobs:
         run: |
           set -xe
           TAGNAME="${GITHUB_REF#refs/*/}"
-          gh release create -t "Release $TAGNAME" "TAGNAME" artifacts/*
+          gh release create -t "Release $TAGNAME" $TAGNAME artifacts/*
