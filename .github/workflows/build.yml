@@ -99,4 +99,4 @@ jobs:
         run: |
           set -xe
           TAGNAME="${GITHUB_REF#refs/*/}"
-          hub release create $(for a in artifacts/*; do echo -a $a; done) -m "Release $TAGNAME" "$TAGNAME"
+          gh release create -t "Release $TAGNAME" "TAGNAME" artifacts/*
