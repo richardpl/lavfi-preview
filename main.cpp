@@ -1629,6 +1629,18 @@ static void draw_options(FilterNode *node, void *av_class)
                 }
                 break;
             case AV_OPT_TYPE_CHLAYOUT:
+                {
+                    char new_layout[1024] = {0};
+                    AVChannelLayout ch_layout;
+
+                    if (av_opt_get_chlayout(av_class, opt->name, 0, &ch_layout) < 0)
+                        break;
+                    av_channel_layout_describe(&ch_layout, new_layout, sizeof(new_layout));
+                    if (ImGui::InputText(opt->name, new_layout, IM_ARRAYSIZE(new_layout))) {
+                        av_channel_layout_from_string(&ch_layout, new_layout);
+                        av_opt_set_chlayout(av_class, opt->name, &ch_layout, 0);
+                    }
+                }
                 break;
             case AV_OPT_TYPE_CONST:
                 break;
