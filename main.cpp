@@ -1933,6 +1933,9 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                     break;
                 case AV_OPT_TYPE_STRING:
                     {
+                        char *value = *(char **)ptr;
+
+                        ImGui::LabelText("##export", "%s: %s", opt->name, value);
                     }
                     break;
                 default:
