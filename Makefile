@@ -30,7 +30,7 @@ UNAME_S := $(shell uname -s)
 
 CXXFLAGS ?= -g -Wall -Wformat
 CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR) -I$(GLAD_DIR)/include
-LIBS ?=
+LIBS ?= -L/usr/local/lib
 
 ##---------------------------------------------------------------------
 ## BUILD FLAGS PER PLATFORM
