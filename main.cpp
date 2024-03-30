@@ -110,7 +110,7 @@ typedef struct BufferSink {
     ALenum format;
     float gain;
     float position[3];
-    ALuint buffers[AL_BUFFERS];
+    std::vector<ALuint> buffers;
     std::vector<ALuint> processed_bufids;
     std::vector<ALuint> unprocessed_bufids;
 
@@ -122,6 +122,7 @@ typedef struct BufferSink {
     int64_t qpts;
     int64_t pts;
     int64_t pos;
+    ALint audio_queue_size;
     int frame_nb_samples;
 
     float *samples;
@@ -189,6 +190,7 @@ GLint global_upscale_interpolation = GL_NEAREST;
 GLint global_downscale_interpolation = GL_NEAREST;
 
 int output_sample_rate = 44100;
+int audio_queue_size = AL_BUFFERS;
 int display_w;
 int display_h;
 int width = 1280;
@@ -327,7 +329,7 @@ static void kill_audio_sink_threads()
         av_freep(&sink->description);
         av_freep(&sink->samples);
         alDeleteSources(1, &sink->source);
-        alDeleteBuffers(AL_BUFFERS, sink->buffers);
+        alDeleteBuffers(sink->audio_queue_size, sink->buffers.data());
     }
 }
 
@@ -611,14 +613,16 @@ error:
         sink->pts = AV_NOPTS_VALUE;
         sink->samples = (float *)av_calloc(sink->nb_samples, sizeof(float));
         sink->render_ring_size = 2;
+        sink->audio_queue_size = audio_queue_size;
+        sink->buffers.resize(sink->audio_queue_size);
         ring_buffer_init(&sink->consume_frames);
         ring_buffer_init(&sink->render_frames);
         ring_buffer_init(&sink->purge_frames);
 
         sink->format = AL_FORMAT_MONO_FLOAT32;
 
-        alGenBuffers(AL_BUFFERS, sink->buffers);
-        for (unsigned j = 0; j < AL_BUFFERS; j++)
+        alGenBuffers(sink->audio_queue_size, sink->buffers.data());
+        for (ALint j = 0; j < sink->audio_queue_size; j++)
             sink->unprocessed_bufids.push_back(sink->buffers[j]);
 
         alGenSources(1, &sink->source);
@@ -2630,6 +2634,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             }
 
             if (ImGui::BeginMenu("Audio Outputs")) {
+                ImGui::DragInt("Audio Samples Queue Size", &audio_queue_size, 1.f, 4, 256, "%d", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                 ImGui::DragFloat2("Sample Range", audio_sample_range, 0.01f, 1.f, 8.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                 ImGui::InputFloat2("Window Size", audio_window_size);
                 if (ImGui::DragFloat3("Listener Position", listener_position, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
@@ -3510,10 +3515,10 @@ restart_window:
                     ALint queued = 0;
 
                     alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-                    if (queued > AL_BUFFERS / 2)
+                    if (queued > sink->audio_queue_size / 2)
                         continue;
 
-                    if (queued < AL_BUFFERS / 2)
+                    if (queued < sink->audio_queue_size / 2)
                         goto dequeue_consume_frames;
 
                     if (ring_buffer_num_items(&sink->render_frames) > sink->render_ring_size - 1)
@@ -3663,13 +3668,13 @@ dequeue_consume_frames:
                     ALint queued = 0;
 
                     alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-                    if (queued > AL_BUFFERS / 2)
+                    if (queued > sink->audio_queue_size / 2)
                         continue;
 
                     if (paused && !framestep)
                         continue;
 
-                    if (queued < AL_BUFFERS / 2)
+                    if (queued < sink->audio_queue_size / 2)
                         goto dequeue_render_frames;
 
                     if (sink->qpts > min_aqpts)
