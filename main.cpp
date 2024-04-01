@@ -123,6 +123,7 @@ typedef struct BufferSink {
     int64_t pts;
     int64_t pos;
     ALint audio_queue_size;
+    int sample_rate;
     int frame_nb_samples;
 
     float *samples;
@@ -226,7 +227,7 @@ std::vector<Edge2Pad> edge2pad;
 
 static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
 static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_NONE };
-static const int sample_rates[] = { output_sample_rate, 0 };
+static int sample_rates[] = { output_sample_rate, 0 };
 
 ALCdevice *al_dev = NULL;
 ALCcontext *al_ctx = NULL;
@@ -457,6 +458,9 @@ static int filters_setup()
             buffer_sinks.push_back(new_sink);
         } else if (!strcmp(filter_ctx->filter->name, "abuffersink")) {
             BufferSink new_sink;
+
+            alcGetIntegerv(al_dev, ALC_FREQUENCY, 1, &new_sink.sample_rate);
+            sample_rates[0] = new_sink.sample_rate;
 
             new_sink.ctx = filter_ctx;
             new_sink.ready = false;
@@ -1125,6 +1129,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
         ImGui::Text("FRAME: %ld", sink->frame_number);
         ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
         ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
+        ImGui::Text("RATE:  %d", sink->sample_rate);
         ImGui::Text("SPEED: %011.5f", sink->speed);
         alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
         ImGui::Text("POS:   %ld", sink->pos);
