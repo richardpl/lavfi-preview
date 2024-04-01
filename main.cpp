@@ -31,6 +31,7 @@ extern "C" {
 #include <libavutil/parseutils.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/time.h>
+#include <libavcodec/avcodec.h>
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
 #include <libavformat/avformat.h>
@@ -179,6 +180,7 @@ bool framestep = false;
 bool paused = true;
 bool show_info = false;
 bool show_help = false;
+bool show_version = false;
 bool show_console = false;
 bool show_log_window = false;
 
@@ -724,6 +726,50 @@ static void draw_info(bool *p_open, FrameInfo *frame)
     ImGui::End();
 }
 
+static void draw_version(bool *p_open)
+{
+    const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
+                                          ImGuiWindowFlags_AlwaysAutoResize |
+                                          ImGuiWindowFlags_NoSavedSettings |
+                                          ImGuiWindowFlags_NoNav |
+                                          ImGuiWindowFlags_NoMouseInputs |
+                                          ImGuiWindowFlags_NoFocusOnAppearing |
+                                          ImGuiWindowFlags_NoMove;
+
+    ImGui::SetNextWindowPos(ImVec2(display_w/2, display_h/2), 0, ImVec2(0.5, 0.5));
+    ImGui::SetNextWindowSize(ImVec2(display_w, display_h));
+    ImGui::SetNextWindowBgAlpha(0.8f);
+    ImGui::SetNextWindowFocus();
+
+    if (!ImGui::Begin("##Version", p_open, window_flags)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Text("libavutil: %s", LIBAVUTIL_IDENT);
+    ImGui::TextWrapped(avutil_configuration());
+    ImGui::TextWrapped(avutil_license());
+    ImGui::Separator();
+    ImGui::Text("libavfilter: %s", LIBAVFILTER_IDENT);
+    ImGui::TextWrapped(avfilter_configuration());
+    ImGui::TextWrapped(avfilter_license());
+    ImGui::Separator();
+    ImGui::Text("libavcodec: %s", LIBAVCODEC_IDENT);
+    ImGui::TextWrapped(avcodec_configuration());
+    ImGui::TextWrapped(avcodec_license());
+    ImGui::Separator();
+    ImGui::Text("libavformat: %s", LIBAVFORMAT_IDENT);
+    ImGui::TextWrapped(avformat_configuration());
+    ImGui::TextWrapped(avformat_license());
+    ImGui::Separator();
+    ImGui::Text("libavdevice: %s", LIBAVDEVICE_IDENT);
+    ImGui::TextWrapped(avdevice_configuration());
+    ImGui::TextWrapped(avdevice_license());
+    ImGui::Separator();
+    ImGui::Text("ImGui: %s", IMGUI_VERSION);
+    ImGui::End();
+}
+
 static void draw_help(bool *p_open)
 {
     const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
@@ -767,6 +813,10 @@ static void draw_help(bool *p_open)
     ImGui::Text("Jump to FilterGraph Log Window:");
     ImGui::SameLine(align);
     ImGui::Text("F5");
+    ImGui::Separator();
+    ImGui::Text("Show Version/Configuration/License:");
+    ImGui::SameLine(align);
+    ImGui::Text("F12");
     ImGui::Separator();
     ImGui::Text("Toggle Console:");
     ImGui::SameLine(align);
@@ -3624,6 +3674,9 @@ dequeue_consume_frames:
         show_help = ImGui::IsKeyDown(ImGuiKey_F1);
         if (show_help)
             draw_help(&show_help);
+        show_version = ImGui::IsKeyDown(ImGuiKey_F12);
+        if (show_version)
+            draw_version(&show_version);
         show_info = ImGui::IsKeyDown(ImGuiKey_I) && !io.WantTextInput;
         if (show_info)
             draw_info(&show_info, &frame_info);
