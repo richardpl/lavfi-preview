@@ -939,14 +939,14 @@ static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
     frame_info->height = frame->height;
     frame_info->nb_samples = frame->nb_samples;
     frame_info->format = frame->format;
-    frame_info->key_frame = frame->key_frame;
+    frame_info->key_frame = frame->flags & AV_FRAME_FLAG_KEY;
     frame_info->pict_type = frame->pict_type;
     frame_info->sample_aspect_ratio = frame->sample_aspect_ratio;
     frame_info->pts = frame->pts;
     frame_info->pkt_dts = frame->pkt_dts;
     frame_info->time_base = frame->time_base;
-    frame_info->interlaced_frame = frame->interlaced_frame;
-    frame_info->top_field_first = frame->top_field_first;
+    frame_info->interlaced_frame = !!(frame->flags & AV_FRAME_FLAG_INTERLACED);
+    frame_info->top_field_first = !!(frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
     frame_info->sample_rate = frame->sample_rate;
     frame_info->color_range = frame->color_range;
     frame_info->color_primaries = frame->color_primaries;
