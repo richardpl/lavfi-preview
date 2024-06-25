@@ -199,6 +199,7 @@ int display_h;
 int width = 1280;
 int height = 720;
 unsigned depth = 0;
+unsigned audio_format = 0;
 bool filter_graph_is_valid = false;
 AVFilterGraph *filter_graph = NULL;
 AVFilterGraph *probe_graph = NULL;
@@ -231,6 +232,7 @@ std::vector<Edge2Pad> edge2pad;
 static const GLenum gl_fmts[] = { GL_UNSIGNED_BYTE, GL_UNSIGNED_SHORT };
 static const enum AVPixelFormat hi_pix_fmts[] = { AV_PIX_FMT_RGBA64, AV_PIX_FMT_NONE };
 static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
+static const enum AVSampleFormat hi_sample_fmts[] = { AV_SAMPLE_FMT_DBLP, AV_SAMPLE_FMT_NONE };
 static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_NONE };
 static int sample_rates[] = { output_sample_rate, 0 };
 
@@ -476,7 +478,7 @@ static int filters_setup()
             new_sink.upscale_interpolator = 0;
             new_sink.downscale_interpolator = 0;
             new_sink.frame_number = 0;
-            ret = av_opt_set_int_list(filter_ctx, "sample_fmts", sample_fmts,
+            ret = av_opt_set_int_list(filter_ctx, "sample_fmts", audio_format ? hi_sample_fmts : sample_fmts,
                                       AV_SAMPLE_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
                 av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample formats.\n");
@@ -628,7 +630,7 @@ error:
         ring_buffer_init(&sink->render_frames);
         ring_buffer_init(&sink->purge_frames);
 
-        sink->format = AL_FORMAT_MONO_FLOAT32;
+        sink->format = audio_format ? AL_FORMAT_MONO_DOUBLE_EXT : AL_FORMAT_MONO_FLOAT32;
 
         alGenBuffers(sink->audio_queue_size, sink->buffers.data());
         for (ALint j = 0; j < sink->audio_queue_size; j++)
@@ -1201,6 +1203,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
 
 static void queue_sound(AVFrame *frame, BufferSink *sink)
 {
+    const size_t sample_size = (frame->format == AV_SAMPLE_FMT_FLTP) ? sizeof(float) : sizeof(double);
     ALint processed = 0;
 
     alSourcef(sink->source, AL_GAIN, sink->gain * !sink->muted);
@@ -1220,7 +1223,7 @@ static void queue_sound(AVFrame *frame, BufferSink *sink)
 
         sink->processed_bufids.pop_back();
         alBufferData(bufid, sink->format, frame->extended_data[0],
-                     (ALsizei)frame->nb_samples * sizeof(float), frame->sample_rate);
+                     (ALsizei)frame->nb_samples * sample_size, frame->sample_rate);
         alSourceQueueBuffers(sink->source, 1, &bufid);
         frame->nb_samples = 0;
     } else if (sink->unprocessed_bufids.size() > 0 && frame->nb_samples > 0) {
@@ -1228,7 +1231,7 @@ static void queue_sound(AVFrame *frame, BufferSink *sink)
 
         sink->unprocessed_bufids.pop_back();
         alBufferData(bufid, sink->format, frame->extended_data[0],
-                     (ALsizei)frame->nb_samples * sizeof(float), frame->sample_rate);
+                     (ALsizei)frame->nb_samples * sample_size, frame->sample_rate);
         alSourceQueueBuffers(sink->source, 1, &bufid);
         frame->nb_samples = 0;
     }
@@ -2695,6 +2698,22 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             }
 
             if (ImGui::BeginMenu("Audio Outputs")) {
+                const char *format_items[] = { "Float", "Double" };
+                const bool format_values[] = { 0, 1 };
+
+                if (ImGui::BeginCombo("Audio Sample Format", format_items[audio_format], 0)) {
+                    for (int n = 0; n < IM_ARRAYSIZE(format_items); n++) {
+                        const bool is_selected = format_values[n] == audio_format;
+
+                        if (ImGui::Selectable(format_items[n], is_selected))
+                            audio_format = format_values[n];
+
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
                 ImGui::DragInt("Audio Samples Queue Size", &audio_queue_size, 1.f, 4, 256, "%d", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                 ImGui::DragFloat2("Sample Range", audio_sample_range, 0.01f, 1.f, 8.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                 ImGui::InputFloat2("Window Size", audio_window_size);
@@ -3621,24 +3640,46 @@ dequeue_consume_frames:
 
                 ring_buffer_peek(&sink->render_frames, &play_frame, 0);
                 if (play_frame) {
-                    const float *src = (const float *)play_frame->extended_data[0];
+                    if (play_frame->format == AV_SAMPLE_FMT_FLTP) {
+                        const float *src = (const float *)play_frame->extended_data[0];
 
-                    if (src && play_frame->nb_samples > 0) {
-                        float min = FLT_MAX, max = -FLT_MAX;
+                        if (src && play_frame->nb_samples > 0) {
+                            float min = FLT_MAX, max = -FLT_MAX;
 
-                        for (int n = 0; n < play_frame->nb_samples; n++) {
-                            max = std::max(max, src[n]);
-                            min = std::min(min, src[n]);
+                            for (int n = 0; n < play_frame->nb_samples; n++) {
+                                max = std::max(max, src[n]);
+                                min = std::min(min, src[n]);
+                            }
+
+                            sink->frame_number++;
+                            sink->pts = play_frame->pts;
+                            sink->pos = play_frame->pkt_pos;
+                            sink->frame_nb_samples = play_frame->nb_samples;
+                            sink->samples[sink->sample_index++] = max;
+                            sink->samples[sink->sample_index++] = min;
+                            if (sink->sample_index >= sink->nb_samples)
+                                sink->sample_index = 0;
                         }
+                    } else {
+                        const double *src = (const double *)play_frame->extended_data[0];
 
-                        sink->frame_number++;
-                        sink->pts = play_frame->pts;
-                        sink->pos = play_frame->pkt_pos;
-                        sink->frame_nb_samples = play_frame->nb_samples;
-                        sink->samples[sink->sample_index++] = max;
-                        sink->samples[sink->sample_index++] = min;
-                        if (sink->sample_index >= sink->nb_samples)
-                            sink->sample_index = 0;
+                        if (src && play_frame->nb_samples > 0) {
+                            double min = DBL_MAX, max = -DBL_MAX;
+
+                            for (int n = 0; n < play_frame->nb_samples; n++) {
+                                max = std::max(max, src[n]);
+                                min = std::min(min, src[n]);
+                            }
+
+                            sink->frame_number++;
+                            sink->pts = play_frame->pts;
+                            sink->pos = play_frame->pkt_pos;
+                            sink->frame_nb_samples = play_frame->nb_samples;
+                            sink->samples[sink->sample_index++] = max;
+                            sink->samples[sink->sample_index++] = min;
+                            if (sink->sample_index >= sink->nb_samples)
+                                sink->sample_index = 0;
+                        }
                     }
 
                     queue_sound(play_frame, sink);
