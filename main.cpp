@@ -49,7 +49,6 @@ typedef struct FrameInfo {
     enum AVPictureType pict_type;
     AVRational sample_aspect_ratio;
     int64_t pts;
-    int64_t pkt_dts;
     AVRational time_base;
     int interlaced_frame;
     int top_field_first;
@@ -59,9 +58,7 @@ typedef struct FrameInfo {
     enum AVColorTransferCharacteristic color_trc;
     enum AVColorSpace colorspace;
     enum AVChromaLocation chroma_location;
-    int64_t pkt_pos;
     int64_t duration;
-    int pkt_size;
     size_t crop_top;
     size_t crop_bottom;
     size_t crop_left;
@@ -122,7 +119,6 @@ typedef struct BufferSink {
     int64_t delta;
     int64_t qpts;
     int64_t pts;
-    int64_t pos;
     ALint audio_queue_size;
     int sample_rate;
     int frame_nb_samples;
@@ -578,7 +574,6 @@ error:
         sink->pts = AV_NOPTS_VALUE;
         sink->sample_index = 0;
         sink->samples = NULL;
-        sink->pos = 0;
         sink->frame_number = 0;
         sink->frame_nb_samples = 0;
         sink->nb_samples = 0;
@@ -618,7 +613,6 @@ error:
         sink->frame_rate = av_make_q(av_buffersink_get_sample_rate(sink->ctx), 1);
         sink->sample_index = 0;
         sink->nb_samples = 512;
-        sink->pos = 0;
         sink->frame_number = 0;
         sink->frame_nb_samples = 0;
         sink->pts = AV_NOPTS_VALUE;
@@ -727,10 +721,6 @@ static void draw_info(bool *p_open, FrameInfo *frame)
     ImGui::Text("DURATION: %ld", frame->duration);
     ImGui::Separator();
     ImGui::Text("TIME BASE: %d/%d", frame->time_base.num, frame->time_base.den);
-    ImGui::Separator();
-    ImGui::Text("PACKET POSITION: %ld", frame->pkt_pos);
-    ImGui::Separator();
-    ImGui::Text("PACKET SIZE: %d", frame->pkt_size);
     ImGui::End();
 }
 
@@ -963,16 +953,16 @@ static void draw_console(bool *p_open)
     ImGui::End();
 }
 
-static void draw_osd(BufferSink *sink, int width, int height, int64_t pos)
+static void draw_osd(BufferSink *sink, int width, int height)
 {
     char osd_text[1024];
 
-    snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %dx%d | TIME: %.5f | SPEED: %011.5f | FPS: %d/%d (%.5f) | POS: %ld",
+    snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %dx%d | TIME: %.5f | SPEED: %011.5f | FPS: %d/%d (%.5f)",
              sink->frame_number - 1,
              width, height,
              av_q2d(sink->time_base) * sink->pts,
              sink->speed,
-             sink->frame_rate.num, sink->frame_rate.den, av_q2d(sink->frame_rate), pos);
+             sink->frame_rate.num, sink->frame_rate.den, av_q2d(sink->frame_rate));
 
     if (sink->fullscreen) {
         ImVec2 max_size = ImGui::GetIO().DisplaySize;
@@ -1001,7 +991,6 @@ static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
     frame_info->pict_type = frame->pict_type;
     frame_info->sample_aspect_ratio = frame->sample_aspect_ratio;
     frame_info->pts = frame->pts;
-    frame_info->pkt_dts = frame->pkt_dts;
     frame_info->time_base = frame->time_base;
     frame_info->interlaced_frame = !!(frame->flags & AV_FRAME_FLAG_INTERLACED);
     frame_info->top_field_first = !!(frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
@@ -1011,9 +1000,7 @@ static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
     frame_info->color_trc = frame->color_trc;
     frame_info->colorspace = frame->colorspace;
     frame_info->chroma_location = frame->chroma_location;
-    frame_info->pkt_pos = frame->pkt_pos;
     frame_info->duration = frame->duration;
-    frame_info->pkt_size = frame->pkt_size;
     frame_info->crop_top = frame->crop_top;
     frame_info->crop_bottom = frame->crop_bottom;
     frame_info->crop_left = frame->crop_left;
@@ -1124,7 +1111,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     }
 
     if (sink->show_osd)
-        draw_osd(sink, width, height, new_frame->pkt_pos);
+        draw_osd(sink, width, height);
 
     if (style) {
         ImGui::PopStyleVar();
@@ -1190,7 +1177,6 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
         ImGui::Text("RATE:  %d", sink->sample_rate);
         ImGui::Text("SPEED: %011.5f", sink->speed);
         alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-        ImGui::Text("POS:   %ld", sink->pos);
         ImGui::Text("QUEUE: %d", queued);
     }
     if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
@@ -3653,7 +3639,6 @@ dequeue_consume_frames:
 
                             sink->frame_number++;
                             sink->pts = play_frame->pts;
-                            sink->pos = play_frame->pkt_pos;
                             sink->frame_nb_samples = play_frame->nb_samples;
                             sink->samples[sink->sample_index++] = max;
                             sink->samples[sink->sample_index++] = min;
@@ -3673,7 +3658,6 @@ dequeue_consume_frames:
 
                             sink->frame_number++;
                             sink->pts = play_frame->pts;
-                            sink->pos = play_frame->pkt_pos;
                             sink->frame_nb_samples = play_frame->nb_samples;
                             sink->samples[sink->sample_index++] = max;
                             sink->samples[sink->sample_index++] = min;
