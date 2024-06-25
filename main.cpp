@@ -198,6 +198,7 @@ int display_w;
 int display_h;
 int width = 1280;
 int height = 720;
+unsigned depth = 0;
 bool filter_graph_is_valid = false;
 AVFilterGraph *filter_graph = NULL;
 AVFilterGraph *probe_graph = NULL;
@@ -227,6 +228,8 @@ std::vector<FilterNode> filter_nodes;
 std::vector<std::pair<int, int>> filter_links;
 std::vector<Edge2Pad> edge2pad;
 
+static const GLenum gl_fmts[] = { GL_UNSIGNED_BYTE, GL_UNSIGNED_SHORT };
+static const enum AVPixelFormat hi_pix_fmts[] = { AV_PIX_FMT_RGBA64, AV_PIX_FMT_NONE };
 static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
 static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_NONE };
 static int sample_rates[] = { output_sample_rate, 0 };
@@ -450,7 +453,7 @@ static int filters_setup()
             new_sink.frame_number = 0;
             new_sink.upscale_interpolator = global_upscale_interpolation;
             new_sink.downscale_interpolator = global_downscale_interpolation;
-            ret = av_opt_set_int_list(filter_ctx, "pix_fmts", pix_fmts,
+            ret = av_opt_set_int_list(filter_ctx, "pix_fmts", depth ? hi_pix_fmts : pix_fmts,
                                       AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
                 av_log(NULL, AV_LOG_ERROR, "Cannot set buffersink output pixel format.\n");
@@ -655,14 +658,17 @@ error:
 static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *frame,
                        BufferSink *sink)
 {
+    const unsigned idx = (frame->format == AV_PIX_FMT_RGBA) ? 0 : 1;
+    const size_t pixel_size = idx ? 4 * sizeof(uint16_t) : 4 * sizeof(uint8_t);
+
     *width  = frame->width;
     *height = frame->height;
 
     glBindTexture(GL_TEXTURE_2D, *out_texture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, sink->downscale_interpolator);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, sink->upscale_interpolator);
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->linesize[0] / 4);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame->data[0]);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->linesize[0] / pixel_size);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, gl_fmts[idx], frame->data[0]);
 }
 
 static void draw_info(bool *p_open, FrameInfo *frame)
@@ -2752,6 +2758,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 const char *items[] = { "Windowed", "Fullscreen" };
                 const bool values[] = { false, true };
                 const bool old_display = full_screen;
+                const char *depth_items[] = { "8-bit", "16-bit" };
+                const unsigned depth_values[] = { 0, 1 };
 
                 if (ImGui::BeginCombo("Screen mode", items[full_screen], 0)) {
                     for (int n = 0; n < IM_ARRAYSIZE(values); n++) {
@@ -2759,6 +2767,19 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                         if (ImGui::Selectable(items[n], is_selected))
                             full_screen = values[n];
+
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                if (ImGui::BeginCombo("Depth mode", depth_items[depth], 0)) {
+                    for (int n = 0; n < IM_ARRAYSIZE(depth_values); n++) {
+                        const bool is_selected = depth == depth_values[n];
+
+                        if (ImGui::Selectable(depth_items[n], is_selected))
+                            depth = depth_values[n];
 
                         if (is_selected)
                             ImGui::SetItemDefaultFocus();
