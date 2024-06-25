@@ -47,6 +47,7 @@ typedef struct FrameInfo {
     int format;
     int key_frame;
     enum AVPictureType pict_type;
+    AVChannelLayout ch_layout;
     AVRational sample_aspect_ratio;
     int64_t pts;
     AVRational time_base;
@@ -708,12 +709,17 @@ static void draw_info(bool *p_open, FrameInfo *frame)
         ImGui::Separator();
         ImGui::Text("PIXEL FORMAT: %s", av_get_pix_fmt_name((enum AVPixelFormat)frame->format));
         ImGui::Separator();
-    } else if (frame->nb_samples) {
+    } else if (frame->sample_rate > 0) {
+        char chlayout_name[1024] = {0};
+
         ImGui::Text("SAMPLES: %d", frame->nb_samples);
         ImGui::Separator();
         ImGui::Text("SAMPLE RATE: %d", frame->sample_rate);
         ImGui::Separator();
         ImGui::Text("SAMPLE FORMAT: %s", av_get_sample_fmt_name((enum AVSampleFormat)frame->format));
+        ImGui::Separator();
+        av_channel_layout_describe(&frame->ch_layout, chlayout_name, sizeof(chlayout_name));
+        ImGui::Text("CHANNEL LAYOUT: %s", chlayout_name);
         ImGui::Separator();
     }
     ImGui::Text("PTS: %ld", frame->pts);
@@ -995,6 +1001,7 @@ static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
     frame_info->interlaced_frame = !!(frame->flags & AV_FRAME_FLAG_INTERLACED);
     frame_info->top_field_first = !!(frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
     frame_info->sample_rate = frame->sample_rate;
+    av_channel_layout_copy(&frame_info->ch_layout, &frame->ch_layout);
     frame_info->color_range = frame->color_range;
     frame_info->color_primaries = frame->color_primaries;
     frame_info->color_trc = frame->color_trc;
@@ -3626,6 +3633,7 @@ dequeue_consume_frames:
 
                 ring_buffer_peek(&sink->render_frames, &play_frame, 0);
                 if (play_frame) {
+                    update_frame_info(&frame_info, play_frame);
                     if (play_frame->format == AV_SAMPLE_FMT_FLTP) {
                         const float *src = (const float *)play_frame->extended_data[0];
 
