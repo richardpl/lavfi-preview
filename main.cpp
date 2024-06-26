@@ -2096,13 +2096,13 @@ static void draw_node_options(FilterNode *node)
         }
     }
 
-    if (!ImGui::BeginListBox("##List of Filter Options"))
-        return;
+    ImGui::BeginGroup();
+
     draw_options(node, av_class_priv);
     ImGui::NewLine();
     draw_options(node, av_class);
 
-    ImGui::EndListBox();
+    ImGui::EndGroup();
 }
 
 static ImVec2 find_node_spot(ImVec2 start);
