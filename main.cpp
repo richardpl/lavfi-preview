@@ -2873,9 +2873,14 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
     for (unsigned i = 0; i < filter_nodes.size(); i++) {
         FilterNode *filter_node = &filter_nodes[i];
+        bool disabled = false;
 
         edge = filter_node->edge;
         edge2pad[edge] = (Edge2Pad { i, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
+        if (!ImNodes::IsNodeSelected(edge))
+            disabled = true;
+        if (disabled)
+            ImGui::BeginDisabled();
         ImNodes::BeginNode(filter_node->edge);
         if (filter_node->set_pos) {
             ImNodes::SetNodeEditorSpacePos(filter_node->edge, filter_node->pos);
@@ -2888,9 +2893,13 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s\n%s", filter_node->filter_label, filter_node->filter->description);
         ImNodes::EndNodeTitleBar();
+        ImNodes::BeginStaticAttribute(edge);
         draw_node_options(filter_node);
+        ImNodes::EndStaticAttribute();
         if (!filter_node->probe) {
             ImNodes::EndNode();
+            if (disabled)
+                ImGui::EndDisabled();
             continue;
         }
 
@@ -2957,6 +2966,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         }
 
         ImNodes::EndNode();
+        if (disabled)
+            ImGui::EndDisabled();
         ImNodes::SetNodeDraggable(filter_node->edge, true);
     }
 
