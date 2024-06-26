@@ -83,6 +83,7 @@ typedef struct OptStorage {
         double dbl;
         AVRational q;
         char *str;
+        float col[4];
     } u;
 } OptStorage;
 
@@ -1679,7 +1680,7 @@ static void draw_options(FilterNode *node, void *av_class)
                     col[2] = icol[2] / 255.f;
                     col[3] = icol[3] / 255.f;
                     ImGui::PushID(index++);
-                    ImGui::ColorEdit4("color", col, ImGuiColorEditFlags_NoDragDrop);
+                    ImGui::ColorEdit4(opt->name, col, ImGuiColorEditFlags_NoDragDrop);
                     ImGui::PopID();
                     icol[0] = col[0] * 255.f;
                     icol[1] = col[1] * 255.f;
@@ -1763,6 +1764,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                     case AV_OPT_TYPE_INT64:
                     case AV_OPT_TYPE_UINT64:
                     case AV_OPT_TYPE_STRING:
+                    case AV_OPT_TYPE_COLOR:
                         if (ImGui::Button("Send")) {
                             char arg[1024] = { 0 };
 
@@ -1786,6 +1788,13 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                     break;
                                 case AV_OPT_TYPE_STRING:
                                     snprintf(arg, strlen(opt_storage[opt_index].u.str) + 1, "%s", opt_storage[opt_index].u.str);
+                                    break;
+                                case AV_OPT_TYPE_COLOR:
+                                    snprintf(arg, sizeof(arg)-1, "0x%02x%02x%02x%02x",
+                                             av_clip_uint8(opt_storage[opt_index].u.col[0] * 255),
+                                             av_clip_uint8(opt_storage[opt_index].u.col[1] * 255),
+                                             av_clip_uint8(opt_storage[opt_index].u.col[2] * 255),
+                                             av_clip_uint8(opt_storage[opt_index].u.col[3] * 255));
                                     break;
                                 default:
                                     break;
@@ -1930,6 +1939,32 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                             if (ImGui::InputText(opt->name, string, sizeof(string) - 1)) {
                                 av_freep(&opt_storage[opt_index].u.str);
                                 opt_storage[opt_index].u.str = av_strdup(string);
+                            }
+                        }
+                        break;
+                    case AV_OPT_TYPE_COLOR:
+                        {
+                            uint8_t *icol = (uint8_t *)ptr;
+                            float col[4];
+
+                            if (opt_storage.size() <= opt_index) {
+                                OptStorage new_opt;
+
+                                new_opt.u.col[0] = icol[0] / 255.f;
+                                new_opt.u.col[1] = icol[1] / 255.f;
+                                new_opt.u.col[2] = icol[2] / 255.f;
+                                new_opt.u.col[3] = icol[3] / 255.f;
+                                opt_storage.push_back(new_opt);
+                            }
+                            col[0] = opt_storage[opt_index].u.col[0];
+                            col[1] = opt_storage[opt_index].u.col[1];
+                            col[2] = opt_storage[opt_index].u.col[2];
+                            col[3] = opt_storage[opt_index].u.col[3];
+                            if (ImGui::ColorEdit4(opt->name, col, ImGuiColorEditFlags_NoDragDrop)) {
+                                opt_storage[opt_index].u.col[0] = col[0];
+                                opt_storage[opt_index].u.col[1] = col[1];
+                                opt_storage[opt_index].u.col[2] = col[2];
+                                opt_storage[opt_index].u.col[3] = col[3];
                             }
                         }
                         break;
