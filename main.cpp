@@ -752,24 +752,24 @@ static void draw_version(bool *p_open)
     }
 
     ImGui::Text("libavutil: %s", LIBAVUTIL_IDENT);
-    ImGui::TextWrapped(avutil_configuration());
-    ImGui::TextWrapped(avutil_license());
+    ImGui::TextWrapped("%s", avutil_configuration());
+    ImGui::TextWrapped("%s", avutil_license());
     ImGui::Separator();
     ImGui::Text("libavfilter: %s", LIBAVFILTER_IDENT);
-    ImGui::TextWrapped(avfilter_configuration());
-    ImGui::TextWrapped(avfilter_license());
+    ImGui::TextWrapped("%s", avfilter_configuration());
+    ImGui::TextWrapped("%s", avfilter_license());
     ImGui::Separator();
     ImGui::Text("libavcodec: %s", LIBAVCODEC_IDENT);
-    ImGui::TextWrapped(avcodec_configuration());
-    ImGui::TextWrapped(avcodec_license());
+    ImGui::TextWrapped("%s", avcodec_configuration());
+    ImGui::TextWrapped("%s", avcodec_license());
     ImGui::Separator();
     ImGui::Text("libavformat: %s", LIBAVFORMAT_IDENT);
-    ImGui::TextWrapped(avformat_configuration());
-    ImGui::TextWrapped(avformat_license());
+    ImGui::TextWrapped("%s", avformat_configuration());
+    ImGui::TextWrapped("%s", avformat_license());
     ImGui::Separator();
     ImGui::Text("libavdevice: %s", LIBAVDEVICE_IDENT);
-    ImGui::TextWrapped(avdevice_configuration());
-    ImGui::TextWrapped(avdevice_license());
+    ImGui::TextWrapped("%s", avdevice_configuration());
+    ImGui::TextWrapped("%s", avdevice_license());
     ImGui::Separator();
     ImGui::Text("ImGui: %s", IMGUI_VERSION);
     ImGui::End();
@@ -979,9 +979,9 @@ static void draw_osd(BufferSink *sink, int width, int height)
         ImGui::GetWindowDrawList()->AddRectFilled(start_pos, stop_pos,
                                                   ImGui::GetColorU32(ImGuiCol_WindowBg, osd_transparency));
         ImGui::SetCursorPos(ImVec2(std::min(start_pos.x + 12, max_size.x - tsize.x - 12), std::min(start_pos.y + 12, max_size.y - tsize.y - 12)));
-        ImGui::Text(osd_text);
+        ImGui::Text("%s", osd_text);
     } else {
-        ImGui::TextWrapped(osd_text);
+        ImGui::TextWrapped("%s", osd_text);
     }
 }
 
