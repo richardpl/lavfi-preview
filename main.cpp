@@ -1644,7 +1644,7 @@ static void draw_options(FilterNode *node, void *av_class)
                 }
                 break;
             case AV_OPT_TYPE_PIXEL_FMT:
-                if (ImGui::BeginCombo("pixel format", 0, 0)) {
+                if (ImGui::BeginCombo(opt->name, 0, 0)) {
                     const AVPixFmtDescriptor *pix_desc = NULL;
                     AVPixelFormat fmt;
 
