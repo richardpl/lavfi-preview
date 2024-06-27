@@ -672,8 +672,9 @@ static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, gl_fmts[idx], frame->data[0]);
 }
 
-static void draw_info(bool *p_open)
+static void draw_info(bool *p_open, bool full)
 {
+    BufferSink *last_sink = NULL;
     FrameInfo *frame = NULL;
     const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
                                           ImGuiWindowFlags_AlwaysAutoResize |
@@ -683,14 +684,24 @@ static void draw_info(bool *p_open)
                                           ImGuiWindowFlags_NoFocusOnAppearing |
                                           ImGuiWindowFlags_NoMove;
 
-    if (last_buffersink_window >= 0 && last_buffersink_window < buffer_sinks.size())
-        frame = &buffer_sinks[last_buffersink_window].frame_info;
+    if (full == false) {
+        if (last_buffersink_window >= 0 && last_buffersink_window < buffer_sinks.size()) {
+            last_sink = &buffer_sinks[last_buffersink_window];
+            frame = &last_sink->frame_info;
+        }
 
-    if (last_abuffersink_window >= 0 && last_abuffersink_window < abuffer_sinks.size())
-        frame = &abuffer_sinks[last_abuffersink_window].frame_info;
+        if (last_abuffersink_window >= 0 && last_abuffersink_window < abuffer_sinks.size()) {
+            last_sink = &abuffer_sinks[last_abuffersink_window];
+            frame = &last_sink->frame_info;
+        }
 
-    if (!frame)
-        return;
+        if (!frame)
+            return;
+    } else {
+        if (!(last_buffersink_window >= 0 && last_buffersink_window < buffer_sinks.size()) &&
+            !(last_abuffersink_window >= 0 && last_abuffersink_window < abuffer_sinks.size()))
+            return;
+    }
 
     ImGui::SetNextWindowPos(ImVec2(display_w/2, display_h/2), 0, ImVec2(0.5, 0.5));
     ImGui::SetNextWindowBgAlpha(0.7f);
@@ -701,46 +712,80 @@ static void draw_info(bool *p_open)
         return;
     }
 
-    ImGui::Separator();
-    if (frame->width && frame->height) {
-        ImGui::Text("SIZE: %dx%d", frame->width, frame->height);
-        ImGui::Separator();
-        ImGui::Text("KEY FRAME: %d", frame->key_frame);
-        ImGui::Separator();
-        ImGui::Text("PICTURE TYPE: %c", av_get_picture_type_char(frame->pict_type));
-        ImGui::Separator();
-        ImGui::Text("SAR: %dx%d", frame->sample_aspect_ratio.num, frame->sample_aspect_ratio.den);
-        ImGui::Separator();
-        ImGui::Text("COLOR RANGE: %s", av_color_range_name(frame->color_range));
-        ImGui::Separator();
-        ImGui::Text("COLOR PRIMARIES: %s", av_color_primaries_name(frame->color_primaries));
-        ImGui::Separator();
-        ImGui::Text("COLOR TRC: %s", av_color_transfer_name(frame->color_trc));
-        ImGui::Separator();
-        ImGui::Text("COLOR SPACE: %s", av_color_space_name(frame->colorspace));
-        ImGui::Separator();
-        ImGui::Text("CHROMA LOCATION: %s", av_chroma_location_name(frame->chroma_location));
-        ImGui::Separator();
-        ImGui::Text("PIXEL FORMAT: %s", av_get_pix_fmt_name((enum AVPixelFormat)frame->format));
-        ImGui::Separator();
-    } else if (frame->sample_rate > 0) {
-        char chlayout_name[1024] = {0};
+    for (size_t i = 0; i < (full ? (buffer_sinks.size()+abuffer_sinks.size()) : 1); i++) {
+        BufferSink *sink = NULL;
 
-        ImGui::Text("SAMPLES: %d", frame->nb_samples);
+        if (full) {
+            if (i >= buffer_sinks.size() && abuffer_sinks.size() > 0) {
+                sink = &abuffer_sinks[i-buffer_sinks.size()];
+                frame = &sink->frame_info;
+                if (!sink->label)
+                    continue;
+                ImGui::Spacing();
+                ImGui::Text("%s", sink->label);
+            } else {
+                sink = &buffer_sinks[i];
+                frame = &sink->frame_info;
+                if (!sink->label)
+                    continue;
+                ImGui::Spacing();
+                ImGui::Text("%s", sink->label);
+            }
+        }
+
         ImGui::Separator();
-        ImGui::Text("SAMPLE RATE: %d", frame->sample_rate);
+        if (frame->width && frame->height) {
+            ImGui::Text("SIZE: %dx%d", frame->width, frame->height);
+            ImGui::Separator();
+            ImGui::Text("KEY FRAME: %d", frame->key_frame);
+            ImGui::Separator();
+            ImGui::Text("PICTURE TYPE: %c", av_get_picture_type_char(frame->pict_type));
+            ImGui::Separator();
+            ImGui::Text("SAR: %dx%d", frame->sample_aspect_ratio.num, frame->sample_aspect_ratio.den);
+            ImGui::Separator();
+            ImGui::Text("COLOR RANGE: %s", av_color_range_name(frame->color_range));
+            ImGui::Separator();
+            ImGui::Text("COLOR PRIMARIES: %s", av_color_primaries_name(frame->color_primaries));
+            ImGui::Separator();
+            ImGui::Text("COLOR TRC: %s", av_color_transfer_name(frame->color_trc));
+            ImGui::Separator();
+            ImGui::Text("COLOR SPACE: %s", av_color_space_name(frame->colorspace));
+            ImGui::Separator();
+            ImGui::Text("CHROMA LOCATION: %s", av_chroma_location_name(frame->chroma_location));
+            ImGui::Separator();
+            ImGui::Text("PIXEL FORMAT: %s", av_get_pix_fmt_name((enum AVPixelFormat)frame->format));
+            ImGui::Separator();
+        } else if (frame->sample_rate > 0) {
+            char chlayout_name[1024] = {0};
+
+            ImGui::Text("SAMPLES: %d", frame->nb_samples);
+            ImGui::Separator();
+            ImGui::Text("KEY FRAME: %d", frame->key_frame);
+            ImGui::Separator();
+            ImGui::Text("SAMPLE RATE: %d", frame->sample_rate);
+            ImGui::Separator();
+            ImGui::Text("SAMPLE FORMAT: %s", av_get_sample_fmt_name((enum AVSampleFormat)frame->format));
+            ImGui::Separator();
+            av_channel_layout_describe(&frame->ch_layout, chlayout_name, sizeof(chlayout_name));
+            ImGui::Text("CHANNEL LAYOUT: %s", chlayout_name);
+            ImGui::Separator();
+        }
+        ImGui::Text("PTS: %ld", frame->pts);
         ImGui::Separator();
-        ImGui::Text("SAMPLE FORMAT: %s", av_get_sample_fmt_name((enum AVSampleFormat)frame->format));
+        ImGui::Text("DURATION: %ld", frame->duration);
         ImGui::Separator();
-        av_channel_layout_describe(&frame->ch_layout, chlayout_name, sizeof(chlayout_name));
-        ImGui::Text("CHANNEL LAYOUT: %s", chlayout_name);
-        ImGui::Separator();
+        if (frame->time_base.num && frame->time_base.den)
+            ImGui::Text("TIME BASE: %d/%d", frame->time_base.num, frame->time_base.den);
+        else if (last_sink)
+            ImGui::Text("TIME BASE: %d/%d", last_sink->time_base.num, last_sink->time_base.den);
+        else if (sink)
+            ImGui::Text("TIME BASE: %d/%d", sink->time_base.num, sink->time_base.den);
+        if (full && sink) {
+            ImGui::Separator();
+            ImGui::Text("TIME:  %.5f", frame->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * frame->pts : NAN);
+        }
     }
-    ImGui::Text("PTS: %ld", frame->pts);
-    ImGui::Separator();
-    ImGui::Text("DURATION: %ld", frame->duration);
-    ImGui::Separator();
-    ImGui::Text("TIME BASE: %d/%d", frame->time_base.num, frame->time_base.den);
+
     ImGui::End();
 }
 
@@ -908,6 +953,10 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::Text("I");
     ImGui::Separator();
+    ImGui::Text("Show Full Extended Info:");
+    ImGui::SameLine(align);
+    ImGui::Text("Shift + I");
+    ImGui::Separator();
     ImGui::Text("Exit from output:");
     ImGui::SameLine(align);
     ImGui::Text("Shift + Q");
@@ -1007,7 +1056,7 @@ static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
     frame_info->height = frame->height;
     frame_info->nb_samples = frame->nb_samples;
     frame_info->format = frame->format;
-    frame_info->key_frame = frame->flags & AV_FRAME_FLAG_KEY;
+    frame_info->key_frame = !!(frame->flags & AV_FRAME_FLAG_KEY);
     frame_info->pict_type = frame->pict_type;
     frame_info->sample_aspect_ratio = frame->sample_aspect_ratio;
     frame_info->pts = frame->pts;
@@ -1080,6 +1129,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         sink->window_pos = ImGui::GetWindowPos();
 
     if (ImGui::IsWindowFocused()) {
+        last_abuffersink_window = -1;
         last_buffersink_window = sink->id;
         if (ImGui::IsKeyReleased(ImGuiKey_F))
             sink->fullscreen = !sink->fullscreen;
@@ -1089,6 +1139,8 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         if (framestep)
             paused = true;
         if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
+            last_abuffersink_window = -1;
+            last_buffersink_window = -1;
             show_abuffersink_window = false;
             show_buffersink_window = false;
             filter_graph_is_valid = false;
@@ -1169,6 +1221,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     }
 
     if (ImGui::IsWindowFocused()) {
+        last_buffersink_window = -1;
         last_abuffersink_window = sink->id;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", sink->description);
@@ -1180,6 +1233,8 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
         if (framestep)
             paused = true;
         if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
+            last_abuffersink_window = -1;
+            last_buffersink_window = -1;
             show_abuffersink_window = false;
             show_buffersink_window = false;
             filter_graph_is_valid = false;
@@ -3874,7 +3929,7 @@ dequeue_consume_frames:
             draw_version(&show_version);
         show_info = ImGui::IsKeyDown(ImGuiKey_I) && !io.WantTextInput;
         if (show_info)
-            draw_info(&show_info);
+            draw_info(&show_info, ImGui::GetIO().KeyShift);
         show_console ^= ImGui::IsKeyReleased(ImGuiKey_Escape);
         if (show_console)
             draw_console(&show_console);
