@@ -129,6 +129,8 @@ typedef struct BufferSink {
     float *samples;
     unsigned nb_samples;
     unsigned sample_index;
+
+    FrameInfo frame_info;
 } BufferSink;
 
 typedef struct FilterNode {
@@ -161,6 +163,8 @@ bool full_screen = false;
 bool restart_display = false;
 int filter_graph_nb_threads = 0;
 int filter_graph_auto_convert_flags = 0;
+unsigned last_buffersink_window = -1;
+unsigned last_abuffersink_window = -1;
 unsigned focus_buffersink_window = -1;
 unsigned focus_abuffersink_window = -1;
 bool show_abuffersink_window = true;
@@ -239,8 +243,6 @@ ALCdevice *al_dev = NULL;
 ALCcontext *al_ctx = NULL;
 float listener_direction[6] = { 0, 0, -1, 0, 1, 0 };
 float listener_position[3] = { 0, 0, 0 };
-
-FrameInfo frame_info;
 
 static void clear_ring_buffer(ring_buffer_t *ring_buffer)
 {
@@ -670,8 +672,9 @@ static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, gl_fmts[idx], frame->data[0]);
 }
 
-static void draw_info(bool *p_open, FrameInfo *frame)
+static void draw_info(bool *p_open)
 {
+    FrameInfo *frame = NULL;
     const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
                                           ImGuiWindowFlags_AlwaysAutoResize |
                                           ImGuiWindowFlags_NoSavedSettings |
@@ -679,6 +682,15 @@ static void draw_info(bool *p_open, FrameInfo *frame)
                                           ImGuiWindowFlags_NoMouseInputs |
                                           ImGuiWindowFlags_NoFocusOnAppearing |
                                           ImGuiWindowFlags_NoMove;
+
+    if (last_buffersink_window >= 0 && last_buffersink_window < buffer_sinks.size())
+        frame = &buffer_sinks[last_buffersink_window].frame_info;
+
+    if (last_abuffersink_window >= 0 && last_abuffersink_window < abuffer_sinks.size())
+        frame = &abuffer_sinks[last_abuffersink_window].frame_info;
+
+    if (!frame)
+        return;
 
     ImGui::SetNextWindowPos(ImVec2(display_w/2, display_h/2), 0, ImVec2(0.5, 0.5));
     ImGui::SetNextWindowBgAlpha(0.7f);
@@ -1026,7 +1038,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     if (!*p_open || !new_frame)
         goto end;
 
-    update_frame_info(&frame_info, new_frame);
+    update_frame_info(&sink->frame_info, new_frame);
     sink->pts = new_frame->pts;
 
     load_frame(texture, &width, &height, new_frame, sink);
@@ -1068,6 +1080,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         sink->window_pos = ImGui::GetWindowPos();
 
     if (ImGui::IsWindowFocused()) {
+        last_buffersink_window = sink->id;
         if (ImGui::IsKeyReleased(ImGuiKey_F))
             sink->fullscreen = !sink->fullscreen;
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
@@ -1156,6 +1169,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     }
 
     if (ImGui::IsWindowFocused()) {
+        last_abuffersink_window = sink->id;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", sink->description);
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
@@ -3760,7 +3774,7 @@ dequeue_consume_frames:
 
                 ring_buffer_peek(&sink->render_frames, &play_frame, 0);
                 if (play_frame) {
-                    update_frame_info(&frame_info, play_frame);
+                    update_frame_info(&sink->frame_info, play_frame);
                     if (play_frame->format == AV_SAMPLE_FMT_FLTP) {
                         const float *src = (const float *)play_frame->extended_data[0];
 
@@ -3860,7 +3874,7 @@ dequeue_consume_frames:
             draw_version(&show_version);
         show_info = ImGui::IsKeyDown(ImGuiKey_I) && !io.WantTextInput;
         if (show_info)
-            draw_info(&show_info, &frame_info);
+            draw_info(&show_info);
         show_console ^= ImGui::IsKeyReleased(ImGuiKey_Escape);
         if (show_console)
             draw_console(&show_console);
