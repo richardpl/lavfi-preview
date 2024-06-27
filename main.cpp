@@ -676,12 +676,13 @@ static void draw_info(bool *p_open, bool full)
 {
     BufferSink *last_sink = NULL;
     FrameInfo *frame = NULL;
+    int nb_columns = 0;
     const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
                                           ImGuiWindowFlags_AlwaysAutoResize |
                                           ImGuiWindowFlags_NoSavedSettings |
                                           ImGuiWindowFlags_NoNav |
-                                          ImGuiWindowFlags_NoMouseInputs |
                                           ImGuiWindowFlags_NoFocusOnAppearing |
+                                          ImGuiWindowFlags_HorizontalScrollbar |
                                           ImGuiWindowFlags_NoMove;
 
     if (full == false) {
@@ -712,10 +713,18 @@ static void draw_info(bool *p_open, bool full)
         return;
     }
 
+    if (full) {
+        nb_columns = ceilf(sqrtf(buffer_sinks.size()+abuffer_sinks.size()));
+        ImGui::BeginTable("###FullInfo", nb_columns, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings);
+    }
+
     for (size_t i = 0; i < (full ? (buffer_sinks.size()+abuffer_sinks.size()) : 1); i++) {
         BufferSink *sink = NULL;
 
         if (full) {
+            if (i && (i % nb_columns) == 0)
+                ImGui::TableNextRow();
+            ImGui::TableNextColumn();
             if (i >= buffer_sinks.size() && abuffer_sinks.size() > 0) {
                 sink = &abuffer_sinks[i-buffer_sinks.size()];
                 frame = &sink->frame_info;
@@ -785,6 +794,9 @@ static void draw_info(bool *p_open, bool full)
             ImGui::Text("TIME:  %.5f", frame->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * frame->pts : NAN);
         }
     }
+
+    if (full)
+        ImGui::EndTable();
 
     ImGui::End();
 }
