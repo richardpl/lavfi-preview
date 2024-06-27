@@ -77,6 +77,7 @@ typedef struct Edge2Pad {
 typedef struct OptStorage {
     union {
         int i32;
+        unsigned u32;
         float flt;
         int64_t i64;
         uint64_t u64;
@@ -1453,6 +1454,42 @@ static void draw_options(FilterNode *node, void *av_class)
                 }
                 break;
             case AV_OPT_TYPE_FLAGS:
+                {
+                    const AVOption *copt = NULL;
+                    ImU64 imin = min;
+                    ImU64 imax = max;
+                    int64_t value;
+                    ImU64 uvalue;
+
+                    if (av_opt_get_int(av_class, opt->name, 0, &value))
+                        break;
+
+                    uvalue = value;
+                    if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &uvalue, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
+                        value = uvalue;
+                        av_opt_set_int(av_class, opt->name, value, 0);
+                    }
+                    if (opt->unit) {
+                        while ((copt = av_opt_next(obj, copt))) {
+                            if (!copt->unit)
+                                continue;
+                            if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
+                                continue;
+
+                            ImGui::CheckboxFlags(copt->name, &uvalue, copt->default_val.i64);
+                            if (copt->help) {
+                                ImGui::SameLine();
+                                ImGui::Text("\t\t%s", copt->help);
+                            }
+                        }
+                    }
+
+                    if (value != (int64_t)uvalue) {
+                        value = uvalue;
+                        av_opt_set_int(av_class, opt->name, value, 0);
+                    }
+                }
+                break;
             case AV_OPT_TYPE_BOOL:
                 {
                     int64_t value;
@@ -1815,6 +1852,46 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                 switch (opt->type) {
                     case AV_OPT_TYPE_FLAGS:
+                        {
+                            const AVOption *copt = NULL;
+                            unsigned value = *(unsigned *)ptr;
+                            ImU64 imin = min;
+                            ImU64 imax = max;
+                            ImU64 uvalue;
+
+                            if (opt_storage.size() <= opt_index) {
+                                OptStorage new_opt;
+
+                                new_opt.u.u32 = *(unsigned *)ptr;
+                                opt_storage.push_back(new_opt);
+                            }
+
+                            uvalue = value = opt_storage[opt_index].u.u32;
+                            if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &uvalue, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
+                                value = uvalue;
+                                opt_storage[opt_index].u.u32 = value;
+                            }
+                            if (opt->unit) {
+                                while ((copt = av_opt_next(ctx->priv, copt))) {
+                                    if (!copt->unit)
+                                        continue;
+                                    if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
+                                        continue;
+
+                                    ImGui::CheckboxFlags(copt->name, &uvalue, copt->default_val.i64);
+                                    if (copt->help) {
+                                        ImGui::SameLine();
+                                        ImGui::Text("\t\t%s", copt->help);
+                                    }
+                                }
+                            }
+
+                            if (value != (int64_t)uvalue) {
+                                value = uvalue;
+                                opt_storage[opt_index].u.u32 = value;
+                            }
+                        }
+                        break;
                     case AV_OPT_TYPE_BOOL:
                         {
                             int value = *(int *)ptr;
@@ -1829,7 +1906,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                             }
 
                             value = opt_storage[opt_index].u.i32;
-                            if (ImGui::SliderInt(opt->name, &value, imin, imax)) {
+                            if (ImGui::DragScalar(opt->name, ImGuiDataType_U32, &value, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                                 opt_storage[opt_index].u.i32 = value;
                             }
                         }
