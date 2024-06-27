@@ -1715,6 +1715,12 @@ static void draw_options(FilterNode *node, void *av_class)
     }
 }
 
+static int begin_group()
+{
+    ImGui::BeginGroup();
+    return 1;
+}
+
 static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigned *toggle_filter,
                                  bool is_opened, bool *clean_storage, bool tree)
 {
@@ -1727,7 +1733,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                 filter_nodes[n].colapsed = false;
         }
 
-        if (tree ? ImGui::TreeNode("Commands") : ImGui::BeginListBox("##Commands", ImVec2(200, 100))) {
+        if (tree ? ImGui::TreeNode("Commands") : begin_group()) {
             std::vector<OptStorage> opt_storage = filter_nodes[n].opt_storage;
             const AVOption *opt = NULL;
             unsigned opt_index = 0;
@@ -1982,7 +1988,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
             filter_nodes[n].opt_storage = opt_storage;
 
-            tree ? ImGui::TreePop() : ImGui::EndListBox();
+            tree ? ImGui::TreePop() : ImGui::EndGroup();
         }
     }
 
@@ -3292,45 +3298,44 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 static void draw_filters_commands(unsigned *toggle_filter)
 {
     static unsigned selected_filter = -1;
+    static ImGuiTextFilter imgui_filter;
 
-    if (ImGui::BeginListBox("##Commands Box", ImVec2(-1, -1))) {
-        static ImGuiTextFilter imgui_filter;
+    ImGui::BeginGroup();
 
-        imgui_filter.Draw();
-        for (unsigned n = 0; n < filter_nodes.size(); n++) {
-            const AVFilterContext *ctx = filter_nodes[n].ctx;
-            const bool is_selected = selected_filter == n;
-            static bool is_opened = false;
-            static bool clean_storage = true;
+    imgui_filter.Draw();
+    for (unsigned n = 0; n < filter_nodes.size(); n++) {
+        const AVFilterContext *ctx = filter_nodes[n].ctx;
+        const bool is_selected = selected_filter == n;
+        static bool is_opened = false;
+        static bool clean_storage = true;
 
-            if (!ctx)
-                continue;
+        if (!ctx)
+            continue;
 
-            if (!ctx->filter)
-                continue;
+        if (!ctx->filter)
+            continue;
 
-            if (!imgui_filter.PassFilter(ctx->filter->name))
-                continue;
+        if (!imgui_filter.PassFilter(ctx->filter->name))
+            continue;
 
-            if (ImGui::Selectable(ctx->filter->name, is_selected)) {
-                selected_filter = n;
-            }
-
-            if (ImGui::IsItemActive() || ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s", ctx->name);
-            }
-
-            if (ImGui::IsItemClicked() && ImGui::IsItemActive()) {
-                selected_filter = n;
-                is_opened = true;
-            }
-
-            if (is_opened && selected_filter == n)
-                draw_filter_commands(ctx, n, toggle_filter, is_opened, &clean_storage, true);
+        if (ImGui::Selectable(ctx->filter->name, is_selected)) {
+            selected_filter = n;
         }
 
-        ImGui::EndListBox();
+        if (ImGui::IsItemActive() || ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", ctx->name);
+        }
+
+        if (ImGui::IsItemClicked() && ImGui::IsItemActive()) {
+            selected_filter = n;
+            is_opened = true;
+        }
+
+        if (is_opened && selected_filter == n)
+            draw_filter_commands(ctx, n, toggle_filter, is_opened, &clean_storage, true);
     }
+
+    ImGui::EndGroup();
 }
 
 static void show_commands(bool *p_open, bool focused)
