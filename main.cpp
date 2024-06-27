@@ -2124,7 +2124,6 @@ static void draw_node_options(FilterNode *node)
         return;
     }
 
-    ImGui::SameLine();
     if (node->colapsed) {
         for (unsigned i = 0; i < video_sink_threads.size(); i++) {
             if (video_sink_threads[i].joinable())
