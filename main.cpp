@@ -2069,7 +2069,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
         }
     }
 
-    if (tree ? ImGui::TreeNode("Exports") : ImGui::BeginListBox("##Exports", ImVec2(200, 100))) {
+    if (tree ? ImGui::TreeNode("Exports") : begin_group()) {
         const AVOption *opt = NULL;
         unsigned opt_index = 0;
 
@@ -2141,16 +2141,16 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
             ImGui::PopID();
         }
 
-        tree ? ImGui::TreePop() : ImGui::EndListBox();
+        tree ? ImGui::TreePop() : ImGui::EndGroup();
     }
 
     if (ctx->filter->flags & AVFILTER_FLAG_SUPPORT_TIMELINE) {
-        if (tree ? ImGui::TreeNode("Timeline") : ImGui::BeginListBox("##Timeline", ImVec2(80, 30))) {
+        if (tree ? ImGui::TreeNode("Timeline") : begin_group()) {
             ImGui::PushID(0);
             if (ImGui::Button(ctx->is_disabled ? "Enable" : "Disable"))
                 *toggle_filter = n;
             ImGui::PopID();
-            tree ? ImGui::TreePop() : ImGui::EndListBox();
+            tree ? ImGui::TreePop() : ImGui::EndGroup();
         }
     }
 }
