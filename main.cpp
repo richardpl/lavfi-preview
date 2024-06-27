@@ -1433,7 +1433,7 @@ static void draw_options(FilterNode *node, void *av_class)
                     if (av_opt_get_int(av_class, opt->name, 0, &value))
                         break;
                     uvalue = value;
-                    if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
+                    if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, (umax-umin)/25.f, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
                         value = uvalue;
                         av_opt_set_int(av_class, opt->name, value, 0);
                     }
@@ -1559,7 +1559,7 @@ static void draw_options(FilterNode *node, void *av_class)
 
                     if (av_opt_get_double(av_class, opt->name, 0, &value))
                         break;
-                    if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, 1.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                    if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, (max-min)/25.f, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
                         av_opt_set_double(av_class, opt->name, value, 0);
                     }
                 }
@@ -1574,7 +1574,7 @@ static void draw_options(FilterNode *node, void *av_class)
                     if (av_opt_get_double(av_class, opt->name, 0, &value))
                         break;
                     fvalue = value;
-                    if (ImGui::DragFloat(opt->name, &fvalue, 1.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                    if (ImGui::DragFloat(opt->name, &fvalue, (fmax-fmin)/25.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
                         value = fvalue;
                         av_opt_set_double(av_class, opt->name, value, 0);
                     }
