@@ -2140,7 +2140,7 @@ static void draw_node_options(FilterNode *node)
     ImGui::BeginGroup();
 
     draw_options(node, av_class_priv);
-    ImGui::NewLine();
+    ImGui::Spacing();
     draw_options(node, av_class);
 
     ImGui::EndGroup();
