@@ -1922,6 +1922,8 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                             switch (opt->type) {
                                 case AV_OPT_TYPE_FLAGS:
+                                    snprintf(arg, sizeof(arg) - 1, "%u", opt_storage[opt_index].u.u32);
+                                    break;
                                 case AV_OPT_TYPE_BOOL:
                                 case AV_OPT_TYPE_INT:
                                     snprintf(arg, sizeof(arg) - 1, "%d", opt_storage[opt_index].u.i32);
