@@ -2091,7 +2091,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                 opt_storage.push_back(new_opt);
                             }
                             value = opt_storage[opt_index].u.dbl;
-                            if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, 1.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                            if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, (max-min)/25.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
                                 opt_storage[opt_index].u.dbl = value;
                             }
                         }
@@ -2109,7 +2109,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                 opt_storage.push_back(new_opt);
                             }
                             value = opt_storage[opt_index].u.flt;
-                            if (ImGui::DragFloat(opt->name, &value, 1.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp))
+                            if (ImGui::DragFloat(opt->name, &value, (fmax - fmin)/25.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp))
                                 opt_storage[opt_index].u.flt = value;
                         }
                         break;
