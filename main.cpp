@@ -2528,10 +2528,61 @@ error:
     need_filters_reinit = true;
 }
 
+struct {
+    bool operator()(int a, int b) const
+    {
+        const std::pair<int, int> pa = filter_links[a];
+        const std::pair<int, int> pb = filter_links[b];
+        const int paa = pa.first;
+        const int pab = pa.second;
+        const int pba = pb.first;
+        const int pbb = pb.second;
+        int pia, pib;
+
+        if (!edge2pad[paa].is_output)
+            pia = edge2pad[paa].pad_index;
+        if (!edge2pad[pab].is_output)
+            pia = edge2pad[pab].pad_index;
+
+        if (!edge2pad[pba].is_output)
+            pib = edge2pad[pba].pad_index;
+        if (!edge2pad[pbb].is_output)
+            pib = edge2pad[pbb].pad_index;
+
+        return pia > pib;
+    }
+} inputPads;
+
+struct {
+    bool operator()(int a, int b) const
+    {
+        const std::pair<int, int> pa = filter_links[a];
+        const std::pair<int, int> pb = filter_links[b];
+        const int paa = pa.first;
+        const int pab = pa.second;
+        const int pba = pb.first;
+        const int pbb = pb.second;
+        int pia, pib;
+
+        if (edge2pad[paa].is_output)
+            pia = edge2pad[paa].pad_index;
+        if (edge2pad[pab].is_output)
+            pia = edge2pad[pab].pad_index;
+
+        if (edge2pad[pba].is_output)
+            pib = edge2pad[pba].pad_index;
+        if (edge2pad[pbb].is_output)
+            pib = edge2pad[pbb].pad_index;
+
+        return pia > pib;
+    }
+} outputPads;
+
 static void export_filter_graph(char **out, size_t *out_size)
 {
     std::vector<bool> visited;
     std::vector<unsigned> to_visit;
+    std::vector<unsigned> pads;
     AVBPrint buf;
     bool first = true;
 
@@ -2572,7 +2623,15 @@ static void export_filter_graph(char **out, size_t *out_size)
                     continue;
                 if (node == nb && nbt == 1)
                     continue;
-                av_bprintf(&buf, "[e%d]", i);
+                pads.push_back(i);
+            }
+
+            std::sort(pads.begin(), pads.end(), inputPads);
+            while (pads.size() > 0) {
+                unsigned pad = pads.back();
+
+                pads.pop_back();
+                av_bprintf(&buf, "[e%d]", pad);
             }
 
             if (filter_nodes[node].imported_id)
@@ -2601,7 +2660,15 @@ static void export_filter_graph(char **out, size_t *out_size)
                     continue;
                 if (node == nb && nbt == 0)
                     continue;
-                av_bprintf(&buf, "[e%d]", i);
+                pads.push_back(i);
+            }
+
+            std::sort(pads.begin(), pads.end(), outputPads);
+            while (pads.size() > 0) {
+                unsigned pad = pads.back();
+
+                pads.pop_back();
+                av_bprintf(&buf, "[e%d]", pad);
             }
 
             for (unsigned i = 0; i < filter_links.size(); i++) {
