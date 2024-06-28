@@ -141,6 +141,8 @@ typedef struct FilterNode {
     ImVec2 pos;
     int edge;
     bool colapsed;
+    bool have_exports;
+    bool show_exports;
     const AVFilter *filter;
     char *filter_name;
     char *filter_label;
@@ -1020,6 +1022,8 @@ static void add_filter_node(const AVFilter *filter, ImVec2 pos)
     node.colapsed = false;
     node.set_pos = true;
     node.imported_id = false;
+    node.have_exports = false;
+    node.show_exports = false;
 
     filter_nodes.push_back(node);
 }
@@ -1515,6 +1519,8 @@ static void draw_options(FilterNode *node, void *av_class)
             continue;
         last_offset = opt->offset;
 
+        node->have_exports |= (opt->flags & AV_OPT_FLAG_EXPORT);
+
         if (opt->flags & AV_OPT_FLAG_READONLY)
             continue;
 
@@ -1872,14 +1878,13 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 {
     if (ctx->filter->process_command) {
         if (tree == false) {
-            if (filter_nodes[n].colapsed == false && !ImGui::Button("Commands"))
-                return;
-            filter_nodes[n].colapsed = true;
+            if (filter_nodes[n].colapsed == false && ImGui::Button("Commands"))
+                filter_nodes[n].colapsed = true;
             if (filter_nodes[n].colapsed == true && ImGui::Button("Close"))
                 filter_nodes[n].colapsed = false;
         }
 
-        if (tree ? ImGui::TreeNode("Commands") : begin_group()) {
+        if ((tree == true && ImGui::TreeNode("Commands")) || ((tree == false) && filter_nodes[n].colapsed && begin_group())) {
             std::vector<OptStorage> opt_storage = filter_nodes[n].opt_storage;
             const AVOption *opt = NULL;
             unsigned opt_index = 0;
@@ -2180,79 +2185,88 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
         }
     }
 
-    if (tree ? ImGui::TreeNode("Exports") : begin_group()) {
-        const AVOption *opt = NULL;
-        unsigned opt_index = 0;
-
-        while ((opt = av_opt_next(ctx->priv, opt))) {
-            void *ptr;
-
-            if (!(opt->flags & AV_OPT_FLAG_EXPORT))
-                continue;
-
-            ptr = av_opt_ptr(ctx->filter->priv_class, ctx->priv, opt->name);
-            if (!ptr)
-                continue;
-
-            ImGui::PushID(opt_index);
-            switch (opt->type) {
-                case AV_OPT_TYPE_FLAGS:
-                case AV_OPT_TYPE_BOOL:
-                case AV_OPT_TYPE_INT:
-                    {
-                        int value = *(int *)ptr;
-
-                        ImGui::LabelText("##export", "%s: %d", opt->name, value);
-                    }
-                    break;
-                case AV_OPT_TYPE_INT64:
-                    {
-                        int64_t value = *(int64_t *)ptr;
-
-                        ImGui::LabelText("##export", "%s: %ld", opt->name, value);
-                    }
-                    break;
-                case AV_OPT_TYPE_UINT64:
-                    {
-                        uint64_t value = *(uint64_t *)ptr;
-
-                        ImGui::LabelText("##export", "%s: %lu", opt->name, value);
-                    }
-                    break;
-                case AV_OPT_TYPE_DOUBLE:
-                    {
-                        double value = *(double *)ptr;
-
-                        ImGui::LabelText("##export", "%s: %g", opt->name, value);
-                    }
-                    break;
-                case AV_OPT_TYPE_FLOAT:
-                    {
-                        float value = *(float *)ptr;
-
-                        ImGui::LabelText("##export", "%s: %f", opt->name, value);
-                    }
-                    break;
-                case AV_OPT_TYPE_STRING:
-                    {
-                        char *value = *(char **)ptr;
-
-                        ImGui::LabelText("##export", "%s: %s", opt->name, value);
-                    }
-                    break;
-                default:
-                    break;
-            }
-
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", opt->help);
-
-            opt_index++;
-
-            ImGui::PopID();
+    if (filter_nodes[n].have_exports) {
+        if (tree == false) {
+            if (filter_nodes[n].show_exports == false && ImGui::Button("Exports"))
+                filter_nodes[n].show_exports = true;
+            if (filter_nodes[n].show_exports == true && ImGui::Button("Hide"))
+                filter_nodes[n].show_exports = false;
         }
 
-        tree ? ImGui::TreePop() : ImGui::EndGroup();
+        if ((tree == true && ImGui::TreeNode("Exports")) || ((tree == false) && filter_nodes[n].show_exports && begin_group())) {
+            const AVOption *opt = NULL;
+            unsigned opt_index = 0;
+
+            while ((opt = av_opt_next(ctx->priv, opt))) {
+                void *ptr;
+
+                if (!(opt->flags & AV_OPT_FLAG_EXPORT))
+                    continue;
+
+                ptr = av_opt_ptr(ctx->filter->priv_class, ctx->priv, opt->name);
+                if (!ptr)
+                    continue;
+
+                ImGui::PushID(opt_index);
+                switch (opt->type) {
+                    case AV_OPT_TYPE_FLAGS:
+                    case AV_OPT_TYPE_BOOL:
+                    case AV_OPT_TYPE_INT:
+                        {
+                            int value = *(int *)ptr;
+
+                            ImGui::LabelText("##export", "%s: %d", opt->name, value);
+                        }
+                        break;
+                    case AV_OPT_TYPE_INT64:
+                        {
+                            int64_t value = *(int64_t *)ptr;
+
+                            ImGui::LabelText("##export", "%s: %ld", opt->name, value);
+                        }
+                        break;
+                    case AV_OPT_TYPE_UINT64:
+                        {
+                            uint64_t value = *(uint64_t *)ptr;
+
+                            ImGui::LabelText("##export", "%s: %lu", opt->name, value);
+                        }
+                        break;
+                    case AV_OPT_TYPE_DOUBLE:
+                        {
+                            double value = *(double *)ptr;
+
+                            ImGui::LabelText("##export", "%s: %g", opt->name, value);
+                        }
+                        break;
+                    case AV_OPT_TYPE_FLOAT:
+                        {
+                            float value = *(float *)ptr;
+
+                            ImGui::LabelText("##export", "%s: %f", opt->name, value);
+                        }
+                        break;
+                    case AV_OPT_TYPE_STRING:
+                        {
+                            char *value = *(char **)ptr;
+
+                            ImGui::LabelText("##export", "%s: %s", opt->name, value);
+                        }
+                        break;
+                    default:
+                        break;
+                }
+
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", opt->help);
+
+                opt_index++;
+
+                ImGui::PopID();
+            }
+
+            tree ? ImGui::TreePop() : ImGui::EndGroup();
+        }
     }
 
     if (ctx->filter->flags & AVFILTER_FLAG_SUPPORT_TIMELINE) {
@@ -2303,16 +2317,13 @@ static void draw_node_options(FilterNode *node)
 
     av_class_priv = probe_ctx->priv;
     av_class = probe_ctx;
-    if (!node->colapsed && !ImGui::Button("Options"))
-        return;
+    if (node->colapsed == false && ImGui::Button("Options"))
+        node->colapsed = true;
 
-    node->colapsed = true;
-    if (node->colapsed && ImGui::Button("Close")) {
+    if (node->colapsed == true && ImGui::Button("Close"))
         node->colapsed = false;
-        return;
-    }
 
-    if (node->colapsed) {
+    if (node->colapsed == true) {
         for (unsigned i = 0; i < video_sink_threads.size(); i++) {
             if (video_sink_threads[i].joinable())
                 return;
@@ -2322,15 +2333,15 @@ static void draw_node_options(FilterNode *node)
             if (audio_sink_threads[i].joinable())
                 return;
         }
+
+        ImGui::BeginGroup();
+
+        draw_options(node, av_class_priv);
+        ImGui::Spacing();
+        draw_options(node, av_class);
+
+        ImGui::EndGroup();
     }
-
-    ImGui::BeginGroup();
-
-    draw_options(node, av_class_priv);
-    ImGui::Spacing();
-    draw_options(node, av_class);
-
-    ImGui::EndGroup();
 }
 
 static ImVec2 find_node_spot(ImVec2 start);
@@ -2494,6 +2505,8 @@ static void import_filter_graph(const char *file_name)
         node.ctx = NULL;
         node.pos = find_node_spot(ImVec2(300, 300));
         node.colapsed = false;
+        node.have_exports = false;
+        node.show_exports = false;
         node.set_pos = true;
 
         ret = av_opt_set_from_string(node.probe->priv, node.filter_options, NULL, "=", ":");
@@ -3529,6 +3542,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             node.ctx = NULL;
             node.pos = find_node_spot(src.pos);
             node.colapsed = false;
+            node.have_exports = false;
+            node.show_exports = false;
             node.set_pos = true;
             node.edge = editor_edge++;
             node.inpad_edges.push_back(editor_edge);
