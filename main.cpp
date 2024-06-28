@@ -2539,7 +2539,10 @@ static void export_filter_graph(char **out, size_t *out_size)
 
     visited.resize(filter_nodes.size());
 
-    to_visit.push_back(0);
+    for (size_t i = 0; i < filter_nodes.size(); i++) {
+        if (is_source_filter(filter_nodes[i].filter))
+            to_visit.push_back(i);
+    }
 
     while (to_visit.size() > 0) {
         unsigned node = to_visit.back();
