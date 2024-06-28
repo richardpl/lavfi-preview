@@ -285,7 +285,7 @@ static void sound_thread(ALsizei nb_sources, std::vector<ALuint> *sources)
             else
                 alSourcePlayv(nb_sources, sources->data());
         }
-        av_usleep(10000);
+        av_usleep(100000);
     }
 }
 
