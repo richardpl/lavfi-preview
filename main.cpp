@@ -2485,7 +2485,7 @@ static void import_filter_graph(const char *file_name)
             goto error;
         }
         node.imported_id = instance_name.length() > 0;
-        node.filter_label = node.imported_id ? av_asprintf("%s@%s", node.filter->name, instance_name.c_str()) : av_asprintf("%s%d", node.filter->name, node.id);
+        node.filter_label = node.imported_id ? av_asprintf("%s@%s", node.filter->name, instance_name.c_str()) : av_asprintf("%s@%d", node.filter->name, node.id);
         node.filter_options = opts;
         node.ctx_options = NULL;
         node.probe = avfilter_graph_alloc_filter(probe_graph, node.filter, "probe");
@@ -2575,7 +2575,7 @@ static void export_filter_graph(char **out, size_t *out_size)
             if (filter_nodes[node].imported_id)
                 av_bprintf(&buf, "%s", filter_nodes[node].filter_label);
             else
-                av_bprintf(&buf, "%s", filter_nodes[node].filter_name);
+                av_bprintf(&buf, "%s@%d", filter_nodes[node].filter_name, filter_nodes[node].id);
             av_freep(&filter_nodes[node].filter_options);
             av_opt_serialize(filter_nodes[node].ctx->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
                              &filter_nodes[node].filter_options, '=', ':');
@@ -3450,7 +3450,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             node.filter = type == AVMEDIA_TYPE_AUDIO ? abuffersink : buffersink;
             node.id = filter_nodes.size();
             node.filter_name = av_strdup(node.filter->name);
-            node.filter_label = av_asprintf("%s%d", node.filter->name, node.id);
+            node.filter_label = av_asprintf("%s@%d", node.filter->name, node.id);
             node.filter_options = NULL;
             node.ctx_options = NULL;
             node.probe = NULL;
