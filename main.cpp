@@ -213,7 +213,15 @@ char *graphdump_text = NULL;
 float audio_sample_range[2] = { 1.f, 1.f };
 float audio_window_size[2] = { 0, 100 };
 float osd_fullscreen_pos[2] = { 0.01f, 0.01f };
-float osd_transparency = 0.5f;
+float osd_alpha = 0.5f;
+float commands_alpha = 0.2f;
+float console_alpha = 0.5f;
+float dump_alpha = 0.4f;
+float editor_alpha = 1.0f;
+float help_alpha = 0.5f;
+float info_alpha = 0.7f;
+float log_alpha = 0.3f;
+float version_alpha = 0.8f;
 
 int editor_edge = 0;
 ImNodesEditorContext *node_editor_context;
@@ -734,7 +742,7 @@ static void draw_info(bool *p_open, bool full)
     }
 
     ImGui::SetNextWindowPos(ImVec2(display_w/2, display_h/2), 0, ImVec2(0.5, 0.5));
-    ImGui::SetNextWindowBgAlpha(0.7f);
+    ImGui::SetNextWindowBgAlpha(info_alpha);
     ImGui::SetNextWindowFocus();
 
     if (!ImGui::Begin("##Info", p_open, window_flags)) {
@@ -842,7 +850,7 @@ static void draw_version(bool *p_open)
 
     ImGui::SetNextWindowPos(ImVec2(display_w/2, display_h/2), 0, ImVec2(0.5, 0.5));
     ImGui::SetNextWindowSize(ImVec2(display_w, display_h));
-    ImGui::SetNextWindowBgAlpha(0.8f);
+    ImGui::SetNextWindowBgAlpha(version_alpha);
     ImGui::SetNextWindowFocus();
 
     if (!ImGui::Begin("##Version", p_open, window_flags)) {
@@ -886,7 +894,7 @@ static void draw_help(bool *p_open)
     const int align = 555;
 
     ImGui::SetNextWindowPos(ImVec2(display_w/2, display_h/2), 0, ImVec2(0.5, 0.5));
-    ImGui::SetNextWindowBgAlpha(0.5f);
+    ImGui::SetNextWindowBgAlpha(help_alpha);
     ImGui::SetNextWindowFocus();
 
     if (!ImGui::Begin("##Help", p_open, window_flags)) {
@@ -1038,7 +1046,7 @@ static void draw_console(bool *p_open)
 
     ImGui::SetNextWindowPos(ImVec2(0, display_h - 35));
     ImGui::SetNextWindowSize(ImVec2(display_w, 30));
-    ImGui::SetNextWindowBgAlpha(0.5f);
+    ImGui::SetNextWindowBgAlpha(console_alpha);
     ImGui::SetNextWindowFocus();
 
     if (!ImGui::Begin("##Console", p_open, window_flags)) {
@@ -1082,7 +1090,7 @@ static void draw_osd(BufferSink *sink, int width, int height)
         ImVec2 start_pos = ImVec2(std::min(max_size.x * osd_fullscreen_pos[0], max_size.x - tsize.x - 25), std::min(max_size.y * osd_fullscreen_pos[1], max_size.y - tsize.y - 25));
         ImVec2 stop_pos = ImVec2(std::min(start_pos.x + tsize.x + 25, max_size.x), std::min(start_pos.y + tsize.y + 25, max_size.y));
         ImGui::GetWindowDrawList()->AddRectFilled(start_pos, stop_pos,
-                                                  ImGui::GetColorU32(ImGuiCol_WindowBg, osd_transparency));
+                                                  ImGui::GetColorU32(ImGuiCol_WindowBg, osd_alpha));
         ImGui::SetCursorPos(ImVec2(std::min(start_pos.x + 12, max_size.x - tsize.x - 12), std::min(start_pos.y + 12, max_size.y - tsize.y - 12)));
         ImGui::Text("%s", osd_text);
     } else {
@@ -2764,6 +2772,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
     if (focused)
         ImGui::SetNextWindowFocus();
+    ImGui::SetNextWindowBgAlpha(editor_alpha);
     ImGui::SetNextWindowSize(ImVec2(600, 500), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("FilterGraph Editor", p_open, 0)) {
         ImGui::End();
@@ -2969,7 +2978,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 const int flags = 0;
 
                 ImGui::DragFloat2("OSD Fullscreen Position", osd_fullscreen_pos, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
-                ImGui::DragFloat("OSD Fullscreen Transparency", &osd_transparency, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                ImGui::DragFloat("OSD Fullscreen Alpha", &osd_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                 if (ImGui::BeginCombo("Upscaler", items[item_current_idx[0]], flags)) {
                     for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
                         const bool is_selected = (item_current_idx[0] == n);
@@ -3128,6 +3137,21 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     style_colors = 2;
                 }
                 set_style_colors(style_colors);
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Widgets")) {
+                if (ImGui::BeginMenu("Background Alpha")) {
+                    ImGui::DragFloat("Commands", &commands_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::DragFloat("Console", &console_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::DragFloat("Dump", &dump_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::DragFloat("Editor", &editor_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::DragFloat("Help", &help_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::DragFloat("Info", &info_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::DragFloat("Log", &log_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::DragFloat("Version", &version_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::EndMenu();
+                }
                 ImGui::EndMenu();
             }
 
@@ -3625,6 +3649,7 @@ static void show_commands(bool *p_open, bool focused)
 
     if (focused)
         ImGui::SetNextWindowFocus();
+    ImGui::SetNextWindowBgAlpha(commands_alpha);
     if (!ImGui::Begin("Filter Commands", p_open, 0)) {
         ImGui::End();
         return;
@@ -3650,6 +3675,7 @@ static void show_dumpgraph(bool *p_open, bool focused)
 
     if (focused)
         ImGui::SetNextWindowFocus();
+    ImGui::SetNextWindowBgAlpha(dump_alpha);
     if (!ImGui::Begin("FilterGraph Dump", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::End();
         return;
@@ -3709,6 +3735,7 @@ static void show_log(bool *p_open, bool focused)
     if (focused)
         ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(log_alpha);
     if (!ImGui::Begin("FilterGraph Log", p_open, 0)) {
         ImGui::End();
         return;
