@@ -1060,6 +1060,395 @@ static void add_filter_node(const AVFilter *filter, ImVec2 pos)
     filter_nodes.push_back(node);
 }
 
+static bool is_source_filter(const AVFilter *filter);
+static ImVec2 find_node_spot(ImVec2 start);
+
+static void importfile_filter_graph(const char *file_name)
+{
+    FILE *file = fopen(file_name, "r");
+    std::vector<char *> filter_opts;
+    std::vector<std::pair <int, int>> labels;
+    std::vector<std::pair <int, int>> filters;
+    std::vector<std::pair <unsigned, unsigned>> pads;
+    std::vector<int> separators;
+    std::vector<int> filter2edge;
+    std::vector<int> label2edge;
+    int filter_start = -1;
+    int filter_stop = 0;
+    int label_start = 0;
+    int label_stop = 0;
+    int in_pad_count = -1;
+    int out_pad_count = -1;
+    int pos = 0;
+    AVBPrint buf;
+    char c;
+
+    if (!file) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot open '%s' script.\n", file_name);
+        return;
+    }
+
+    if (!probe_graph)
+        probe_graph = avfilter_graph_alloc();
+    if (!probe_graph)
+        return;
+
+    av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
+
+    while ((c = fgetc(file))) {
+        if (c != EOF)
+            av_bprintf(&buf, "%c", c);
+
+        if (c == ';' || c == EOF)
+            separators.push_back(pos);
+
+        if (c == '[' && label_start == 0 && label_stop == 0) {
+            if (filter_start >= 0) {
+                filter_stop = pos;
+                if (filter_stop - filter_start > 1)
+                    filters.push_back(std::make_pair(filter_start, filter_stop));
+                filter_start = -1;
+                filter_stop = 0;
+            }
+            label_start = pos + 1;
+        } else if (c == ']' && label_start > 0 && label_stop == 0) {
+            label_stop = pos;
+            labels.push_back(std::make_pair(label_start, label_stop));
+            label_start = label_stop = 0;
+        } else if ((c == ';' || c == EOF) && filter_start >= 0) {
+            filter_stop = pos - (c == EOF);
+            if (filter_stop - filter_start > 1)
+                filters.push_back(std::make_pair(filter_start, filter_stop));
+            filter_start = -1;
+            filter_stop = 0;
+        } else if (filter_start >= 0) {
+        } else if (label_stop == 0 && label_start == 0) {
+            filter_start = pos + (c == ';');
+        }
+
+        pos++;
+        if (c == EOF)
+            break;
+    }
+
+    unsigned cur_label = 0;
+    unsigned cur_filter_idx = 0;
+    int label, filter, separator;
+
+    if (separators.size() != filters.size())
+        goto error;
+
+    while (cur_label < labels.size()) {
+        label = labels[cur_label].second;
+
+        if (in_pad_count == -1 && out_pad_count == -1) {
+            filter = filters[cur_filter_idx].first;
+            separator = separators[cur_filter_idx++];
+            in_pad_count = out_pad_count = 0;
+        }
+
+        if (label > separator) {
+            pads.push_back(std::make_pair(in_pad_count, out_pad_count));
+            in_pad_count = out_pad_count = -1;
+        } else if (label < filter) {
+            in_pad_count++;
+            cur_label++;
+        } else if (label < separator) {
+            out_pad_count++;
+            cur_label++;
+        }
+    }
+
+    if (in_pad_count >= 0 && out_pad_count >= 0)
+        pads.push_back(std::make_pair(in_pad_count, out_pad_count));
+
+    editor_edge = 0;
+    edge2pad.clear();
+    filter_links.clear();
+    filter_nodes.clear();
+
+    for (unsigned i = 0; i < filters.size(); i++) {
+        FilterNode node;
+        std::pair <int, int> p = filters[i];
+        std::string filter_name;
+        std::string instance_name;
+        char *opts = NULL;
+        int ret;
+
+        for (int j = p.first; j < p.second; j++) {
+            if (buf.str[j] == '=') {
+                opts = av_asprintf("%.*s", p.second - j-1, buf.str + j+1);
+                p.second = j;
+                break;
+            }
+        }
+
+        filter_opts.push_back(opts);
+
+        filter2edge.push_back(editor_edge++);
+        edge2pad.push_back(Edge2Pad { i, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
+        for (unsigned j = 0; j < pads[i].first; j++) {
+            node.inpad_edges.push_back(editor_edge);
+            label2edge.push_back(editor_edge++);
+            edge2pad.push_back(Edge2Pad { i, false, false, j, AVMEDIA_TYPE_UNKNOWN });
+        }
+
+        for (unsigned j = 0; j < pads[i].second; j++) {
+            node.outpad_edges.push_back(editor_edge);
+            label2edge.push_back(editor_edge++);
+            edge2pad.push_back(Edge2Pad { i, false, true, j, AVMEDIA_TYPE_UNKNOWN });
+        }
+
+        node.id = filter_nodes.size();
+        node.edge = filter2edge[i];
+        node.filter_name = av_asprintf("%.*s", p.second - p.first, buf.str + p.first);
+        if (!node.filter_name) {
+            av_log(NULL, AV_LOG_ERROR, "Could not get filter name.\n");
+            goto error;
+        }
+        std::istringstream full_name(node.filter_name);
+        std::getline(full_name, filter_name, '@');
+        std::getline(full_name, instance_name, '@');
+        node.filter = avfilter_get_by_name(filter_name.c_str());
+        if (!node.filter) {
+            av_log(NULL, AV_LOG_ERROR, "Could not get filter by name: %s.\n", node.filter_name);
+            goto error;
+        }
+        node.imported_id = instance_name.length() > 0;
+        node.filter_label = node.imported_id ? av_asprintf("%s@%s", node.filter->name, instance_name.c_str()) : av_asprintf("%s@%d", node.filter->name, node.id);
+        node.filter_options = opts;
+        node.ctx_options = NULL;
+        node.probe = avfilter_graph_alloc_filter(probe_graph, node.filter, "probe");
+        node.ctx = NULL;
+        node.pos = find_node_spot(ImVec2(300, 300));
+        node.colapsed = false;
+        node.have_exports = false;
+        node.show_exports = false;
+        node.set_pos = true;
+
+        ret = av_opt_set_from_string(node.probe->priv, node.filter_options, NULL, "=", ":");
+        if (ret < 0)
+            av_log(NULL, AV_LOG_ERROR, "Error setting probe filter private options.\n");
+
+        filter_nodes.push_back(node);
+    }
+
+    for (unsigned i = 0; i < labels.size(); i++) {
+        std::pair <int, int> p = labels[i];
+
+        for (unsigned j = i + 1; j < labels.size(); j++) {
+            std::pair <int, int> r = labels[j];
+
+            if ((p.second - p.first) != (r.second - r.first))
+                continue;
+
+            if (memcmp(buf.str + p.first, buf.str + r.first, p.second - p.first))
+                continue;
+
+            if (edge2pad[label2edge[i]].is_output == edge2pad[label2edge[j]].is_output)
+                continue;
+
+            filter_links.push_back(std::make_pair(label2edge[i], label2edge[j]));
+        }
+    }
+
+error:
+    av_bprint_finalize(&buf, NULL);
+
+    fclose(file);
+
+    need_filters_reinit = true;
+}
+
+struct {
+    bool operator()(int a, int b) const
+    {
+        const std::pair<int, int> pa = filter_links[a];
+        const std::pair<int, int> pb = filter_links[b];
+        const int paa = pa.first;
+        const int pab = pa.second;
+        const int pba = pb.first;
+        const int pbb = pb.second;
+        int pia, pib;
+
+        if (!edge2pad[paa].is_output)
+            pia = edge2pad[paa].pad_index;
+        if (!edge2pad[pab].is_output)
+            pia = edge2pad[pab].pad_index;
+
+        if (!edge2pad[pba].is_output)
+            pib = edge2pad[pba].pad_index;
+        if (!edge2pad[pbb].is_output)
+            pib = edge2pad[pbb].pad_index;
+
+        return pia > pib;
+    }
+} inputPads;
+
+struct {
+    bool operator()(int a, int b) const
+    {
+        const std::pair<int, int> pa = filter_links[a];
+        const std::pair<int, int> pb = filter_links[b];
+        const int paa = pa.first;
+        const int pab = pa.second;
+        const int pba = pb.first;
+        const int pbb = pb.second;
+        int pia, pib;
+
+        if (edge2pad[paa].is_output)
+            pia = edge2pad[paa].pad_index;
+        if (edge2pad[pab].is_output)
+            pia = edge2pad[pab].pad_index;
+
+        if (edge2pad[pba].is_output)
+            pib = edge2pad[pba].pad_index;
+        if (edge2pad[pbb].is_output)
+            pib = edge2pad[pbb].pad_index;
+
+        return pia > pib;
+    }
+} outputPads;
+
+static void export_filter_graph(char **out, size_t *out_size)
+{
+    std::vector<bool> visited;
+    std::vector<unsigned> to_visit;
+    std::vector<unsigned> pads;
+    AVBPrint buf;
+    bool first = true;
+
+    av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
+
+    visited.resize(filter_nodes.size());
+
+    for (size_t i = 0; i < filter_nodes.size(); i++) {
+        if (is_source_filter(filter_nodes[i].filter))
+            to_visit.push_back(i);
+    }
+
+    while (to_visit.size() > 0) {
+        unsigned node = to_visit.back();
+
+        to_visit.pop_back();
+
+        if (visited[node] == false) {
+            visited[node] = true;
+
+            if (first)
+                first = false;
+            else
+                av_bprintf(&buf, ";");
+
+            for (unsigned i = 0; i < filter_links.size(); i++) {
+                const std::pair<int, int> p = filter_links[i];
+                const int a = p.first;
+                const int b = p.second;
+                unsigned na  = edge2pad[a].node;
+                bool nat = edge2pad[a].is_output;
+                unsigned nb  = edge2pad[b].node;
+                bool nbt = edge2pad[b].is_output;
+
+                if (node != na && node != nb)
+                    continue;
+                if (node == na && nat == 1)
+                    continue;
+                if (node == nb && nbt == 1)
+                    continue;
+                pads.push_back(i);
+            }
+
+            std::sort(pads.begin(), pads.end(), inputPads);
+            while (pads.size() > 0) {
+                unsigned pad = pads.back();
+
+                pads.pop_back();
+                av_bprintf(&buf, "[e%d]", pad);
+            }
+
+            if (filter_nodes[node].imported_id)
+                av_bprintf(&buf, "%s", filter_nodes[node].filter_label);
+            else
+                av_bprintf(&buf, "%s@%d", filter_nodes[node].filter_name, filter_nodes[node].id);
+            av_freep(&filter_nodes[node].filter_options);
+            av_opt_serialize(filter_nodes[node].ctx->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
+                             &filter_nodes[node].filter_options, '=', ':');
+            if (filter_nodes[node].filter_options && (strlen(filter_nodes[node].filter_options) > 0))
+                av_bprintf(&buf, "=%s", filter_nodes[node].filter_options);
+            av_freep(&filter_nodes[node].filter_options);
+
+            for (unsigned i = 0; i < filter_links.size(); i++) {
+                const std::pair<int, int> p = filter_links[i];
+                const int a = p.first;
+                const int b = p.second;
+                unsigned na  = edge2pad[a].node;
+                bool nat = edge2pad[a].is_output;
+                unsigned nb  = edge2pad[b].node;
+                bool nbt = edge2pad[b].is_output;
+
+                if (node != na && node != nb)
+                    continue;
+                if (node == na && nat == 0)
+                    continue;
+                if (node == nb && nbt == 0)
+                    continue;
+                pads.push_back(i);
+            }
+
+            std::sort(pads.begin(), pads.end(), outputPads);
+            while (pads.size() > 0) {
+                unsigned pad = pads.back();
+
+                pads.pop_back();
+                av_bprintf(&buf, "[e%d]", pad);
+            }
+
+            for (unsigned i = 0; i < filter_links.size(); i++) {
+                const std::pair<int, int> p = filter_links[i];
+                unsigned a = edge2pad[p.first].node;
+                unsigned b = edge2pad[p.second].node;
+
+                if (node != a && node != b)
+                    continue;
+                if (node != a)
+                    to_visit.push_back(a);
+                else
+                    to_visit.push_back(b);
+            }
+        }
+    }
+
+    av_bprintf(&buf, "\n");
+
+    av_bprint_finalize(&buf, out);
+    if (av_bprint_is_complete(&buf))
+        *out_size = buf.len;
+    else
+        *out_size = buf.size;
+    av_bprint_finalize(&buf, NULL);
+}
+
+static void exportfile_filter_graph(const char *file_name)
+{
+    size_t out_size = 0;
+    char *out = NULL;
+
+    export_filter_graph(&out, &out_size);
+
+    if (out && out_size > 0) {
+        FILE *script_file = fopen(file_name, "w");
+
+        if (script_file) {
+            fwrite(out, 1, out_size, script_file);
+            fclose(script_file);
+        } else {
+            av_log(NULL, AV_LOG_ERROR, "Cannot open '%s' script.\n", file_name);
+        }
+        av_freep(&out);
+        out_size = 0;
+    }
+}
+
 static void draw_console(bool *p_open)
 {
     char input_line[4096] = { 0 };
@@ -1089,6 +1478,20 @@ static void draw_console(bool *p_open)
 
             if (filter)
                 add_filter_node(filter, ImVec2(0, 0));
+        }
+
+        if (!strncmp(input_line, "i ", 2) && filter_graph_is_valid == false) {
+            const char *file_name = input_line + 2;
+
+            if (file_name)
+                importfile_filter_graph(file_name);
+        }
+
+        if (!strncmp(input_line, "e ", 2) && filter_graph_is_valid == true) {
+            const char *file_name = input_line + 2;
+
+            if (file_name)
+                exportfile_filter_graph(file_name);
         }
     }
     ImGui::PopStyleColor();
@@ -2530,373 +2933,6 @@ static void draw_node_options(FilterNode *node)
     }
 }
 
-static ImVec2 find_node_spot(ImVec2 start);
-
-static void import_filter_graph(const char *file_name)
-{
-    FILE *file = fopen(file_name, "r");
-    std::vector<char *> filter_opts;
-    std::vector<std::pair <int, int>> labels;
-    std::vector<std::pair <int, int>> filters;
-    std::vector<std::pair <unsigned, unsigned>> pads;
-    std::vector<int> separators;
-    std::vector<int> filter2edge;
-    std::vector<int> label2edge;
-    int filter_start = -1;
-    int filter_stop = 0;
-    int label_start = 0;
-    int label_stop = 0;
-    int in_pad_count = -1;
-    int out_pad_count = -1;
-    int pos = 0;
-    AVBPrint buf;
-    char c;
-
-    if (!file) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot open '%s' script.\n", file_name);
-        return;
-    }
-
-    if (!probe_graph)
-        probe_graph = avfilter_graph_alloc();
-    if (!probe_graph)
-        return;
-
-    av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
-
-    while ((c = fgetc(file))) {
-        if (c != EOF)
-            av_bprintf(&buf, "%c", c);
-
-        if (c == ';' || c == EOF)
-            separators.push_back(pos);
-
-        if (c == '[' && label_start == 0 && label_stop == 0) {
-            if (filter_start >= 0) {
-                filter_stop = pos;
-                if (filter_stop - filter_start > 1)
-                    filters.push_back(std::make_pair(filter_start, filter_stop));
-                filter_start = -1;
-                filter_stop = 0;
-            }
-            label_start = pos + 1;
-        } else if (c == ']' && label_start > 0 && label_stop == 0) {
-            label_stop = pos;
-            labels.push_back(std::make_pair(label_start, label_stop));
-            label_start = label_stop = 0;
-        } else if ((c == ';' || c == EOF) && filter_start >= 0) {
-            filter_stop = pos - (c == EOF);
-            if (filter_stop - filter_start > 1)
-                filters.push_back(std::make_pair(filter_start, filter_stop));
-            filter_start = -1;
-            filter_stop = 0;
-        } else if (filter_start >= 0) {
-        } else if (label_stop == 0 && label_start == 0) {
-            filter_start = pos + (c == ';');
-        }
-
-        pos++;
-        if (c == EOF)
-            break;
-    }
-
-    unsigned cur_label = 0;
-    unsigned cur_filter_idx = 0;
-    int label, filter, separator;
-
-    if (separators.size() != filters.size())
-        goto error;
-
-    while (cur_label < labels.size()) {
-        label = labels[cur_label].second;
-
-        if (in_pad_count == -1 && out_pad_count == -1) {
-            filter = filters[cur_filter_idx].first;
-            separator = separators[cur_filter_idx++];
-            in_pad_count = out_pad_count = 0;
-        }
-
-        if (label > separator) {
-            pads.push_back(std::make_pair(in_pad_count, out_pad_count));
-            in_pad_count = out_pad_count = -1;
-        } else if (label < filter) {
-            in_pad_count++;
-            cur_label++;
-        } else if (label < separator) {
-            out_pad_count++;
-            cur_label++;
-        }
-    }
-
-    if (in_pad_count >= 0 && out_pad_count >= 0)
-        pads.push_back(std::make_pair(in_pad_count, out_pad_count));
-
-    editor_edge = 0;
-    edge2pad.clear();
-    filter_links.clear();
-    filter_nodes.clear();
-
-    for (unsigned i = 0; i < filters.size(); i++) {
-        FilterNode node;
-        std::pair <int, int> p = filters[i];
-        std::string filter_name;
-        std::string instance_name;
-        char *opts = NULL;
-        int ret;
-
-        for (int j = p.first; j < p.second; j++) {
-            if (buf.str[j] == '=') {
-                opts = av_asprintf("%.*s", p.second - j-1, buf.str + j+1);
-                p.second = j;
-                break;
-            }
-        }
-
-        filter_opts.push_back(opts);
-
-        filter2edge.push_back(editor_edge++);
-        edge2pad.push_back(Edge2Pad { i, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
-        for (unsigned j = 0; j < pads[i].first; j++) {
-            node.inpad_edges.push_back(editor_edge);
-            label2edge.push_back(editor_edge++);
-            edge2pad.push_back(Edge2Pad { i, false, false, j, AVMEDIA_TYPE_UNKNOWN });
-        }
-
-        for (unsigned j = 0; j < pads[i].second; j++) {
-            node.outpad_edges.push_back(editor_edge);
-            label2edge.push_back(editor_edge++);
-            edge2pad.push_back(Edge2Pad { i, false, true, j, AVMEDIA_TYPE_UNKNOWN });
-        }
-
-        node.id = filter_nodes.size();
-        node.edge = filter2edge[i];
-        node.filter_name = av_asprintf("%.*s", p.second - p.first, buf.str + p.first);
-        if (!node.filter_name) {
-            av_log(NULL, AV_LOG_ERROR, "Could not get filter name.\n");
-            goto error;
-        }
-        std::istringstream full_name(node.filter_name);
-        std::getline(full_name, filter_name, '@');
-        std::getline(full_name, instance_name, '@');
-        node.filter = avfilter_get_by_name(filter_name.c_str());
-        if (!node.filter) {
-            av_log(NULL, AV_LOG_ERROR, "Could not get filter by name: %s.\n", node.filter_name);
-            goto error;
-        }
-        node.imported_id = instance_name.length() > 0;
-        node.filter_label = node.imported_id ? av_asprintf("%s@%s", node.filter->name, instance_name.c_str()) : av_asprintf("%s@%d", node.filter->name, node.id);
-        node.filter_options = opts;
-        node.ctx_options = NULL;
-        node.probe = avfilter_graph_alloc_filter(probe_graph, node.filter, "probe");
-        node.ctx = NULL;
-        node.pos = find_node_spot(ImVec2(300, 300));
-        node.colapsed = false;
-        node.have_exports = false;
-        node.show_exports = false;
-        node.set_pos = true;
-
-        ret = av_opt_set_from_string(node.probe->priv, node.filter_options, NULL, "=", ":");
-        if (ret < 0)
-            av_log(NULL, AV_LOG_ERROR, "Error setting probe filter private options.\n");
-
-        filter_nodes.push_back(node);
-    }
-
-    for (unsigned i = 0; i < labels.size(); i++) {
-        std::pair <int, int> p = labels[i];
-
-        for (unsigned j = i + 1; j < labels.size(); j++) {
-            std::pair <int, int> r = labels[j];
-
-            if ((p.second - p.first) != (r.second - r.first))
-                continue;
-
-            if (memcmp(buf.str + p.first, buf.str + r.first, p.second - p.first))
-                continue;
-
-            if (edge2pad[label2edge[i]].is_output == edge2pad[label2edge[j]].is_output)
-                continue;
-
-            filter_links.push_back(std::make_pair(label2edge[i], label2edge[j]));
-        }
-    }
-
-error:
-    av_bprint_finalize(&buf, NULL);
-
-    fclose(file);
-
-    need_filters_reinit = true;
-}
-
-struct {
-    bool operator()(int a, int b) const
-    {
-        const std::pair<int, int> pa = filter_links[a];
-        const std::pair<int, int> pb = filter_links[b];
-        const int paa = pa.first;
-        const int pab = pa.second;
-        const int pba = pb.first;
-        const int pbb = pb.second;
-        int pia, pib;
-
-        if (!edge2pad[paa].is_output)
-            pia = edge2pad[paa].pad_index;
-        if (!edge2pad[pab].is_output)
-            pia = edge2pad[pab].pad_index;
-
-        if (!edge2pad[pba].is_output)
-            pib = edge2pad[pba].pad_index;
-        if (!edge2pad[pbb].is_output)
-            pib = edge2pad[pbb].pad_index;
-
-        return pia > pib;
-    }
-} inputPads;
-
-struct {
-    bool operator()(int a, int b) const
-    {
-        const std::pair<int, int> pa = filter_links[a];
-        const std::pair<int, int> pb = filter_links[b];
-        const int paa = pa.first;
-        const int pab = pa.second;
-        const int pba = pb.first;
-        const int pbb = pb.second;
-        int pia, pib;
-
-        if (edge2pad[paa].is_output)
-            pia = edge2pad[paa].pad_index;
-        if (edge2pad[pab].is_output)
-            pia = edge2pad[pab].pad_index;
-
-        if (edge2pad[pba].is_output)
-            pib = edge2pad[pba].pad_index;
-        if (edge2pad[pbb].is_output)
-            pib = edge2pad[pbb].pad_index;
-
-        return pia > pib;
-    }
-} outputPads;
-
-static void export_filter_graph(char **out, size_t *out_size)
-{
-    std::vector<bool> visited;
-    std::vector<unsigned> to_visit;
-    std::vector<unsigned> pads;
-    AVBPrint buf;
-    bool first = true;
-
-    av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
-
-    visited.resize(filter_nodes.size());
-
-    for (size_t i = 0; i < filter_nodes.size(); i++) {
-        if (is_source_filter(filter_nodes[i].filter))
-            to_visit.push_back(i);
-    }
-
-    while (to_visit.size() > 0) {
-        unsigned node = to_visit.back();
-
-        to_visit.pop_back();
-
-        if (visited[node] == false) {
-            visited[node] = true;
-
-            if (first)
-                first = false;
-            else
-                av_bprintf(&buf, ";");
-
-            for (unsigned i = 0; i < filter_links.size(); i++) {
-                const std::pair<int, int> p = filter_links[i];
-                const int a = p.first;
-                const int b = p.second;
-                unsigned na  = edge2pad[a].node;
-                bool nat = edge2pad[a].is_output;
-                unsigned nb  = edge2pad[b].node;
-                bool nbt = edge2pad[b].is_output;
-
-                if (node != na && node != nb)
-                    continue;
-                if (node == na && nat == 1)
-                    continue;
-                if (node == nb && nbt == 1)
-                    continue;
-                pads.push_back(i);
-            }
-
-            std::sort(pads.begin(), pads.end(), inputPads);
-            while (pads.size() > 0) {
-                unsigned pad = pads.back();
-
-                pads.pop_back();
-                av_bprintf(&buf, "[e%d]", pad);
-            }
-
-            if (filter_nodes[node].imported_id)
-                av_bprintf(&buf, "%s", filter_nodes[node].filter_label);
-            else
-                av_bprintf(&buf, "%s@%d", filter_nodes[node].filter_name, filter_nodes[node].id);
-            av_freep(&filter_nodes[node].filter_options);
-            av_opt_serialize(filter_nodes[node].ctx->priv, AV_OPT_FLAG_FILTERING_PARAM, AV_OPT_SERIALIZE_SKIP_DEFAULTS,
-                             &filter_nodes[node].filter_options, '=', ':');
-            if (filter_nodes[node].filter_options && (strlen(filter_nodes[node].filter_options) > 0))
-                av_bprintf(&buf, "=%s", filter_nodes[node].filter_options);
-            av_freep(&filter_nodes[node].filter_options);
-
-            for (unsigned i = 0; i < filter_links.size(); i++) {
-                const std::pair<int, int> p = filter_links[i];
-                const int a = p.first;
-                const int b = p.second;
-                unsigned na  = edge2pad[a].node;
-                bool nat = edge2pad[a].is_output;
-                unsigned nb  = edge2pad[b].node;
-                bool nbt = edge2pad[b].is_output;
-
-                if (node != na && node != nb)
-                    continue;
-                if (node == na && nat == 0)
-                    continue;
-                if (node == nb && nbt == 0)
-                    continue;
-                pads.push_back(i);
-            }
-
-            std::sort(pads.begin(), pads.end(), outputPads);
-            while (pads.size() > 0) {
-                unsigned pad = pads.back();
-
-                pads.pop_back();
-                av_bprintf(&buf, "[e%d]", pad);
-            }
-
-            for (unsigned i = 0; i < filter_links.size(); i++) {
-                const std::pair<int, int> p = filter_links[i];
-                unsigned a = edge2pad[p.first].node;
-                unsigned b = edge2pad[p.second].node;
-
-                if (node != a && node != b)
-                    continue;
-                if (node != a)
-                    to_visit.push_back(a);
-                else
-                    to_visit.push_back(b);
-            }
-        }
-    }
-
-    av_bprintf(&buf, "\n");
-
-    av_bprint_finalize(&buf, out);
-    if (av_bprint_is_complete(&buf))
-        *out_size = buf.len;
-    else
-        *out_size = buf.size;
-    av_bprint_finalize(&buf, NULL);
-}
-
 static ImVec2 find_node_spot(ImVec2 start)
 {
     ImVec2 pos = ImVec2(start.x + 80, start.y);
@@ -3340,24 +3376,11 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         if (ImGui::BeginMenu("Export FilterGraph", filter_graph_is_valid == true)) {
             if (ImGui::BeginMenu("Save as Script")) {
                 static char file_name[1024] = { 0 };
-                size_t out_size = 0;
-                char *out = NULL;
 
                 ImGui::InputText("File name:", file_name, sizeof(file_name) - 1);
                 if (strlen(file_name) > 0 && ImGui::Button("Save")) {
-                    export_filter_graph(&out, &out_size);
-
-                    if (out && out_size > 0) {
-                        FILE *script_file = fopen(file_name, "w");
-
-                        if (script_file) {
-                            fwrite(out, 1, out_size, script_file);
-                            fclose(script_file);
-                        }
-                        av_freep(&out);
-                        out_size = 0;
-                        memset(file_name, 0, sizeof(file_name));
-                    }
+                    exportfile_filter_graph(file_name);
+                    memset(file_name, 0, sizeof(file_name));
                 }
                 ImGui::EndMenu();
             }
@@ -4070,7 +4093,7 @@ restart_window:
         }
 
         if (import_script_file_name != NULL) {
-            import_filter_graph(import_script_file_name);
+            importfile_filter_graph(import_script_file_name);
             av_freep(&import_script_file_name);
         }
 
