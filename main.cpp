@@ -703,10 +703,13 @@ static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     *height = frame->height;
 
     glBindTexture(GL_TEXTURE_2D, *out_texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, sink->downscale_interpolator);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, sink->upscale_interpolator);
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->linesize[0] / pixel_size);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, gl_fmts[idx], frame->data[0]);
+    if (sink->pts != frame->pts) {
+        sink->pts = frame->pts;
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, sink->downscale_interpolator);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, sink->upscale_interpolator);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->linesize[0] / pixel_size);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, gl_fmts[idx], frame->data[0]);
+    }
 }
 
 static void draw_info(bool *p_open, bool full)
@@ -1159,7 +1162,6 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         goto end;
 
     update_frame_info(&sink->frame_info, new_frame);
-    sink->pts = new_frame->pts;
 
     load_frame(texture, &width, &height, new_frame, sink);
     if (sink->fullscreen) {
