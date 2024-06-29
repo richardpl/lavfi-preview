@@ -1275,13 +1275,59 @@ end:
     }
 }
 
+static void draw_aosd(BufferSink *sink)
+{
+    ALint queued;
+    char osd_text[1024];
+
+    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+    snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %d | TIME: %.5f | SPEED: %011.5f | RATE: %d | QUEUE: %d",
+             sink->frame_number, sink->frame_nb_samples,
+             (sink->pts != AV_NOPTS_VALUE) ? (av_q2d(sink->time_base) * sink->pts) : NAN,
+             sink->speed,
+             sink->sample_rate,
+             queued);
+
+    ImVec2 max_size = ImGui::GetIO().DisplaySize;
+    ImVec2 tsize = ImGui::CalcTextSize(osd_text);
+    ImVec2 start_pos = ImVec2(std::min(max_size.x * osd_fullscreen_pos[0], max_size.x - tsize.x - 25), std::min(max_size.y * osd_fullscreen_pos[1], max_size.y - tsize.y - 25));
+    ImVec2 stop_pos = ImVec2(std::min(start_pos.x + tsize.x + 25, max_size.x), std::min(start_pos.y + tsize.y + 25, max_size.y));
+    ImGui::GetWindowDrawList()->AddRectFilled(start_pos, stop_pos,
+                                              ImGui::GetColorU32(ImGuiCol_WindowBg, osd_alpha));
+    ImGui::SetCursorPos(ImVec2(std::min(start_pos.x + 12, max_size.x - tsize.x - 12), std::min(start_pos.y + 12, max_size.y - tsize.y - 12)));
+    ImGui::TextUnformatted(osd_text);
+}
+
 static void draw_aframe(bool *p_open, BufferSink *sink)
 {
     ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
-    ALint queued;
+    bool style = false;
 
     if (!*p_open)
         return;
+
+    if (sink->fullscreen) {
+        const ImGuiViewport *viewport = ImGui::GetMainViewport();
+
+        sink->have_window_pos = true;
+
+        ImGui::SetNextWindowPos(viewport->Pos);
+        ImGui::SetNextWindowSize(viewport->Size);
+
+        flags |= ImGuiWindowFlags_NoDecoration;
+        flags |= ImGuiWindowFlags_NoTitleBar;
+        flags |= ImGuiWindowFlags_NoMove;
+        flags |= ImGuiWindowFlags_NoResize;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        style = true;
+    } else {
+        if (sink->have_window_pos == true) {
+            ImGui::SetNextWindowPos(sink->window_pos);
+            sink->have_window_pos = false;
+        }
+    }
 
     if (focus_abuffersink_window == sink->id) {
         ImGui::SetNextWindowFocus();
@@ -1293,11 +1339,16 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
         return;
     }
 
+    if (sink->fullscreen == false)
+        sink->window_pos = ImGui::GetWindowPos();
+
     if (ImGui::IsWindowFocused()) {
         last_buffersink_window = -1;
         last_abuffersink_window = sink->id;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", sink->description);
+        if (ImGui::IsKeyReleased(ImGuiKey_F))
+            sink->fullscreen = !sink->fullscreen;
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
             paused = !paused;
         if (ImGui::IsKeyReleased(ImGuiKey_M))
@@ -1319,21 +1370,37 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     if (ImGui::IsKeyDown((ImGuiKey)(ImGuiKey_0 + sink->id)) && ImGui::GetIO().KeyAlt)
         focus_abuffersink_window = sink->id;
 
-    ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
-    ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -audio_sample_range[0], audio_sample_range[1], window_size);
-    if (sink->show_osd) {
-        ImGui::Text("FRAME: %ld", sink->frame_number);
-        ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
-        ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
-        ImGui::Text("RATE:  %d", sink->sample_rate);
-        ImGui::Text("SPEED: %011.5f", sink->speed);
-        alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-        ImGui::Text("QUEUE: %d", queued);
+    if (sink->fullscreen) {
+        ImVec2 window_size = { -1, -1 };
+
+        ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -audio_sample_range[0], audio_sample_range[1], window_size);
+        if (sink->show_osd)
+            draw_aosd(sink);
+    } else {
+        ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
+
+        ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -audio_sample_range[0], audio_sample_range[1], window_size);
+        if (sink->show_osd) {
+            ALint queued;
+
+            ImGui::Text("FRAME: %ld", sink->frame_number);
+            ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
+            ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
+            ImGui::Text("SPEED: %011.5f", sink->speed);
+            ImGui::Text("RATE:  %d", sink->sample_rate);
+            alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+            ImGui::Text("QUEUE: %d", queued);
+        }
+        if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
+            alSourcef(sink->source, AL_GAIN, sink->gain);
+        if (ImGui::DragFloat3("Position", sink->position, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
+            alSource3f(sink->source, AL_POSITION, sink->position[0], sink->position[1], sink->position[2]);
     }
-    if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
-        alSourcef(sink->source, AL_GAIN, sink->gain);
-    if (ImGui::DragFloat3("Position", sink->position, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
-        alSource3f(sink->source, AL_POSITION, sink->position[0], sink->position[1], sink->position[2]);
+
+    if (style) {
+        ImGui::PopStyleVar();
+        ImGui::PopStyleVar();
+    }
 
     ImGui::End();
 }
