@@ -2942,7 +2942,9 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 static int item_current_idx = 5;
 
                 ImGui::InputInt("Max Number of FilterGraph Threads", &filter_graph_nb_threads);
+                filter_graph_nb_threads = std::max(filter_graph_nb_threads, 0);
                 ImGui::InputInt("Auto Conversion Type for FilterGraph", &filter_graph_auto_convert_flags);
+                filter_graph_auto_convert_flags = std::clamp(filter_graph_auto_convert_flags, -1, 0);
                 if (ImGui::BeginCombo("Log Message Level", items[item_current_idx], 0)) {
                     for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
                         const bool is_selected = (item_current_idx == n);
