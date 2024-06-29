@@ -221,6 +221,7 @@ float editor_alpha = 1.0f;
 float help_alpha = 0.5f;
 float info_alpha = 0.7f;
 float log_alpha = 0.7f;
+float sink_alpha = 1.f;
 float version_alpha = 0.8f;
 
 int editor_edge = 0;
@@ -1193,6 +1194,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
         focus_buffersink_window = -1;
     }
 
+    ImGui::SetNextWindowBgAlpha(sink_alpha);
     if (!ImGui::Begin(sink->label, p_open, flags)) {
         ImGui::End();
         goto end;
@@ -1334,6 +1336,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
         focus_abuffersink_window = -1;
     }
 
+    ImGui::SetNextWindowBgAlpha(sink_alpha);
     if (!ImGui::Begin(sink->label, p_open, flags)) {
         ImGui::End();
         return;
@@ -3324,6 +3327,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     ImGui::DragFloat("Help", &help_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                     ImGui::DragFloat("Info", &info_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                     ImGui::DragFloat("Log", &log_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::DragFloat("Sink", &sink_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                     ImGui::DragFloat("Version", &version_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                     ImGui::EndMenu();
                 }
