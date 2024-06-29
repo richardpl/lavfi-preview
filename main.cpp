@@ -1405,6 +1405,47 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     ImGui::End();
 }
 
+static void update_samples(BufferSink *sink, AVFrame *frame)
+{
+    if (frame->format == AV_SAMPLE_FMT_FLTP) {
+        const float *src = (const float *)frame->extended_data[0];
+
+        if (src && frame->nb_samples > 0) {
+            float min = FLT_MAX, max = -FLT_MAX;
+
+            for (int n = 0; n < frame->nb_samples; n++) {
+                max = std::max(max, src[n]);
+                min = std::min(min, src[n]);
+            }
+
+            sink->frame_number++;
+            sink->frame_nb_samples = frame->nb_samples;
+            sink->samples[sink->sample_index++] = max;
+            sink->samples[sink->sample_index++] = min;
+            if (sink->sample_index >= sink->nb_samples)
+                sink->sample_index = 0;
+        }
+    } else {
+        const double *src = (const double *)frame->extended_data[0];
+
+        if (src && frame->nb_samples > 0) {
+            double min = DBL_MAX, max = -DBL_MAX;
+
+            for (int n = 0; n < frame->nb_samples; n++) {
+                max = std::max(max, src[n]);
+                min = std::min(min, src[n]);
+            }
+
+            sink->frame_number++;
+            sink->frame_nb_samples = frame->nb_samples;
+            sink->samples[sink->sample_index++] = max;
+            sink->samples[sink->sample_index++] = min;
+            if (sink->sample_index >= sink->nb_samples)
+                sink->sample_index = 0;
+        }
+    }
+}
+
 static void queue_sound(AVFrame *frame, BufferSink *sink)
 {
     const size_t sample_size = (frame->format == AV_SAMPLE_FMT_FLTP) ? sizeof(float) : sizeof(double);
@@ -1422,23 +1463,28 @@ static void queue_sound(AVFrame *frame, BufferSink *sink)
         sink->processed_bufids.push_back(bufid);
     }
 
-    if (sink->processed_bufids.size() > 0 && frame->nb_samples > 0) {
+    if (sink->processed_bufids.size() > 0 && sink->pts != frame->pts) {
         ALuint bufid = sink->processed_bufids.back();
 
+        sink->pts = frame->pts;
         sink->processed_bufids.pop_back();
         alBufferData(bufid, sink->format, frame->extended_data[0],
                      (ALsizei)frame->nb_samples * sample_size, frame->sample_rate);
         alSourceQueueBuffers(sink->source, 1, &bufid);
-        frame->nb_samples = 0;
+
+        update_samples(sink, frame);
     }
-    if (sink->unprocessed_bufids.size() > 0 && frame->nb_samples > 0) {
+
+    if (sink->unprocessed_bufids.size() > 0 && sink->pts != frame->pts) {
         ALuint bufid = sink->unprocessed_bufids.back();
 
+        sink->pts = frame->pts;
         sink->unprocessed_bufids.pop_back();
         alBufferData(bufid, sink->format, frame->extended_data[0],
                      (ALsizei)frame->nb_samples * sample_size, frame->sample_rate);
         alSourceQueueBuffers(sink->source, 1, &bufid);
-        frame->nb_samples = 0;
+
+        update_samples(sink, frame);
     }
 }
 
@@ -4074,48 +4120,8 @@ dequeue_consume_frames:
 
                 ring_buffer_peek(&sink->render_frames, &play_frame, 0);
                 if (play_frame) {
-                    update_frame_info(&sink->frame_info, play_frame);
-                    if (play_frame->format == AV_SAMPLE_FMT_FLTP) {
-                        const float *src = (const float *)play_frame->extended_data[0];
-
-                        if (src && play_frame->nb_samples > 0) {
-                            float min = FLT_MAX, max = -FLT_MAX;
-
-                            for (int n = 0; n < play_frame->nb_samples; n++) {
-                                max = std::max(max, src[n]);
-                                min = std::min(min, src[n]);
-                            }
-
-                            sink->frame_number++;
-                            sink->pts = play_frame->pts;
-                            sink->frame_nb_samples = play_frame->nb_samples;
-                            sink->samples[sink->sample_index++] = max;
-                            sink->samples[sink->sample_index++] = min;
-                            if (sink->sample_index >= sink->nb_samples)
-                                sink->sample_index = 0;
-                        }
-                    } else {
-                        const double *src = (const double *)play_frame->extended_data[0];
-
-                        if (src && play_frame->nb_samples > 0) {
-                            double min = DBL_MAX, max = -DBL_MAX;
-
-                            for (int n = 0; n < play_frame->nb_samples; n++) {
-                                max = std::max(max, src[n]);
-                                min = std::min(min, src[n]);
-                            }
-
-                            sink->frame_number++;
-                            sink->pts = play_frame->pts;
-                            sink->frame_nb_samples = play_frame->nb_samples;
-                            sink->samples[sink->sample_index++] = max;
-                            sink->samples[sink->sample_index++] = min;
-                            if (sink->sample_index >= sink->nb_samples)
-                                sink->sample_index = 0;
-                        }
-                    }
-
                     queue_sound(play_frame, sink);
+                    update_frame_info(&sink->frame_info, play_frame);
                 }
             }
         }
