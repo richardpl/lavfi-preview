@@ -214,13 +214,13 @@ float audio_sample_range[2] = { 1.f, 1.f };
 float audio_window_size[2] = { 0, 100 };
 float osd_fullscreen_pos[2] = { 0.01f, 0.01f };
 float osd_alpha = 0.5f;
-float commands_alpha = 0.2f;
+float commands_alpha = 0.8f;
 float console_alpha = 0.5f;
-float dump_alpha = 0.4f;
+float dump_alpha = 0.7f;
 float editor_alpha = 1.0f;
 float help_alpha = 0.5f;
 float info_alpha = 0.7f;
-float log_alpha = 0.3f;
+float log_alpha = 0.7f;
 float version_alpha = 0.8f;
 
 int editor_edge = 0;
