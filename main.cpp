@@ -113,8 +113,6 @@ typedef struct BufferSink {
     float gain;
     float position[3];
     std::vector<ALuint> buffers;
-    std::vector<ALuint> processed_bufids;
-    std::vector<ALuint> unprocessed_bufids;
 
     GLint downscale_interpolator;
     GLint upscale_interpolator;
@@ -256,42 +254,48 @@ ALCcontext *al_ctx = NULL;
 float listener_direction[6] = { 0, 0, -1, 0, 1, 0 };
 float listener_position[3] = { 0, 0, 0 };
 
-static void alloc_ring_buffer(ring_buffer_t *ring_buffer)
+static void alloc_ring_buffer(ring_buffer_t *ring_buffer, ALuint *bufid)
 {
     while (!ring_buffer_is_full(ring_buffer)) {
         AVFrame *empty_frame = av_frame_alloc();
 
-        if (empty_frame)
-            ring_buffer_enqueue(ring_buffer, empty_frame);
+        if (empty_frame) {
+            unsigned i = ring_buffer_num_items(ring_buffer);
+            ring_item_t item = { empty_frame, bufid ? bufid[i] : 0 };
+            ring_buffer_enqueue(ring_buffer, item);
+        }
     }
 }
 
 static void clear_ring_buffer(ring_buffer_t *ring_buffer)
 {
     while (ring_buffer_num_items(ring_buffer) > 0) {
-        AVFrame *frame = NULL;
+        ring_item_t item = { NULL, 0 };
 
-        ring_buffer_dequeue(ring_buffer, &frame);
-        av_frame_free(&frame);
+        ring_buffer_dequeue(ring_buffer, &item);
+        av_frame_free(&item.frame);
     }
 }
 
 static void sound_thread(ALsizei nb_sources, std::vector<ALuint> *sources)
 {
-    bool state = paused && !framestep;
+    bool step = framestep;
+    bool state = paused;
 
-    if (state)
+    if ((state == true) || (step == false))
         alSourceStopv(nb_sources, sources->data());
 
     while (!need_filters_reinit && filter_graph_is_valid) {
-        bool new_state = paused && !framestep;
+        bool new_step = framestep;
+        bool new_state = paused;
 
         if (sources->size() == 0)
             break;
 
-        if (state != new_state) {
+        if ((state != new_state) || (step != new_step)) {
             state = new_state;
-            if (state == true)
+            step = new_step;
+            if (state == true && step == false)
                 alSourcePausev(nb_sources, sources->data());
             else
                 alSourcePlayv(nb_sources, sources->data());
@@ -315,33 +319,30 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
         sink->ready = false;
 
         if (ring_buffer_num_items(&sink->consume_frames) < sink->consume_ring_size) {
-            AVFrame *filter_frame = NULL;
+            ring_item_t item = { NULL, 0 };
             int64_t start, end;
 
-            ring_buffer_dequeue(&sink->empty_frames, &filter_frame);
-            if (!filter_frame)
+            ring_buffer_dequeue(&sink->empty_frames, &item);
+            if (!item.frame)
                 continue;
-            start = av_gettime_relative();
             filtergraph_mutex.lock();
-            ret = av_buffersink_get_frame_flags(sink->ctx, filter_frame, 0);
-            filtergraph_mutex.unlock();
+            start = av_gettime_relative();
+            ret = av_buffersink_get_frame_flags(sink->ctx, item.frame, 0);
             end = av_gettime_relative();
-            if (end > start && filter_frame)
-                sink->speed = 1000000. * (std::max(filter_frame->nb_samples, 1)) * av_q2d(av_inv_q(sink->frame_rate)) / (end - start);
+            filtergraph_mutex.unlock();
+            if (end > start && item.frame)
+                sink->speed = 1000000. * (std::max(item.frame->nb_samples, 1)) * av_q2d(av_inv_q(sink->frame_rate)) / (end - start);
             if (ret < 0) {
-                av_frame_unref(filter_frame);
-                ring_buffer_enqueue(&sink->empty_frames, filter_frame);
+                av_frame_unref(item.frame);
+                ring_buffer_enqueue(&sink->empty_frames, item);
                 if (ret != AVERROR(EAGAIN))
                     break;
-                filter_frame = NULL;
+                item.frame = NULL;
             }
 
-            if (filter_frame)
-                ring_buffer_enqueue(&sink->consume_frames, filter_frame);
+            if (item.frame)
+                ring_buffer_enqueue(&sink->consume_frames, item);
         }
-
-        if (paused)
-            av_usleep(100000);
     }
 
     clear_ring_buffer(&sink->empty_frames);
@@ -624,7 +625,7 @@ error:
 
         glGenTextures(1, &sink->texture);
 
-        alloc_ring_buffer(&sink->empty_frames);
+        alloc_ring_buffer(&sink->empty_frames, NULL);
         std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i], &cv[i]);
 
         video_sink_threads[i].swap(sink_thread);
@@ -669,8 +670,6 @@ error:
         sink->format = audio_format ? AL_FORMAT_MONO_DOUBLE_EXT : AL_FORMAT_MONO_FLOAT32;
 
         alGenBuffers(sink->audio_queue_size, sink->buffers.data());
-        for (ALint j = 0; j < sink->audio_queue_size; j++)
-            sink->unprocessed_bufids.push_back(sink->buffers[j]);
 
         alGenSources(1, &sink->source);
         play_sources.push_back(sink->source);
@@ -682,7 +681,7 @@ error:
         alSourcei(sink->source, AL_SOURCE_RELATIVE, AL_TRUE);
         alSourcei(sink->source, AL_ROLLOFF_FACTOR, 0);
 
-        alloc_ring_buffer(&sink->empty_frames);
+        alloc_ring_buffer(&sink->empty_frames, sink->buffers.data());
         std::thread asink_thread(worker_thread, &abuffer_sinks[i], &amutexes[i], &acv[i]);
 
         audio_sink_threads[i].swap(asink_thread);
@@ -706,6 +705,7 @@ static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
     glBindTexture(GL_TEXTURE_2D, *out_texture);
     if (sink->pts != frame->pts) {
         sink->pts = frame->pts;
+        sink->frame_number++;
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, sink->downscale_interpolator);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, sink->upscale_interpolator);
         glPixelStorei(GL_UNPACK_ROW_LENGTH, frame->linesize[0] / pixel_size);
@@ -1612,19 +1612,18 @@ static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
     frame_info->crop_right = frame->crop_right;
 }
 
-static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
+static void draw_frame(GLuint *texture, bool *p_open, ring_item_t item,
                        BufferSink *sink)
 {
     ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
     int width, height;
     bool style = false;
 
-    if (!*p_open || !new_frame)
-        goto end;
+    update_frame_info(&sink->frame_info, item.frame);
+    if (!*p_open)
+        return;
 
-    update_frame_info(&sink->frame_info, new_frame);
-
-    load_frame(texture, &width, &height, new_frame, sink);
+    load_frame(texture, &width, &height, item.frame, sink);
     if (sink->fullscreen) {
         const ImGuiViewport *viewport = ImGui::GetMainViewport();
 
@@ -1657,7 +1656,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     ImGui::SetNextWindowBgAlpha(sink_alpha);
     if (!ImGui::Begin(sink->label, p_open, flags)) {
         ImGui::End();
-        goto end;
+        return;
     }
 
     if (sink->fullscreen == false)
@@ -1670,7 +1669,7 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
             sink->fullscreen = !sink->fullscreen;
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
             paused = !paused;
-        framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
+        framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
         if (framestep)
             paused = true;
         if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
@@ -1728,13 +1727,6 @@ static void draw_frame(GLuint *texture, bool *p_open, AVFrame *new_frame,
     }
 
     ImGui::End();
-
-end:
-
-    if (new_frame && new_frame->nb_samples == 0) {
-        sink->frame_number++;
-        new_frame->nb_samples = 1;
-    }
 }
 
 static void draw_aosd(BufferSink *sink)
@@ -1760,13 +1752,62 @@ static void draw_aosd(BufferSink *sink)
     ImGui::TextUnformatted(osd_text);
 }
 
-static void draw_aframe(bool *p_open, BufferSink *sink)
+static void load_aframe(BufferSink *sink, AVFrame *frame)
+{
+    if (frame->format == AV_SAMPLE_FMT_FLTP) {
+        const float *src = (const float *)frame->extended_data[0];
+
+        if (src && frame->nb_samples > 0) {
+            float min = FLT_MAX, max = -FLT_MAX;
+
+            for (int n = 0; n < frame->nb_samples; n++) {
+                max = std::max(max, src[n]);
+                min = std::min(min, src[n]);
+            }
+
+            sink->frame_number++;
+            sink->frame_nb_samples = frame->nb_samples;
+            sink->samples[sink->sample_index++] = max;
+            sink->samples[sink->sample_index++] = min;
+            if (sink->sample_index >= sink->nb_samples)
+                sink->sample_index = 0;
+        }
+    } else {
+        const double *src = (const double *)frame->extended_data[0];
+
+        if (src && frame->nb_samples > 0) {
+            double min = DBL_MAX, max = -DBL_MAX;
+
+            for (int n = 0; n < frame->nb_samples; n++) {
+                max = std::max(max, src[n]);
+                min = std::min(min, src[n]);
+            }
+
+            sink->frame_number++;
+            sink->frame_nb_samples = frame->nb_samples;
+            sink->samples[sink->sample_index++] = max;
+            sink->samples[sink->sample_index++] = min;
+            if (sink->sample_index >= sink->nb_samples)
+                sink->sample_index = 0;
+        }
+    }
+}
+
+static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
 {
     ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
     bool style = false;
 
+    if (item.frame)
+        update_frame_info(&sink->frame_info, item.frame);
+
     if (!*p_open)
         return;
+
+    if (item.frame && sink->pts != item.frame->pts) {
+        sink->pts = item.frame->pts;
+        load_aframe(sink, item.frame);
+    }
 
     if (sink->fullscreen) {
         const ImGuiViewport *viewport = ImGui::GetMainViewport();
@@ -1816,7 +1857,7 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
             paused = !paused;
         if (ImGui::IsKeyReleased(ImGuiKey_M))
             sink->muted = !sink->muted;
-        framestep = ImGui::IsKeyPressed(ImGuiKey_Period, true);
+        framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
         if (framestep)
             paused = true;
         if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
@@ -1868,87 +1909,17 @@ static void draw_aframe(bool *p_open, BufferSink *sink)
     ImGui::End();
 }
 
-static void update_samples(BufferSink *sink, AVFrame *frame)
+static void queue_sound(BufferSink *sink, ring_item_t item)
 {
-    if (frame->format == AV_SAMPLE_FMT_FLTP) {
-        const float *src = (const float *)frame->extended_data[0];
-
-        if (src && frame->nb_samples > 0) {
-            float min = FLT_MAX, max = -FLT_MAX;
-
-            for (int n = 0; n < frame->nb_samples; n++) {
-                max = std::max(max, src[n]);
-                min = std::min(min, src[n]);
-            }
-
-            sink->frame_number++;
-            sink->frame_nb_samples = frame->nb_samples;
-            sink->samples[sink->sample_index++] = max;
-            sink->samples[sink->sample_index++] = min;
-            if (sink->sample_index >= sink->nb_samples)
-                sink->sample_index = 0;
-        }
-    } else {
-        const double *src = (const double *)frame->extended_data[0];
-
-        if (src && frame->nb_samples > 0) {
-            double min = DBL_MAX, max = -DBL_MAX;
-
-            for (int n = 0; n < frame->nb_samples; n++) {
-                max = std::max(max, src[n]);
-                min = std::min(min, src[n]);
-            }
-
-            sink->frame_number++;
-            sink->frame_nb_samples = frame->nb_samples;
-            sink->samples[sink->sample_index++] = max;
-            sink->samples[sink->sample_index++] = min;
-            if (sink->sample_index >= sink->nb_samples)
-                sink->sample_index = 0;
-        }
-    }
-}
-
-static void queue_sound(AVFrame *frame, BufferSink *sink)
-{
+    AVFrame *frame = item.frame;
+    ALuint bufid = item.bufid;
     const size_t sample_size = (frame->format == AV_SAMPLE_FMT_FLTP) ? sizeof(float) : sizeof(double);
-    ALint processed = 0;
 
     alSourcef(sink->source, AL_GAIN, sink->gain * !sink->muted);
 
-    alGetSourcei(sink->source, AL_BUFFERS_PROCESSED, &processed);
-    while (processed > 0 && (!paused || framestep)) {
-        ALuint bufid;
-
-        alSourceUnqueueBuffers(sink->source, 1, &bufid);
-        processed--;
-
-        sink->processed_bufids.push_back(bufid);
-    }
-
-    if (sink->processed_bufids.size() > 0 && sink->pts != frame->pts) {
-        ALuint bufid = sink->processed_bufids.back();
-
-        sink->pts = frame->pts;
-        sink->processed_bufids.pop_back();
-        alBufferData(bufid, sink->format, frame->extended_data[0],
-                     (ALsizei)frame->nb_samples * sample_size, frame->sample_rate);
-        alSourceQueueBuffers(sink->source, 1, &bufid);
-
-        update_samples(sink, frame);
-    }
-
-    if (sink->unprocessed_bufids.size() > 0 && sink->pts != frame->pts) {
-        ALuint bufid = sink->unprocessed_bufids.back();
-
-        sink->pts = frame->pts;
-        sink->unprocessed_bufids.pop_back();
-        alBufferData(bufid, sink->format, frame->extended_data[0],
-                     (ALsizei)frame->nb_samples * sample_size, frame->sample_rate);
-        alSourceQueueBuffers(sink->source, 1, &bufid);
-
-        update_samples(sink, frame);
-    }
+    alBufferData(bufid, sink->format, frame->extended_data[0],
+                 (ALsizei)frame->nb_samples * sample_size, frame->sample_rate);
+    alSourceQueueBuffers(sink->source, 1, &bufid);
 }
 
 static bool query_ranges(void *obj, const AVOption *opt,
@@ -4086,6 +4057,7 @@ restart_window:
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.WantCaptureKeyboard = true;
+    io.KeyRepeatDelay = 0.5f;
 
     // Setup Dear ImGui style
     set_style_colors(style_colors);
@@ -4188,7 +4160,7 @@ restart_window:
         if (filter_graph_is_valid) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
-                AVFrame *render_frame = NULL;
+                ring_item_t item = { NULL, 0 };
 
                 if (ring_buffer_num_items(&sink->render_frames) > sink->render_ring_size - 1)
                     continue;
@@ -4198,55 +4170,33 @@ restart_window:
 
                 { std::lock_guard lk(mutexes[i]); sink->ready = true; }
                 cv[i].notify_one();
-                ring_buffer_dequeue(&sink->consume_frames, &render_frame);
-                if (!render_frame)
+                ring_buffer_dequeue(&sink->consume_frames, &item);
+                if (!item.frame)
                     continue;
-                ring_buffer_enqueue(&sink->render_frames, render_frame);
+                ring_buffer_enqueue(&sink->render_frames, item);
             }
         }
 
         if (filter_graph_is_valid) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
-                AVFrame *render_frame = NULL;
 
-                if (sink->unprocessed_bufids.size() == 0) {
+                do {
+                    ring_item_t item = { NULL, 0 };
                     ALint queued = 0;
 
                     alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-                    if (queued > sink->audio_queue_size / 2)
-                        continue;
+                    if (queued >= sink->audio_queue_size)
+                        break;
 
-                    if (queued < sink->audio_queue_size / 2)
-                        goto dequeue_consume_frames;
-
-                    if (ring_buffer_num_items(&sink->render_frames) > sink->render_ring_size - 1)
-                        continue;
-
-                    if (sink->qpts > min_aqpts)
-                        continue;
-                }
-
-dequeue_consume_frames:
-                { std::lock_guard lk(amutexes[i]); sink->ready = true; }
-                acv[i].notify_one();
-                ring_buffer_dequeue(&sink->consume_frames, &render_frame);
-                if (!render_frame)
-                    continue;
-                ring_buffer_enqueue(&sink->render_frames, render_frame);
-            }
-        }
-
-        if (filter_graph_is_valid && show_abuffersink_window == true) {
-            for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
-                BufferSink *sink = &abuffer_sinks[i];
-                AVFrame *play_frame = NULL;
-
-                ring_buffer_peek(&sink->render_frames, &play_frame, 0);
-                if (play_frame) {
-                    queue_sound(play_frame, sink);
-                    update_frame_info(&sink->frame_info, play_frame);
-                }
+                    { std::lock_guard lk(amutexes[i]); sink->ready = true; }
+                    acv[i].notify_one();
+                    ring_buffer_dequeue(&sink->consume_frames, &item);
+                    if (!item.frame)
+                        break;
+                    ring_buffer_enqueue(&sink->render_frames, item);
+                    queue_sound(sink, item);
+                } while (1);
             }
         }
 
@@ -4258,21 +4208,23 @@ dequeue_consume_frames:
         if (filter_graph_is_valid && show_buffersink_window == true) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
-                AVFrame *render_frame = NULL;
+                ring_item_t item = { NULL, 0 };
 
-                ring_buffer_peek(&sink->render_frames, &render_frame, 0);
-                if (!render_frame)
+                ring_buffer_peek(&sink->render_frames, &item, 0);
+                if (!item.frame)
                     continue;
 
-                draw_frame(&sink->texture, &show_buffersink_window, render_frame, sink);
+                draw_frame(&sink->texture, &show_buffersink_window, item, sink);
             }
         }
 
         if (filter_graph_is_valid && show_abuffersink_window == true) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
+                ring_item_t item = { NULL, 0 };
 
-                draw_aframe(&show_abuffersink_window, sink);
+                ring_buffer_peek(&sink->render_frames, &item, 0);
+                draw_aframe(&show_abuffersink_window, item, sink);
             }
         }
 
@@ -4309,20 +4261,10 @@ dequeue_consume_frames:
         if (show_console)
             draw_console(&show_console);
 
-        // Rendering
-        ImGui::Render();
-        glfwGetFramebufferSize(window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        glfwSwapBuffers(window);
-
         if (filter_graph_is_valid) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
-                AVFrame *purge_frame = NULL;
+                ring_item_t item = { NULL, 0 };
 
                 if (paused && !framestep)
                     continue;
@@ -4333,47 +4275,45 @@ dequeue_consume_frames:
                 if (ring_buffer_num_items(&sink->render_frames) < sink->render_ring_size)
                     continue;
 
-                ring_buffer_dequeue(&sink->render_frames, &purge_frame);
-                if (!purge_frame)
+                ring_buffer_dequeue(&sink->render_frames, &item);
+                if (!item.frame)
                     continue;
-                av_frame_unref(purge_frame);
-                ring_buffer_enqueue(&sink->empty_frames, purge_frame);
+                av_frame_unref(item.frame);
+                ring_buffer_enqueue(&sink->empty_frames, item);
             }
         }
 
         if (filter_graph_is_valid) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
-                AVFrame *purge_frame = NULL;
 
-                if (sink->unprocessed_bufids.size() == 0) {
-                    ALint queued = 0;
+                do {
+                    ring_item_t item = { NULL, 0 };
+                    ALint processed = 0;
 
-                    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-                    if (queued > sink->audio_queue_size / 2)
-                        continue;
+                    alGetSourcei(sink->source, AL_BUFFERS_PROCESSED, &processed);
+                    if (processed <= 0)
+                        break;
 
-                    if (paused && !framestep)
-                        continue;
-
-                    if (queued < sink->audio_queue_size / 2)
-                        goto dequeue_render_frames;
-
-                    if (sink->qpts > min_aqpts)
-                        continue;
-
-                    if (ring_buffer_num_items(&sink->render_frames) < sink->render_ring_size)
-                        continue;
-                }
-
-dequeue_render_frames:
-                ring_buffer_dequeue(&sink->render_frames, &purge_frame);
-                if (!purge_frame)
-                    continue;
-                av_frame_unref(purge_frame);
-                ring_buffer_enqueue(&sink->empty_frames, purge_frame);
+                    ring_buffer_dequeue(&sink->render_frames, &item);
+                    if (!item.frame)
+                        break;
+                    alSourceUnqueueBuffers(sink->source, 1, &item.bufid);
+                    av_frame_unref(item.frame);
+                    ring_buffer_enqueue(&sink->empty_frames, item);
+                } while (1);
             }
         }
+
+        // Rendering
+        ImGui::Render();
+        glfwGetFramebufferSize(window, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        glfwSwapBuffers(window);
 
         if (restart_display == true)
             break;
