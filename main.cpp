@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -180,8 +181,8 @@ int style_colors = 1;
 char *import_script_file_name = NULL;
 
 bool need_filters_reinit = true;
-bool framestep = false;
-bool paused = true;
+std::atomic<bool> framestep = false;
+std::atomic<bool> paused = true;
 bool show_info = false;
 bool show_help = false;
 bool show_version = false;
@@ -306,25 +307,29 @@ static void sound_thread(ALsizei nb_sources, std::vector<ALuint> *sources)
 
 static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_variable *cv)
 {
-    int ret;
+    int ret = 0;
 
     while (sink->ctx) {
-        std::unique_lock lk(*mutex);
-        cv->wait(lk, [sink]{ return sink->ready == true; });
-        mutex->unlock();
         if (need_filters_reinit)
             break;
+
+        std::unique_lock<std::mutex> lk(*mutex);
+        cv->wait(lk, [sink]{ return sink->ready; });
         if (sink->ready == false)
             continue;
         sink->ready = false;
 
-        if (ring_buffer_num_items(&sink->consume_frames) < sink->consume_ring_size) {
+        while (ring_buffer_num_items(&sink->empty_frames) > 0) {
             ring_item_t item = { NULL, 0 };
             int64_t start, end;
 
+            if (ring_buffer_num_items(&sink->consume_frames) >= sink->consume_ring_size)
+                break;
+
             ring_buffer_dequeue(&sink->empty_frames, &item);
             if (!item.frame)
-                continue;
+                break;
+
             filtergraph_mutex.lock();
             start = av_gettime_relative();
             ret = av_buffersink_get_frame_flags(sink->ctx, item.frame, 0);
@@ -343,6 +348,9 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
             if (item.frame)
                 ring_buffer_enqueue(&sink->consume_frames, item);
         }
+
+        if (ret < 0 && ret != AVERROR(EAGAIN))
+            break;
     }
 
     clear_ring_buffer(&sink->empty_frames);
@@ -3989,6 +3997,13 @@ static void show_log(bool *p_open, bool focused)
     ImGui::End();
 }
 
+static void notify_worker(BufferSink *sink, std::mutex *mutex, std::condition_variable *cv)
+{
+    std::unique_lock<std::mutex> lk(*mutex);
+    sink->ready = true;
+    cv->notify_one();
+}
+
 int main(int, char**)
 {
     ALCint attribs[] = { ALC_FREQUENCY, output_sample_rate, 0, 0 };
@@ -4168,11 +4183,11 @@ restart_window:
                 if (sink->qpts > min_qpts)
                     continue;
 
-                { std::lock_guard lk(mutexes[i]); sink->ready = true; }
-                cv[i].notify_one();
                 ring_buffer_dequeue(&sink->consume_frames, &item);
-                if (!item.frame)
+                if (!item.frame) {
+                    notify_worker(sink, &mutexes[i], &cv[i]);
                     continue;
+                }
                 ring_buffer_enqueue(&sink->render_frames, item);
             }
         }
@@ -4180,23 +4195,21 @@ restart_window:
         if (filter_graph_is_valid) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
+                ALint queued = 0;
 
-                do {
+                alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+                while (queued < sink->audio_queue_size) {
                     ring_item_t item = { NULL, 0 };
-                    ALint queued = 0;
 
-                    alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-                    if (queued >= sink->audio_queue_size)
-                        break;
-
-                    { std::lock_guard lk(amutexes[i]); sink->ready = true; }
-                    acv[i].notify_one();
                     ring_buffer_dequeue(&sink->consume_frames, &item);
-                    if (!item.frame)
+                    if (!item.frame) {
+                        notify_worker(sink, &amutexes[i], &acv[i]);
                         break;
+                    }
                     ring_buffer_enqueue(&sink->render_frames, item);
                     queue_sound(sink, item);
-                } while (1);
+                    queued++;
+                }
             }
         }
 
@@ -4280,20 +4293,21 @@ restart_window:
                     continue;
                 av_frame_unref(item.frame);
                 ring_buffer_enqueue(&sink->empty_frames, item);
+                notify_worker(sink, &mutexes[i], &cv[i]);
             }
         }
 
         if (filter_graph_is_valid) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
+                ALint processed = 0;
 
-                do {
+                alGetSourcei(sink->source, AL_BUFFERS_PROCESSED, &processed);
+                if (processed <= 0)
+                    continue;
+
+                while (processed-- > 0) {
                     ring_item_t item = { NULL, 0 };
-                    ALint processed = 0;
-
-                    alGetSourcei(sink->source, AL_BUFFERS_PROCESSED, &processed);
-                    if (processed <= 0)
-                        break;
 
                     ring_buffer_dequeue(&sink->render_frames, &item);
                     if (!item.frame)
@@ -4301,7 +4315,8 @@ restart_window:
                     alSourceUnqueueBuffers(sink->source, 1, &item.bufid);
                     av_frame_unref(item.frame);
                     ring_buffer_enqueue(&sink->empty_frames, item);
-                } while (1);
+                    notify_worker(sink, &amutexes[i], &acv[i]);
+                }
             }
         }
 
