@@ -1449,6 +1449,61 @@ static void exportfile_filter_graph(const char *file_name)
     }
 }
 
+typedef struct ConsoleData {
+    void *opaque;
+    int pos;
+} ConsoleData;
+
+static int console_callback(ImGuiInputTextCallbackData *data)
+{
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion) {
+        if (!strncmp(data->Buf, "a ", 2)) {
+            ConsoleData *console_data = (ConsoleData *)data->UserData;
+
+            if (data->CursorPos > 3) {
+                const AVFilter *filter;
+
+                do {
+                    filter = av_filter_iterate(&console_data->opaque);
+                    if (filter == NULL)
+                        break;
+
+                    const int name_len = strlen(filter->name);
+                    if (name_len <= console_data->pos-2)
+                        continue;
+
+                    if (!strncmp(data->Buf+2, filter->name, console_data->pos-2)) {
+                        int count = std::max(data->BufTextLen - console_data->pos, 0);
+
+                        data->DeleteChars(console_data->pos, count);
+                        data->InsertChars(console_data->pos, filter->name+(console_data->pos-2));
+                        break;
+                    }
+                } while (filter);
+
+                if (filter == NULL) {
+                    int count = std::max(data->BufTextLen - console_data->pos, 0);
+
+                    data->DeleteChars(console_data->pos, count);
+                    console_data->opaque = NULL;
+                }
+            }
+        }
+    } else if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory) {
+        if (data->EventKey == ImGuiKey_UpArrow) {
+        } else if (data->EventKey == ImGuiKey_DownArrow) {
+        }
+    } else if (data->EventFlag == ImGuiInputTextFlags_CallbackEdit) {
+        ConsoleData *console_data = (ConsoleData *)data->UserData;
+
+        console_data->pos = data->CursorPos;
+    }
+
+    return 0;
+}
+
+ConsoleData console_data = { 0 };
+
 static void draw_console(bool *p_open)
 {
     char input_line[4096] = { 0 };
@@ -1467,12 +1522,14 @@ static void draw_console(bool *p_open)
         return;
     }
 
-    ImGuiInputTextFlags input_text_flags = ImGuiInputTextFlags_EnterReturnsTrue;
+    ImGuiInputTextFlags input_text_flags = ImGuiInputTextFlags_EnterReturnsTrue |
+                                           ImGuiInputTextFlags_CallbackCompletion |
+                                           ImGuiInputTextFlags_CallbackEdit;
 
     ImGui::SetKeyboardFocusHere();
     ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0,   0, 0, 200));
     ImGui::PushStyleColor(ImGuiCol_Text,    IM_COL32(0, 255, 0, 200));
-    if (ImGui::InputText("##>", input_line, IM_ARRAYSIZE(input_line), input_text_flags)) {
+    if (ImGui::InputText("##>", input_line, IM_ARRAYSIZE(input_line), input_text_flags, console_callback, &console_data)) {
         if (!strncmp(input_line, "a ", 2) && filter_graph_is_valid == false) {
             const AVFilter *filter = avfilter_get_by_name(input_line + 2);
 
