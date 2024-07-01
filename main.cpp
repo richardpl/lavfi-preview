@@ -1132,6 +1132,8 @@ static void importfile_filter_graph(const char *file_name)
 
     av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
 
+    separators.clear();
+
     while ((c = fgetc(file))) {
         if (c != EOF)
             av_bprintf(&buf, "%c", c);
@@ -1201,11 +1203,13 @@ static void importfile_filter_graph(const char *file_name)
 
     editor_edge = 0;
     edge2pad.clear();
+    label2edge.clear();
+    filter2edge.clear();
     filter_links.clear();
     filter_nodes.clear();
 
     for (unsigned i = 0; i < filters.size(); i++) {
-        FilterNode node;
+        FilterNode node = {0};
         std::pair <int, int> p = filters[i];
         std::string filter_name;
         std::string instance_name;
@@ -2800,7 +2804,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                 memcpy(string, opt_storage[opt_index].u.str, std::min(sizeof(string) - 1, strlen(opt_storage[opt_index].u.str)));
                             if (tree == false)
                                 ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::InputText(opt->name, string, sizeof(string) - 1)) {
+                            if (ImGui::InputText(opt->name, string, IM_ARRAYSIZE(string))) {
                                 av_freep(&opt_storage[opt_index].u.str);
                                 opt_storage[opt_index].u.str = av_strdup(string);
                             }
@@ -3457,7 +3461,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (ImGui::BeginMenu("Save as Script")) {
                 static char file_name[1024] = { 0 };
 
-                ImGui::InputText("File name:", file_name, sizeof(file_name) - 1);
+                ImGui::InputText("File name:", file_name, IM_ARRAYSIZE(file_name));
                 if (strlen(file_name) > 0 && ImGui::Button("Save")) {
                     exportfile_filter_graph(file_name);
                     memset(file_name, 0, sizeof(file_name));
@@ -3473,7 +3477,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (ImGui::BeginMenu("Load Script")) {
                 static char file_name[1024] = { 0 };
 
-                ImGui::InputText("File name:", file_name, sizeof(file_name) - 1);
+                ImGui::InputText("File name:", file_name, IM_ARRAYSIZE(file_name));
                 if (strlen(file_name) > 0 && ImGui::Button("Load")) {
                     av_freep(&import_script_file_name);
                     import_script_file_name = av_asprintf("%s", file_name);
@@ -3590,7 +3594,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         ImNodes::SetNodeDraggable(filter_node->edge, true);
     }
 
-    for (unsigned i = 0; i < filter_links.size(); i++) {
+    for (unsigned i = 0; i < filter_links.size();) {
         const std::pair<int, int> p = filter_links[i];
 
         if (edge2pad[p.first].removed  == true ||
@@ -3601,10 +3605,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             edge2pad[p.second].is_output = false;
 
             filter_links.erase(filter_links.begin() + i);
-            continue;
-        }
-
-        if (edge2pad[p.first].type  == AVMEDIA_TYPE_UNKNOWN ||
+        } else if (edge2pad[p.first].type  == AVMEDIA_TYPE_UNKNOWN ||
             edge2pad[p.second].type == AVMEDIA_TYPE_UNKNOWN) {
             edge2pad[p.first].removed    = true;
             edge2pad[p.second].removed   = true;
@@ -3612,18 +3613,20 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             edge2pad[p.second].is_output = false;
 
             filter_links.erase(filter_links.begin() + i);
-            continue;
-        }
-
-        if (edge2pad[p.first].is_output == edge2pad[p.second].is_output) {
+        } else if (edge2pad[p.first].is_output == edge2pad[p.second].is_output) {
             edge2pad[p.first].removed    = true;
             edge2pad[p.second].removed   = true;
             edge2pad[p.first].is_output  = false;
             edge2pad[p.second].is_output = false;
 
             filter_links.erase(filter_links.begin() + i);
-            continue;
+        } else {
+            i++;
         }
+    }
+
+    for (unsigned i = 0; i < filter_links.size(); i++) {
+        const std::pair<int, int> p = filter_links[i];
 
         ImNodes::Link(i, p.first, p.second);
     }
