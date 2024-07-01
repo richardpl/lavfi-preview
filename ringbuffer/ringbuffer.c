@@ -4,7 +4,7 @@
 
 typedef struct ring_item_t {
     AVFrame *frame;
-    ALuint bufid;
+    Buffer id;
 } ring_item_t;
 
 typedef struct ring_buffer_t {

@@ -23,6 +23,13 @@
 #include <AL/al.h>
 #include <AL/alext.h>
 
+typedef struct Buffer {
+    union {
+        ALuint a;
+        GLuint v;
+    } u;
+} Buffer;
+
 extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/avstring.h>
@@ -108,12 +115,11 @@ typedef struct BufferSink {
     bool show_osd;
     bool have_window_pos;
     ImVec2 window_pos;
-    GLuint texture;
     ALuint source;
     ALenum format;
     float gain;
     float position[3];
-    std::vector<ALuint> buffers;
+    std::vector<Buffer> buffers;
 
     GLint downscale_interpolator;
     GLint upscale_interpolator;
@@ -255,14 +261,17 @@ ALCcontext *al_ctx = NULL;
 float listener_direction[6] = { 0, 0, -1, 0, 1, 0 };
 float listener_position[3] = { 0, 0, 0 };
 
-static void alloc_ring_buffer(ring_buffer_t *ring_buffer, ALuint *bufid)
+static void alloc_ring_buffer(ring_buffer_t *ring_buffer, Buffer *id)
 {
+    if (!id)
+        return;
+
     while (!ring_buffer_is_full(ring_buffer)) {
         AVFrame *empty_frame = av_frame_alloc();
 
         if (empty_frame) {
             unsigned i = ring_buffer_num_items(ring_buffer);
-            ring_item_t item = { empty_frame, bufid ? bufid[i] : 0 };
+            ring_item_t item = { empty_frame, id[i] };
             ring_buffer_enqueue(ring_buffer, item);
         }
     }
@@ -379,7 +388,8 @@ static void kill_audio_sink_threads()
         av_freep(&sink->description);
         av_freep(&sink->samples);
         alDeleteSources(1, &sink->source);
-        alDeleteBuffers(sink->audio_queue_size, sink->buffers.data());
+        for (unsigned n = 0; n < sink->buffers.size(); n++)
+            alDeleteBuffers(1, &sink->buffers[n].u.a);
 
         ring_buffer_free(&sink->empty_frames);
         ring_buffer_free(&sink->consume_frames);
@@ -399,7 +409,8 @@ static void kill_video_sink_threads()
 
         av_freep(&sink->label);
         av_freep(&sink->description);
-        glDeleteTextures(1, &sink->texture);
+        for (unsigned n = 0; n < sink->buffers.size(); n++)
+            glDeleteTextures(1, &sink->buffers[n].u.v);
 
         ring_buffer_free(&sink->empty_frames);
         ring_buffer_free(&sink->consume_frames);
@@ -630,15 +641,17 @@ error:
         sink->frame_number = 0;
         sink->frame_nb_samples = 0;
         sink->nb_samples = 0;
-        sink->consume_ring_size = 1;
-        sink->render_ring_size = 2;
-        ring_buffer_init(&sink->empty_frames, 8);
-        ring_buffer_init(&sink->consume_frames, 8);
-        ring_buffer_init(&sink->render_frames, 8);
+        sink->consume_ring_size = 2;
+        sink->render_ring_size = 1;
+        sink->buffers.resize(sink->render_ring_size);
+        ring_buffer_init(&sink->empty_frames, 2);
+        ring_buffer_init(&sink->consume_frames, 2);
+        ring_buffer_init(&sink->render_frames, 2);
 
-        glGenTextures(1, &sink->texture);
+        for (unsigned n = 0; n < sink->buffers.size(); n++)
+            glGenTextures(1, &sink->buffers[n].u.v);
 
-        alloc_ring_buffer(&sink->empty_frames, NULL);
+        alloc_ring_buffer(&sink->empty_frames, sink->buffers.data());
         std::thread sink_thread(worker_thread, &buffer_sinks[i], &mutexes[i], &cv[i]);
 
         video_sink_threads[i].swap(sink_thread);
@@ -682,7 +695,8 @@ error:
 
         sink->format = audio_format ? AL_FORMAT_MONO_DOUBLE_EXT : AL_FORMAT_MONO_FLOAT32;
 
-        alGenBuffers(sink->audio_queue_size, sink->buffers.data());
+        for (unsigned n = 0; n < sink->buffers.size(); n++)
+            alGenBuffers(1, &sink->buffers[n].u.a);
 
         alGenSources(1, &sink->source);
         play_sources.push_back(sink->source);
@@ -1625,8 +1639,7 @@ static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
     frame_info->crop_right = frame->crop_right;
 }
 
-static void draw_frame(GLuint *texture, bool *p_open, ring_item_t item,
-                       BufferSink *sink)
+static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
 {
     ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
     int width, height;
@@ -1636,6 +1649,7 @@ static void draw_frame(GLuint *texture, bool *p_open, ring_item_t item,
     if (!*p_open)
         return;
 
+    GLuint *texture = &item.id.u.v;
     load_frame(texture, &width, &height, item.frame, sink);
     if (sink->fullscreen) {
         const ImGuiViewport *viewport = ImGui::GetMainViewport();
@@ -1925,14 +1939,14 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
 static void queue_sound(BufferSink *sink, ring_item_t item)
 {
     AVFrame *frame = item.frame;
-    ALuint bufid = item.bufid;
+    ALuint aid = item.id.u.a;
     const size_t sample_size = (frame->format == AV_SAMPLE_FMT_FLTP) ? sizeof(float) : sizeof(double);
 
     alSourcef(sink->source, AL_GAIN, sink->gain * !sink->muted);
 
-    alBufferData(bufid, sink->format, frame->extended_data[0],
+    alBufferData(aid, sink->format, frame->extended_data[0],
                  (ALsizei)frame->nb_samples * sample_size, frame->sample_rate);
-    alSourceQueueBuffers(sink->source, 1, &bufid);
+    alSourceQueueBuffers(sink->source, 1, &aid);
 }
 
 static bool query_ranges(void *obj, const AVOption *opt,
@@ -4184,7 +4198,8 @@ restart_window:
 
                 ring_buffer_dequeue(&sink->consume_frames, &item);
                 if (!item.frame) {
-                    notify_worker(sink, &mutexes[i], &cv[i]);
+                    if (ring_buffer_num_items(&sink->empty_frames) > 0)
+                        notify_worker(sink, &mutexes[i], &cv[i]);
                     continue;
                 }
                 ring_buffer_enqueue(&sink->render_frames, item);
@@ -4226,7 +4241,7 @@ restart_window:
                 if (!item.frame)
                     continue;
 
-                draw_frame(&sink->texture, &show_buffersink_window, item, sink);
+                draw_frame(&show_buffersink_window, item, sink);
             }
         }
 
@@ -4311,7 +4326,7 @@ restart_window:
                     ring_buffer_dequeue(&sink->render_frames, &item);
                     if (!item.frame)
                         break;
-                    alSourceUnqueueBuffers(sink->source, 1, &item.bufid);
+                    alSourceUnqueueBuffers(sink->source, 1, &item.id.u.a);
                     av_frame_unref(item.frame);
                     ring_buffer_enqueue(&sink->empty_frames, item);
                     notify_worker(sink, &amutexes[i], &acv[i]);
