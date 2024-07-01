@@ -358,14 +358,20 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
     clear_ring_buffer(&sink->render_frames);
 }
 
+static void notify_worker(BufferSink *sink, std::mutex *mutex, std::condition_variable *cv)
+{
+    std::unique_lock<std::mutex> lk(*mutex);
+    sink->ready = true;
+    cv->notify_one();
+}
+
 static void kill_audio_sink_threads()
 {
     for (unsigned i = 0; i < audio_sink_threads.size(); i++) {
         BufferSink *sink = &abuffer_sinks[i];
 
         if (audio_sink_threads[i].joinable()) {
-            { std::lock_guard lk(amutexes[i]); sink->ready = true; }
-            acv[i].notify_one();
+            notify_worker(sink, &amutexes[i], &acv[i]);
             audio_sink_threads[i].join();
         }
 
@@ -387,8 +393,7 @@ static void kill_video_sink_threads()
         BufferSink *sink = &buffer_sinks[i];
 
         if (video_sink_threads[i].joinable()) {
-            { std::lock_guard lk(mutexes[i]); sink->ready = true; }
-            cv[i].notify_one();
+            notify_worker(sink, &mutexes[i], &cv[i]);
             video_sink_threads[i].join();
         }
 
@@ -3996,13 +4001,6 @@ static void show_log(bool *p_open, bool focused)
         ImGui::SetScrollHereY(1.0f);
 
     ImGui::End();
-}
-
-static void notify_worker(BufferSink *sink, std::mutex *mutex, std::condition_variable *cv)
-{
-    std::unique_lock<std::mutex> lk(*mutex);
-    sink->ready = true;
-    cv->notify_one();
 }
 
 int main(int, char**)
