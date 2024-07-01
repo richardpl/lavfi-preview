@@ -3888,6 +3888,7 @@ static void show_commands(bool *p_open, bool focused)
     if (focused)
         ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowBgAlpha(commands_alpha);
+    ImGui::SetNextWindowSize(ImVec2(500, 200), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Filter Commands", p_open, 0)) {
         ImGui::End();
         return;
