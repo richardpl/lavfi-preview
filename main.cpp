@@ -123,7 +123,6 @@ typedef struct BufferSink {
     GLint upscale_interpolator;
 
     int64_t frame_number;
-    int64_t delta;
     int64_t qpts;
     int64_t pts;
     ALint audio_queue_size;
