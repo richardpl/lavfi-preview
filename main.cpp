@@ -887,7 +887,7 @@ static void draw_version(bool *p_open)
                                           ImGuiWindowFlags_AlwaysAutoResize |
                                           ImGuiWindowFlags_NoSavedSettings |
                                           ImGuiWindowFlags_NoNav |
-                                          ImGuiWindowFlags_NoMouseInputs |
+                                          ImGuiWindowFlags_HorizontalScrollbar |
                                           ImGuiWindowFlags_NoFocusOnAppearing |
                                           ImGuiWindowFlags_NoMove;
 
@@ -951,7 +951,7 @@ static void draw_help(bool *p_open)
                                           ImGuiWindowFlags_AlwaysAutoResize |
                                           ImGuiWindowFlags_NoSavedSettings |
                                           ImGuiWindowFlags_NoNav |
-                                          ImGuiWindowFlags_NoMouseInputs |
+                                          ImGuiWindowFlags_HorizontalScrollbar |
                                           ImGuiWindowFlags_NoFocusOnAppearing |
                                           ImGuiWindowFlags_NoMove;
     const int align = 555;
