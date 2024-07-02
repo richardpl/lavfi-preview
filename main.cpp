@@ -169,6 +169,7 @@ static void glfw_error_callback(int error, const char* description)
 }
 
 bool full_screen = false;
+bool show_osd_all = false;
 bool restart_display = false;
 int filter_graph_nb_threads = 0;
 int filter_graph_auto_convert_flags = 0;
@@ -1047,6 +1048,10 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::TextUnformatted("O");
     ImGui::Separator();
+    ImGui::TextUnformatted("Toggle OSD for all Outputs:");
+    ImGui::SameLine(align);
+    ImGui::TextUnformatted("Shift + O");
+    ImGui::Separator();
     ImGui::TextUnformatted("Jump to #numbered Video output:");
     ImGui::SameLine(align);
     ImGui::TextUnformatted("Ctrl + <number>");
@@ -1735,8 +1740,12 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
             show_buffersink_window = false;
             filter_graph_is_valid = false;
         }
-        if (ImGui::IsKeyReleased(ImGuiKey_O))
-            sink->show_osd = !sink->show_osd;
+        if (ImGui::IsKeyReleased(ImGuiKey_O)) {
+            if (ImGui::GetIO().KeyShift)
+                show_osd_all = !show_osd_all;
+            else
+                sink->show_osd = !sink->show_osd;
+        }
     }
 
     if (ImGui::IsKeyDown((ImGuiKey)(ImGuiKey_0 + sink->id)) && ImGui::GetIO().KeyCtrl)
@@ -1774,7 +1783,7 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
         ImGui::EndTooltip();
     }
 
-    if (sink->show_osd)
+    if (sink->show_osd ^ show_osd_all)
         draw_osd(sink, width, height);
 
     if (style) {
@@ -1788,24 +1797,35 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
 static void draw_aosd(BufferSink *sink)
 {
     ALint queued;
-    char osd_text[1024];
 
     alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-    snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %d | TIME: %.5f | SPEED: %011.5f | RATE: %d | QUEUE: %d",
-             sink->frame_number, sink->frame_nb_samples,
-             (sink->pts != AV_NOPTS_VALUE) ? (av_q2d(sink->time_base) * sink->pts) : NAN,
-             sink->speed,
-             sink->sample_rate,
-             queued);
 
-    ImVec2 max_size = ImGui::GetIO().DisplaySize;
-    ImVec2 tsize = ImGui::CalcTextSize(osd_text);
-    ImVec2 start_pos = ImVec2(std::min(max_size.x * osd_fullscreen_pos[0], max_size.x - tsize.x - 25), std::min(max_size.y * osd_fullscreen_pos[1], max_size.y - tsize.y - 25));
-    ImVec2 stop_pos = ImVec2(std::min(start_pos.x + tsize.x + 25, max_size.x), std::min(start_pos.y + tsize.y + 25, max_size.y));
-    ImGui::GetWindowDrawList()->AddRectFilled(start_pos, stop_pos,
-                                              ImGui::GetColorU32(ImGuiCol_WindowBg, osd_alpha));
-    ImGui::SetCursorPos(ImVec2(std::min(start_pos.x + 12, max_size.x - tsize.x - 12), std::min(start_pos.y + 12, max_size.y - tsize.y - 12)));
-    ImGui::TextUnformatted(osd_text);
+    if (sink->fullscreen) {
+        char osd_text[1024];
+
+        snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %d | TIME: %.5f | SPEED: %011.5f | RATE: %d | QUEUE: %d",
+                 sink->frame_number, sink->frame_nb_samples,
+                 (sink->pts != AV_NOPTS_VALUE) ? (av_q2d(sink->time_base) * sink->pts) : NAN,
+                 sink->speed,
+                 sink->sample_rate,
+                 queued);
+
+        ImVec2 max_size = ImGui::GetIO().DisplaySize;
+        ImVec2 tsize = ImGui::CalcTextSize(osd_text);
+        ImVec2 start_pos = ImVec2(std::min(max_size.x * osd_fullscreen_pos[0], max_size.x - tsize.x - 25), std::min(max_size.y * osd_fullscreen_pos[1], max_size.y - tsize.y - 25));
+        ImVec2 stop_pos = ImVec2(std::min(start_pos.x + tsize.x + 25, max_size.x), std::min(start_pos.y + tsize.y + 25, max_size.y));
+        ImGui::GetWindowDrawList()->AddRectFilled(start_pos, stop_pos,
+                                                  ImGui::GetColorU32(ImGuiCol_WindowBg, osd_alpha));
+        ImGui::SetCursorPos(ImVec2(std::min(start_pos.x + 12, max_size.x - tsize.x - 12), std::min(start_pos.y + 12, max_size.y - tsize.y - 12)));
+        ImGui::TextUnformatted(osd_text);
+    } else {
+        ImGui::Text("FRAME: %ld", sink->frame_number);
+        ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
+        ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
+        ImGui::Text("SPEED: %011.5f", sink->speed);
+        ImGui::Text("RATE:  %d", sink->sample_rate);
+        ImGui::Text("QUEUE: %d", queued);
+    }
 }
 
 static void load_aframe(BufferSink *sink, AVFrame *frame)
@@ -1923,8 +1943,12 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
             show_buffersink_window = false;
             filter_graph_is_valid = false;
         }
-        if (ImGui::IsKeyReleased(ImGuiKey_O))
-            sink->show_osd = !sink->show_osd;
+        if (ImGui::IsKeyReleased(ImGuiKey_O)) {
+            if (ImGui::GetIO().KeyShift)
+                show_osd_all = !show_osd_all;
+            else
+                sink->show_osd = !sink->show_osd;
+        }
     }
 
     if (ImGui::IsKeyDown((ImGuiKey)(ImGuiKey_0 + sink->id)) && ImGui::GetIO().KeyAlt)
@@ -1934,23 +1958,16 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
         ImVec2 window_size = { -1, -1 };
 
         ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -audio_sample_range[0], audio_sample_range[1], window_size);
-        if (sink->show_osd)
-            draw_aosd(sink);
     } else {
         ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
 
         ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -audio_sample_range[0], audio_sample_range[1], window_size);
-        if (sink->show_osd) {
-            ALint queued;
+    }
 
-            ImGui::Text("FRAME: %ld", sink->frame_number);
-            ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
-            ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
-            ImGui::Text("SPEED: %011.5f", sink->speed);
-            ImGui::Text("RATE:  %d", sink->sample_rate);
-            alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
-            ImGui::Text("QUEUE: %d", queued);
-        }
+    if (sink->show_osd ^ show_osd_all)
+        draw_aosd(sink);
+
+    if (sink->fullscreen == false) {
         if (ImGui::DragFloat("Gain", &sink->gain, 0.01f, 0.f, 2.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
             alSourcef(sink->source, AL_GAIN, sink->gain);
         if (ImGui::DragFloat3("Position", sink->position, 0.01f, -1.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput))
