@@ -1801,16 +1801,18 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
 
 static void draw_aosd(BufferSink *sink)
 {
+    ALfloat sec_offset;
     ALint queued;
 
     alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
+    alGetSourcef(sink->source, AL_SEC_OFFSET, &sec_offset);
 
     if (sink->fullscreen) {
         char osd_text[1024];
 
         snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %d | TIME: %.5f | SPEED: %011.5f | RATE: %d | QUEUE: %d",
                  sink->frame_number, sink->frame_nb_samples,
-                 (sink->pts != AV_NOPTS_VALUE) ? (av_q2d(sink->time_base) * sink->pts) : NAN,
+                 (sink->pts != AV_NOPTS_VALUE) ? (av_q2d(sink->time_base) * sink->pts) + sec_offset : NAN,
                  sink->speed,
                  sink->sample_rate,
                  queued);
@@ -1826,7 +1828,7 @@ static void draw_aosd(BufferSink *sink)
     } else {
         ImGui::Text("FRAME: %ld", sink->frame_number);
         ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
-        ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts : NAN);
+        ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts + sec_offset : NAN);
         ImGui::Text("SPEED: %011.5f", sink->speed);
         ImGui::Text("RATE:  %d", sink->sample_rate);
         ImGui::Text("QUEUE: %d", queued);
