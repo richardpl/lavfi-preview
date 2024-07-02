@@ -170,6 +170,7 @@ static void glfw_error_callback(int error, const char* description)
 
 bool full_screen = false;
 bool show_osd_all = false;
+bool muted_all = false;
 bool restart_display = false;
 int filter_graph_nb_threads = 0;
 int filter_graph_auto_convert_flags = 0;
@@ -1048,7 +1049,7 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::TextUnformatted("O");
     ImGui::Separator();
-    ImGui::TextUnformatted("Toggle OSD for all Outputs:");
+    ImGui::TextUnformatted("Toggle OSD for all outputs:");
     ImGui::SameLine(align);
     ImGui::TextUnformatted("Shift + O");
     ImGui::Separator();
@@ -1060,9 +1061,13 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::TextUnformatted("Alt + <number>");
     ImGui::Separator();
-    ImGui::TextUnformatted("Toggle Audio output mute:");
+    ImGui::TextUnformatted("Toggle Audio mute:");
     ImGui::SameLine(align);
     ImGui::TextUnformatted("M");
+    ImGui::Separator();
+    ImGui::TextUnformatted("Toggle Audio mute for all outputs:");
+    ImGui::SameLine(align);
+    ImGui::TextUnformatted("Shift + M");
     ImGui::Separator();
     ImGui::TextUnformatted("Show Extended Info:");
     ImGui::SameLine(align);
@@ -1931,8 +1936,12 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
             sink->fullscreen = !sink->fullscreen;
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
             paused = !paused;
-        if (ImGui::IsKeyReleased(ImGuiKey_M))
-            sink->muted = !sink->muted;
+        if (ImGui::IsKeyReleased(ImGuiKey_M)) {
+            if (ImGui::GetIO().KeyShift)
+                muted_all = !muted_all;
+            else
+                sink->muted = !sink->muted;
+        }
         framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
         if (framestep)
             paused = true;
@@ -1988,7 +1997,7 @@ static void queue_sound(BufferSink *sink, ring_item_t item)
     ALuint aid = item.id.u.a;
     const size_t sample_size = (frame->format == AV_SAMPLE_FMT_FLTP) ? sizeof(float) : sizeof(double);
 
-    alSourcef(sink->source, AL_GAIN, sink->gain * !sink->muted);
+    alSourcef(sink->source, AL_GAIN, sink->gain * !(sink->muted ^ muted_all));
 
     alBufferData(aid, sink->format, frame->extended_data[0],
                  (ALsizei)frame->nb_samples * sample_size, frame->sample_rate);
