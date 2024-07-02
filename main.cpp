@@ -1738,6 +1738,8 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
         framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
         if (framestep)
             paused = true;
+        if (ImGui::IsKeyReleased(ImGuiKey_M) && (ImGui::GetIO().KeyShift))
+            muted_all = !muted_all;
         if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
             last_abuffersink_window = -1;
             last_buffersink_window = -1;
@@ -1938,15 +1940,15 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
             sink->fullscreen = !sink->fullscreen;
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
             paused = !paused;
+        framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
+        if (framestep)
+            paused = true;
         if (ImGui::IsKeyReleased(ImGuiKey_M)) {
             if (ImGui::GetIO().KeyShift)
                 muted_all = !muted_all;
             else
                 sink->muted = !sink->muted;
         }
-        framestep = ImGui::IsKeyPressed(ImGuiKey_Period);
-        if (framestep)
-            paused = true;
         if (ImGui::IsKeyDown(ImGuiKey_Q) && ImGui::GetIO().KeyShift) {
             last_abuffersink_window = -1;
             last_buffersink_window = -1;
