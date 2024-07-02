@@ -1811,7 +1811,7 @@ static void draw_aosd(BufferSink *sink)
         char osd_text[1024];
 
         snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %d | TIME: %.5f | SPEED: %011.5f | RATE: %d | QUEUE: %d",
-                 sink->frame_number, sink->frame_nb_samples,
+                 sink->frame_number - 1, sink->frame_nb_samples,
                  (sink->pts != AV_NOPTS_VALUE) ? (av_q2d(sink->time_base) * sink->pts) + sec_offset : NAN,
                  sink->speed,
                  sink->sample_rate,
@@ -1826,7 +1826,7 @@ static void draw_aosd(BufferSink *sink)
         ImGui::SetCursorPos(ImVec2(std::min(start_pos.x + 12, max_size.x - tsize.x - 12), std::min(start_pos.y + 12, max_size.y - tsize.y - 12)));
         ImGui::TextUnformatted(osd_text);
     } else {
-        ImGui::Text("FRAME: %ld", sink->frame_number);
+        ImGui::Text("FRAME: %ld", sink->frame_number - 1);
         ImGui::Text("SIZE:  %d", sink->frame_nb_samples);
         ImGui::Text("TIME:  %.5f", sink->pts != AV_NOPTS_VALUE ? av_q2d(sink->time_base) * sink->pts + sec_offset : NAN);
         ImGui::Text("SPEED: %011.5f", sink->speed);
