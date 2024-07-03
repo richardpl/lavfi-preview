@@ -795,7 +795,10 @@ static void draw_info(bool *p_open, bool full)
 
     if (full) {
         nb_columns = ceilf(sqrtf(buffer_sinks.size()+abuffer_sinks.size()));
-        ImGui::BeginTable("###FullInfo", nb_columns, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings);
+        ImGui::BeginTable("###FullInfo", nb_columns, ImGuiTableFlags_Resizable |
+                                                     ImGuiTableFlags_NoSavedSettings |
+                                                     ImGuiTableFlags_ScrollX |
+                                                     ImGuiTableFlags_ScrollY);
     }
 
     for (size_t i = 0; i < (full ? (buffer_sinks.size()+abuffer_sinks.size()) : 1); i++) {
