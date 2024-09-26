@@ -178,8 +178,6 @@ unsigned last_buffersink_window = 0;
 unsigned last_abuffersink_window = 0;
 unsigned focus_buffersink_window = UINT_MAX;
 unsigned focus_abuffersink_window = UINT_MAX;
-bool abuffersink_tab = false;
-bool buffersink_tab = false;
 bool show_abuffersink_window = true;
 bool show_buffersink_window = true;
 bool show_dumpgraph_window = false;
@@ -1730,13 +1728,6 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
     if (ImGui::IsKeyDown((ImGuiKey)(ImGuiKey_0 + av_clip(sink->id,0,9))) && ImGui::GetIO().KeyCtrl)
         focus_buffersink_window = av_clip(sink->id,0,9);
 
-    if (ImGui::IsKeyReleased(ImGuiKey_Tab) && ImGui::GetIO().KeyCtrl) {
-        if (buffersink_tab == false) {
-            focus_buffersink_window = (focus_buffersink_window + 1) % buffer_sinks.size();
-            buffersink_tab = true;
-        }
-    }
-
     if (focus_buffersink_window == sink->id)
         ImGui::SetNextWindowFocus();
 
@@ -1746,17 +1737,14 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
         return;
     }
 
-    if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(0)) {
-        focus_buffersink_window = sink->id;
-        buffersink_tab = true;
-    }
-
     if (sink->fullscreen == false)
         sink->window_pos = ImGui::GetWindowPos();
 
     if (ImGui::IsWindowFocused()) {
-        last_buffersink_window = sink->id;
-        focus_abuffersink_window = UINT_MAX;
+        if (focus_buffersink_window == sink->id) {
+            last_buffersink_window = focus_buffersink_window;
+            focus_buffersink_window = UINT_MAX;
+        }
         if (ImGui::IsKeyReleased(ImGuiKey_F))
             sink->fullscreen = !sink->fullscreen;
         if (ImGui::IsKeyReleased(ImGuiKey_Space))
@@ -1943,13 +1931,6 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
     if (ImGui::IsKeyDown((ImGuiKey)(ImGuiKey_0 + av_clip(sink->id,0,9))) && ImGui::GetIO().KeyAlt)
         focus_abuffersink_window = av_clip(sink->id,0,9);
 
-    if (ImGui::IsKeyReleased(ImGuiKey_Tab) && ImGui::GetIO().KeyAlt) {
-        if (abuffersink_tab == false) {
-            focus_abuffersink_window = (focus_abuffersink_window + 1) % abuffer_sinks.size();
-            abuffersink_tab = true;
-        }
-    }
-
     if (focus_abuffersink_window == sink->id)
         ImGui::SetNextWindowFocus();
 
@@ -1959,17 +1940,14 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
         return;
     }
 
-    if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(0)) {
-        focus_abuffersink_window = sink->id;
-        abuffersink_tab = true;
-    }
-
     if (sink->fullscreen == false)
         sink->window_pos = ImGui::GetWindowPos();
 
     if (ImGui::IsWindowFocused()) {
-        last_abuffersink_window = sink->id;
-        focus_buffersink_window = UINT_MAX;
+        if (focus_abuffersink_window == sink->id) {
+            last_abuffersink_window = focus_abuffersink_window;
+            focus_abuffersink_window = UINT_MAX;
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", sink->description);
         if (ImGui::IsKeyReleased(ImGuiKey_F))
@@ -4350,6 +4328,9 @@ restart_window:
                     continue;
                 ring_buffer_enqueue(&sink->render_frames, item);
             }
+        } else {
+            focus_buffersink_window = UINT_MAX;
+            last_buffersink_window = 0;
         }
 
         if (filter_graph_is_valid) {
@@ -4378,6 +4359,9 @@ restart_window:
                     queued++;
                 }
             }
+        } else {
+            focus_abuffersink_window = UINT_MAX;
+            last_abuffersink_window = 0;
         }
 
         // Start the Dear ImGui frame
@@ -4386,7 +4370,6 @@ restart_window:
         ImGui::NewFrame();
 
         if (filter_graph_is_valid && show_buffersink_window == true) {
-            buffersink_tab = false;
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
                 ring_item_t item = { NULL, 0 };
@@ -4397,7 +4380,6 @@ restart_window:
         }
 
         if (filter_graph_is_valid && show_abuffersink_window == true) {
-            abuffersink_tab = false;
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
                 ring_item_t item = { NULL, 0 };
@@ -4439,6 +4421,18 @@ restart_window:
         show_console ^= ImGui::IsKeyReleased(ImGuiKey_Escape);
         if (show_console)
             draw_console(&show_console);
+        if (filter_graph_is_valid && show_abuffersink_window == true && abuffer_sinks.size() > 0 &&
+            ImGui::GetIO().KeyAlt && ImGui::IsKeyPressed(ImGuiKey_Tab, false) &&
+            last_abuffersink_window < UINT_MAX && focus_abuffersink_window == UINT_MAX) {
+            focus_abuffersink_window = (last_abuffersink_window + 1) % abuffer_sinks.size();
+            last_abuffersink_window = UINT_MAX;
+        }
+        if (filter_graph_is_valid && show_buffersink_window == true && buffer_sinks.size() > 0 &&
+            ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Tab, false) &&
+            last_buffersink_window < UINT_MAX && focus_buffersink_window == UINT_MAX) {
+            focus_buffersink_window = (last_buffersink_window + 1) % buffer_sinks.size();
+            last_buffersink_window = UINT_MAX;
+        }
 
         // Rendering
         ImGui::Render();
