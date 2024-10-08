@@ -2992,6 +2992,9 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
             tree ? ImGui::TreePop() : ImGui::EndGroup();
         }
     }
+
+    if (tree == false)
+        ImGui::InvisibleButton("##inv", ImVec2(1, 1));
 }
 
 static void draw_node_options(FilterNode *node)
