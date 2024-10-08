@@ -510,7 +510,7 @@ static int filters_setup()
         }
 
         if (!strcmp(filter_ctx->filter->name, "buffersink")) {
-            BufferSink new_sink;
+            BufferSink new_sink = {0};
 
             new_sink.ctx = filter_ctx;
             new_sink.ready = false;
@@ -530,7 +530,7 @@ static int filters_setup()
 
             buffer_sinks.push_back(new_sink);
         } else if (!strcmp(filter_ctx->filter->name, "abuffersink")) {
-            BufferSink new_sink;
+            BufferSink new_sink = {0};
 
             alcGetIntegerv(al_dev, ALC_FREQUENCY, 1, &new_sink.sample_rate);
             sample_rates[0] = new_sink.sample_rate;
@@ -1097,7 +1097,7 @@ static void draw_help(bool *p_open)
 
 static void add_filter_node(const AVFilter *filter, ImVec2 pos)
 {
-    FilterNode node;
+    FilterNode node = {0};
 
     node.edge = editor_edge++;
     node.filter = filter;
@@ -3555,7 +3555,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         ImNodes::BeginNodeTitleBar();
         ImGui::TextUnformatted(filter_node->filter_name);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s\n%s", filter_node->filter_label, filter_node->filter->description);
+            ImGui::SetTooltip("%s : %s", filter_node->filter_label, filter_node->filter->description);
         ImNodes::EndNodeTitleBar();
         ImNodes::BeginStaticAttribute(edge);
         draw_node_options(filter_node);
@@ -3814,7 +3814,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (e < 0)
                 continue;
             FilterNode orig = filter_nodes[edge2pad[e].node];
-            FilterNode copy;
+            FilterNode copy = {0};
 
             copy.filter = orig.filter;
             copy.id = filter_nodes.size();
@@ -3882,7 +3882,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 continue;
             enum AVMediaType type = edge2pad[e].type;
             FilterNode src = filter_nodes[edge2pad[e].node];
-            FilterNode node;
+            FilterNode node = {0};
 
             node.filter = type == AVMEDIA_TYPE_AUDIO ? abuffersink : buffersink;
             node.id = filter_nodes.size();
