@@ -2910,13 +2910,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
             unsigned opt_index = 0;
 
             while ((opt = av_opt_next(ctx->priv, opt))) {
-                void *ptr;
-
                 if (!(opt->flags & AV_OPT_FLAG_EXPORT))
-                    continue;
-
-                ptr = av_opt_ptr(ctx->filter->priv_class, ctx->priv, opt->name);
-                if (!ptr)
                     continue;
 
                 ImGui::PushID(opt_index);
@@ -2927,44 +2921,64 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                     case AV_OPT_TYPE_BOOL:
                     case AV_OPT_TYPE_INT:
                         {
-                            int value = *(int *)ptr;
+                            int64_t value;
 
-                            ImGui::LabelText("##export", "%s: %d", opt->name, value);
+                            if (av_opt_get_int(ctx->priv, opt->name, 0, &value))
+                                break;
+
+                            ImGui::LabelText("##export", "%s: %d", opt->name, (int)value);
                         }
                         break;
                     case AV_OPT_TYPE_INT64:
                         {
-                            int64_t value = *(int64_t *)ptr;
+                            int64_t value;
+
+                            if (av_opt_get_int(ctx->priv, opt->name, 0, &value))
+                                break;
 
                             ImGui::LabelText("##export", "%s: %ld", opt->name, value);
                         }
                         break;
                     case AV_OPT_TYPE_UINT64:
                         {
-                            uint64_t value = *(uint64_t *)ptr;
+                            int64_t value;
 
-                            ImGui::LabelText("##export", "%s: %lu", opt->name, value);
+                            if (av_opt_get_int(ctx->priv, opt->name, 0, &value))
+                                break;
+
+                            ImGui::LabelText("##export", "%s: %lu", opt->name, (uint64_t)value);
                         }
                         break;
                     case AV_OPT_TYPE_DOUBLE:
                         {
-                            double value = *(double *)ptr;
+                            double value;
+
+                            if (av_opt_get_double(ctx->priv, opt->name, 0, &value))
+                                break;
 
                             ImGui::LabelText("##export", "%s: %g", opt->name, value);
                         }
                         break;
                     case AV_OPT_TYPE_FLOAT:
                         {
-                            float value = *(float *)ptr;
+                            double value;
 
-                            ImGui::LabelText("##export", "%s: %f", opt->name, value);
+                            if (av_opt_get_double(ctx->priv, opt->name, 0, &value))
+                                break;
+
+                            ImGui::LabelText("##export", "%s: %f", opt->name, (float)value);
                         }
                         break;
                     case AV_OPT_TYPE_STRING:
                         {
-                            char *value = *(char **)ptr;
+                            uint8_t *value;
+
+                            if (av_opt_get(ctx->priv, opt->name, 0, &value))
+                                break;
 
                             ImGui::LabelText("##export", "%s: %s", opt->name, value);
+
+                            av_free(value);
                         }
                         break;
                     default:
