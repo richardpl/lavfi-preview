@@ -2045,7 +2045,9 @@ static bool query_ranges(void *obj, const AVOption *opt,
 static bool is_simple_filter(const AVFilter *filter)
 {
     if (avfilter_filter_pad_count(filter, 0) == 1 &&
-        avfilter_filter_pad_count(filter, 1) == 1)
+        avfilter_filter_pad_count(filter, 1) == 1 &&
+        !(filter->flags & AVFILTER_FLAG_DYNAMIC_INPUTS) &&
+        !(filter->flags & AVFILTER_FLAG_DYNAMIC_OUTPUTS))
         return true;
     return false;
 }
