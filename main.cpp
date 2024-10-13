@@ -2173,6 +2173,34 @@ static bool is_complex_filter(const AVFilter *filter)
     return false;
 }
 
+static bool is_complex_audio_filter(const AVFilter *filter)
+{
+    if (is_complex_filter(filter)) {
+        for (unsigned i = 0; i < avfilter_filter_pad_count(filter, 0); i++) {
+            if (avfilter_pad_get_type(filter->inputs, i) != AVMEDIA_TYPE_AUDIO)
+                return false;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+static bool is_complex_video_filter(const AVFilter *filter)
+{
+    if (is_complex_filter(filter)) {
+        for (unsigned i = 0; i < avfilter_filter_pad_count(filter, 0); i++) {
+            if (avfilter_pad_get_type(filter->inputs, i) != AVMEDIA_TYPE_VIDEO)
+                return false;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
 {
     if (ImGui::MenuItem(filter->name))
@@ -3242,19 +3270,41 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         }
 
         if (ImGui::BeginMenu("Complex Filters", filter_graph_is_valid == false)) {
-            static ImGuiTextFilter imgui_filter;
-            const AVFilter *filter = NULL;
-            void *iterator = NULL;
+            if (ImGui::BeginMenu("Video")) {
+                static ImGuiTextFilter imgui_filter;
+                const AVFilter *filter = NULL;
+                void *iterator = NULL;
 
-            imgui_filter.Draw();
-            while ((filter = av_filter_iterate(&iterator))) {
-                if (!is_complex_filter(filter))
-                    continue;
+                ImGui::SetTooltip("%s", "Complex Video Filters");
+                imgui_filter.Draw();
+                while ((filter = av_filter_iterate(&iterator))) {
+                    if (!is_complex_video_filter(filter))
+                        continue;
 
-                if (!imgui_filter.PassFilter(filter->name))
-                    continue;
+                    if (!imgui_filter.PassFilter(filter->name))
+                        continue;
 
-                handle_nodeitem(filter, click_pos);
+                    handle_nodeitem(filter, click_pos);
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Audio")) {
+                static ImGuiTextFilter imgui_filter;
+                const AVFilter *filter = NULL;
+                void *iterator = NULL;
+
+                ImGui::SetTooltip("%s", "Complex Audio Filters");
+                imgui_filter.Draw();
+                while ((filter = av_filter_iterate(&iterator))) {
+                    if (!is_complex_audio_filter(filter))
+                        continue;
+
+                    if (!imgui_filter.PassFilter(filter->name))
+                        continue;
+
+                    handle_nodeitem(filter, click_pos);
+                }
+                ImGui::EndMenu();
             }
             ImGui::EndMenu();
         }
