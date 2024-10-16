@@ -83,9 +83,10 @@ typedef struct Edge2Pad {
 } Edge2Pad;
 
 typedef struct OptStorage {
+    unsigned nb_items;
     union {
-        int i32;
-        unsigned u32;
+        int32_t i32;
+        uint32_t u32;
         float flt;
         int64_t i64;
         uint64_t u64;
@@ -93,6 +94,15 @@ typedef struct OptStorage {
         AVRational q;
         char *str;
         float col[4];
+
+        int32_t *i32_array;
+        uint32_t *u32_array;
+        float *flt_array;
+        int64_t *i64_array;
+        uint64_t *u64_array;
+        double *dbl_array;
+        AVRational *q_array;
+        char **str_array;
     } u;
 } OptStorage;
 
@@ -2022,8 +2032,11 @@ static void queue_sound(BufferSink *sink, ring_item_t item)
 static bool query_ranges(void *obj, const AVOption *opt,
                          double *min, double *max)
 {
-    switch (opt->type) {
+    AVOptionType type = (AVOptionType)(opt->type & (~AV_OPT_TYPE_FLAG_ARRAY));
+
+    switch (type) {
         case AV_OPT_TYPE_INT:
+        case AV_OPT_TYPE_UINT:
         case AV_OPT_TYPE_INT64:
         case AV_OPT_TYPE_UINT64:
         case AV_OPT_TYPE_DOUBLE:
@@ -2181,6 +2194,11 @@ static bool is_complex_audio_filter(const AVFilter *filter)
                 return false;
         }
 
+        for (unsigned i = 0; i < avfilter_filter_pad_count(filter, 1); i++) {
+            if (avfilter_pad_get_type(filter->outputs, i) != AVMEDIA_TYPE_AUDIO)
+                return false;
+        }
+
         return true;
     }
 
@@ -2192,6 +2210,11 @@ static bool is_complex_video_filter(const AVFilter *filter)
     if (is_complex_filter(filter)) {
         for (unsigned i = 0; i < avfilter_filter_pad_count(filter, 0); i++) {
             if (avfilter_pad_get_type(filter->inputs, i) != AVMEDIA_TYPE_VIDEO)
+                return false;
+        }
+
+        for (unsigned i = 0; i < avfilter_filter_pad_count(filter, 1); i++) {
+            if (avfilter_pad_get_type(filter->outputs, i) != AVMEDIA_TYPE_VIDEO)
                 return false;
         }
 
@@ -2231,357 +2254,435 @@ static void draw_options(FilterNode *node, void *av_class)
         if (!query_ranges((void *)obj, opt, &min, &max))
             continue;
 
-        switch (opt->type) {
-            case AV_OPT_TYPE_INT64:
-                {
-                    int64_t value;
-                    int64_t smin = min;
-                    int64_t smax = max;
-                    if (av_opt_get_int(av_class, opt->name, 0, &value))
-                        break;
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &smin, &smax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
-                        av_opt_set_int(av_class, opt->name, value, 0);
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_UINT64:
-                {
-                    int64_t value;
-                    uint64_t uvalue;
-                    uint64_t umin = min;
-                    uint64_t umax = max;
-                    if (av_opt_get_int(av_class, opt->name, 0, &value))
-                        break;
-                    uvalue = value;
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, (umax-umin)/25.f, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
-                        value = uvalue;
-                        av_opt_set_int(av_class, opt->name, value, 0);
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_DURATION:
-                {
-                    int64_t value;
-                    double dvalue;
-                    if (av_opt_get_int(av_class, opt->name, 0, &value))
-                        break;
-                    dvalue = value / 1000000.0;
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &dvalue, 0.1f, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                        value = dvalue * 1000000.0;
-                        av_opt_set_int(av_class, opt->name, value, 0);
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_FLAGS:
-                {
-                    const AVOption *copt = NULL;
-                    ImU64 imin = min;
-                    ImU64 imax = max;
-                    int64_t value;
-                    ImU64 uvalue;
+        if ((AVOptionType)(opt->type & (~AV_OPT_TYPE_FLAG_ARRAY)) == AV_OPT_TYPE_CONST)
+            continue;
 
-                    if (av_opt_get_int(av_class, opt->name, 0, &value))
-                        break;
+        if (opt->type & AV_OPT_TYPE_FLAG_ARRAY) {
+            AVOptionType type = (AVOptionType)(opt->type & (~AV_OPT_TYPE_FLAG_ARRAY));
+            unsigned int nb_elems = 0;
 
-                    uvalue = value;
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &uvalue, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
-                        value = uvalue;
-                        av_opt_set_int(av_class, opt->name, value, 0);
-                    }
-                    if (opt->unit) {
-                        while ((copt = av_opt_next(obj, copt))) {
-                            if (!copt->unit)
-                                continue;
-                            if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
-                                continue;
+            av_opt_get_array_size(av_class, opt->name, 0, &nb_elems);
+            if (nb_elems > 0) {
+                switch (type) {
+                    case AV_OPT_TYPE_DOUBLE:
+                        {
+                            double *value = (double *)av_calloc(nb_elems, sizeof(*value));
+
+                            if (!value)
+                                break;
+
+                            if (av_opt_get_array(av_class, opt->name, 0, 0, nb_elems, type, value) < 0) {
+                                av_freep(&value);
+                                break;
+                            }
 
                             ImGui::SetNextItemWidth(200.f);
-                            ImGui::CheckboxFlags(copt->name, &uvalue, copt->default_val.i64);
-                            if (copt->help) {
-                                ImGui::SameLine();
-                                ImGui::Text("\t\t%s", copt->help);
+                            if (ImGui::DragScalarN(opt->name, ImGuiDataType_Double, value, nb_elems,
+                                                   (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                av_opt_set_array(av_class, opt->name, 0, 0, nb_elems, type, value);
                             }
+                            av_freep(&value);
                         }
-                    }
-
-                    if (value != (int64_t)uvalue) {
-                        value = uvalue;
-                        av_opt_set_int(av_class, opt->name, value, 0);
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_BOOL:
-                {
-                    int64_t value;
-                    int ivalue;
-                    int imin = min;
-                    int imax = max;
-                    if (av_opt_get_int(av_class, opt->name, 0, &value))
                         break;
-                    ivalue = value;
-                    ImGui::SetNextItemWidth(200.f);
-                    if (imax < INT_MAX/2 && imin > INT_MIN/2) {
-                        if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
-                            value = ivalue;
-                            av_opt_set_int(av_class, opt->name, value, 0);
+                    case AV_OPT_TYPE_FLOAT:
+                        {
+                            float *value = (float *)av_calloc(nb_elems, sizeof(*value));
+                            float fmin = min;
+                            float fmax = max;
+
+                            if (!value)
+                                break;
+
+                            if (av_opt_get_array(av_class, opt->name, 0, 0, nb_elems, type, value) < 0) {
+                                av_freep(&value);
+                                break;
+                            }
+
+                            ImGui::SetNextItemWidth(200.f);
+                            if (ImGui::DragScalarN(opt->name, ImGuiDataType_Float, value, nb_elems,
+                                                   (fmax-fmin)/200.f, &fmin, &fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                av_opt_set_array(av_class, opt->name, 0, 0, nb_elems, type, value);
+                            }
+                            av_freep(&value);
                         }
-                    } else {
-                        if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
-                            value = ivalue;
+                        break;
+                    case AV_OPT_TYPE_INT:
+                        {
+                            int32_t *value = (int32_t *)av_calloc(nb_elems, sizeof(*value));
+
+                            if (!value)
+                                break;
+
+                            if (av_opt_get_array(av_class, opt->name, 0, 0, nb_elems, type, value) < 0) {
+                                av_freep(&value);
+                                break;
+                            }
+
+                            ImGui::SetNextItemWidth(200.f);
+                            if (ImGui::DragScalarN(opt->name, ImGuiDataType_S32, value, nb_elems,
+                                                   (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                av_opt_set_array(av_class, opt->name, 0, 0, nb_elems, type, value);
+                            }
+                            av_freep(&value);
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+        } else {
+            switch (opt->type) {
+                case AV_OPT_TYPE_INT64:
+                    {
+                        int64_t value;
+                        int64_t smin = min;
+                        int64_t smax = max;
+                        if (av_opt_get_int(av_class, opt->name, 0, &value))
+                            break;
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &smin, &smax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
                             av_opt_set_int(av_class, opt->name, value, 0);
                         }
                     }
-
-                    if (opt->unit) {
-                        char combo_name[20];
-
-                        snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                    break;
+                case AV_OPT_TYPE_UINT64:
+                    {
+                        int64_t value;
+                        uint64_t uvalue;
+                        uint64_t umin = min;
+                        uint64_t umax = max;
+                        if (av_opt_get_int(av_class, opt->name, 0, &value))
+                            break;
+                        uvalue = value;
                         ImGui::SetNextItemWidth(200.f);
-                        if (ImGui::BeginCombo(combo_name, 0, 0)) {
-                            const AVOption *copt = NULL;
+                        if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, (umax-umin)/200.f, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
+                            value = uvalue;
+                            av_opt_set_int(av_class, opt->name, value, 0);
+                        }
+                    }
+                    break;
+                case AV_OPT_TYPE_DURATION:
+                    {
+                        int64_t value;
+                        double dvalue;
+                        if (av_opt_get_int(av_class, opt->name, 0, &value))
+                            break;
+                        dvalue = value / 1000000.0;
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &dvalue, 0.1f, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                            value = dvalue * 1000000.0;
+                            av_opt_set_int(av_class, opt->name, value, 0);
+                        }
+                    }
+                    break;
+                case AV_OPT_TYPE_FLAGS:
+                    {
+                        const AVOption *copt = NULL;
+                        ImU64 imin = min;
+                        ImU64 imax = max;
+                        int64_t value;
+                        ImU64 uvalue;
 
+                        if (av_opt_get_int(av_class, opt->name, 0, &value))
+                            break;
+
+                        uvalue = value;
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &uvalue, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
+                            value = uvalue;
+                            av_opt_set_int(av_class, opt->name, value, 0);
+                        }
+                        if (opt->unit) {
                             while ((copt = av_opt_next(obj, copt))) {
-                                const bool is_selected = value == copt->default_val.i64;
-
                                 if (!copt->unit)
                                     continue;
                                 if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
                                     continue;
 
-                                if (ImGui::Selectable(copt->name, is_selected))
-                                    av_opt_set_int(av_class, opt->name, copt->default_val.i64, 0);
-                                ImGui::SameLine();
-                                ImGui::Text("\t\t%s", copt->help);
-
-                                if (is_selected)
-                                    ImGui::SetItemDefaultFocus();
+                                ImGui::SetNextItemWidth(200.f);
+                                ImGui::CheckboxFlags(copt->name, &uvalue, copt->default_val.i64);
+                                if (copt->help) {
+                                    ImGui::SameLine();
+                                    ImGui::Text("\t\t%s", copt->help);
+                                }
                             }
+                        }
 
-                            ImGui::EndCombo();
-                        }
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_INT:
-                {
-                    int64_t value;
-                    int ivalue;
-                    int imin = min;
-                    int imax = max;
-                    if (av_opt_get_int(av_class, opt->name, 0, &value))
-                        break;
-                    ivalue = value;
-                    ImGui::SetNextItemWidth(200.f);
-                    if (imax < INT_MAX/2 && imin > INT_MIN/2) {
-                        if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
-                            value = ivalue;
-                            av_opt_set_int(av_class, opt->name, value, 0);
-                        }
-                    } else {
-                        if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
-                            value = ivalue;
+                        if (value != (int64_t)uvalue) {
+                            value = uvalue;
                             av_opt_set_int(av_class, opt->name, value, 0);
                         }
                     }
-
-                    if (opt->unit) {
-                        char combo_name[20];
-
-                        snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                    break;
+                case AV_OPT_TYPE_BOOL:
+                    {
+                        int64_t value;
+                        int ivalue;
+                        int imin = min;
+                        int imax = max;
+                        if (av_opt_get_int(av_class, opt->name, 0, &value))
+                            break;
+                        ivalue = value;
                         ImGui::SetNextItemWidth(200.f);
-                        if (ImGui::BeginCombo(combo_name, 0, 0)) {
-                            const AVOption *copt = NULL;
-
-                            while ((copt = av_opt_next(obj, copt))) {
-                                const bool is_selected = value == copt->default_val.i64;
-
-                                if (!copt->unit)
-                                    continue;
-                                if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
-                                    continue;
-
-                                if (ImGui::Selectable(copt->name, is_selected))
-                                    av_opt_set_int(av_class, opt->name, copt->default_val.i64, 0);
-                                ImGui::SameLine();
-                                ImGui::Text("\t\t%s", copt->help);
-
-                                if (is_selected)
-                                    ImGui::SetItemDefaultFocus();
+                        if (imax < INT_MAX/2 && imin > INT_MIN/2) {
+                            if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
+                                value = ivalue;
+                                av_opt_set_int(av_class, opt->name, value, 0);
                             }
+                        } else {
+                            if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
+                                value = ivalue;
+                                av_opt_set_int(av_class, opt->name, value, 0);
+                            }
+                        }
 
-                            ImGui::EndCombo();
+                        if (opt->unit) {
+                            char combo_name[20];
+
+                            snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                            ImGui::SetNextItemWidth(200.f);
+                            if (ImGui::BeginCombo(combo_name, 0, 0)) {
+                                const AVOption *copt = NULL;
+
+                                while ((copt = av_opt_next(obj, copt))) {
+                                    const bool is_selected = value == copt->default_val.i64;
+
+                                    if (!copt->unit)
+                                        continue;
+                                    if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
+                                        continue;
+
+                                    if (ImGui::Selectable(copt->name, is_selected))
+                                        av_opt_set_int(av_class, opt->name, copt->default_val.i64, 0);
+                                    ImGui::SameLine();
+                                    ImGui::Text("\t\t%s", copt->help);
+
+                                    if (is_selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+
+                                ImGui::EndCombo();
+                            }
                         }
                     }
-                }
-                break;
-            case AV_OPT_TYPE_DOUBLE:
-                {
-                    double value;
+                    break;
+                case AV_OPT_TYPE_INT:
+                    {
+                        int64_t value;
+                        int ivalue;
+                        int imin = min;
+                        int imax = max;
+                        if (av_opt_get_int(av_class, opt->name, 0, &value))
+                            break;
+                        ivalue = value;
+                        ImGui::SetNextItemWidth(200.f);
+                        if (imax < INT_MAX/2 && imin > INT_MIN/2) {
+                            if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
+                                value = ivalue;
+                                av_opt_set_int(av_class, opt->name, value, 0);
+                            }
+                        } else {
+                            if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
+                                value = ivalue;
+                                av_opt_set_int(av_class, opt->name, value, 0);
+                            }
+                        }
 
-                    if (av_opt_get_double(av_class, opt->name, 0, &value))
-                        break;
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, (max-min)/25.f, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                        av_opt_set_double(av_class, opt->name, value, 0);
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_FLOAT:
-                {
-                    double value;
-                    float fvalue;
-                    float fmin = min;
-                    float fmax = max;
+                        if (opt->unit) {
+                            char combo_name[20];
 
-                    if (av_opt_get_double(av_class, opt->name, 0, &value))
-                        break;
-                    fvalue = value;
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::DragFloat(opt->name, &fvalue, (fmax-fmin)/25.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                        value = fvalue;
-                        av_opt_set_double(av_class, opt->name, value, 0);
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_STRING:
-                {
-                    char new_str[1024] = {0};
-                    uint8_t *str = NULL;
+                            snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                            ImGui::SetNextItemWidth(200.f);
+                            if (ImGui::BeginCombo(combo_name, 0, 0)) {
+                                const AVOption *copt = NULL;
 
-                    if (av_opt_get(av_class, opt->name, 0, &str))
-                        break;
-                    if (str) {
-                        memcpy(new_str, str, strlen((const char *)str));
-                        av_freep(&str);
+                                while ((copt = av_opt_next(obj, copt))) {
+                                    const bool is_selected = value == copt->default_val.i64;
+
+                                    if (!copt->unit)
+                                        continue;
+                                    if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
+                                        continue;
+
+                                    if (ImGui::Selectable(copt->name, is_selected))
+                                        av_opt_set_int(av_class, opt->name, copt->default_val.i64, 0);
+                                    ImGui::SameLine();
+                                    ImGui::Text("\t\t%s", copt->help);
+
+                                    if (is_selected)
+                                        ImGui::SetItemDefaultFocus();
+                                }
+
+                                ImGui::EndCombo();
+                            }
+                        }
                     }
+                    break;
+                case AV_OPT_TYPE_DOUBLE:
+                    {
+                        double value;
+
+                        if (av_opt_get_double(av_class, opt->name, 0, &value))
+                            break;
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, (max-min)/200.f, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                            av_opt_set_double(av_class, opt->name, value, 0);
+                        }
+                    }
+                    break;
+                case AV_OPT_TYPE_FLOAT:
+                    {
+                        double value;
+                        float fvalue;
+                        float fmin = min;
+                        float fmax = max;
+
+                        if (av_opt_get_double(av_class, opt->name, 0, &value))
+                            break;
+                        fvalue = value;
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::DragFloat(opt->name, &fvalue, (fmax-fmin)/200.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                            value = fvalue;
+                            av_opt_set_double(av_class, opt->name, value, 0);
+                        }
+                    }
+                    break;
+                case AV_OPT_TYPE_STRING:
+                    {
+                        char new_str[1024] = {0};
+                        uint8_t *str = NULL;
+
+                        if (av_opt_get(av_class, opt->name, 0, &str))
+                            break;
+                        if (str) {
+                            memcpy(new_str, str, strlen((const char *)str));
+                            av_freep(&str);
+                        }
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::InputText(opt->name, new_str, IM_ARRAYSIZE(new_str))) {
+                            av_opt_set(av_class, opt->name, new_str, 0);
+                        }
+                    }
+                    break;
+                case AV_OPT_TYPE_RATIONAL:
+                    {
+                        AVRational rate = (AVRational){ 0, 0 };
+                        int irate[2] = { 0, 0 };
+
+                        if (rate.num == 0 && rate.den == 0)
+                            av_opt_get_q(av_class, opt->name, 0, &rate);
+                        irate[0] = rate.num;
+                        irate[1] = rate.den;
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::DragInt2(opt->name, irate, 1, -8192, 8192)) {
+                            rate.num = irate[0];
+                            rate.den = irate[1];
+                            av_opt_set_q(av_class, opt->name, rate, 0);
+                        }
+                    }
+                    break;
+                case AV_OPT_TYPE_BINARY:
+                    break;
+                case AV_OPT_TYPE_DICT:
+                    break;
+                case AV_OPT_TYPE_IMAGE_SIZE:
+                    {
+                        int size[2] = {0,0};
+
+                        av_opt_get_image_size(av_class, opt->name, 0, &size[0], &size[1]);
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::DragInt2(opt->name, size, 1, 1, 4096)) {
+                            av_opt_set_image_size(av_class, opt->name, size[0], size[1], 0);
+                        }
+                    }
+                    break;
+                case AV_OPT_TYPE_VIDEO_RATE:
+                    {
+                        int irate[2] = { 0, 0 };
+                        uint8_t *old_rate_str = NULL;
+                        char rate_str[256];
+
+                        av_opt_get(av_class, opt->name, 0, &old_rate_str);
+                        if (old_rate_str) {
+                            sscanf((const char *)old_rate_str, "%d/%d", &irate[0], &irate[1]);
+                            av_freep(&old_rate_str);
+                        }
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::DragInt2(opt->name, irate, 1, -8192, 8192)) {
+                            snprintf(rate_str, sizeof(rate_str), "%d/%d", irate[0], irate[1]);
+                            av_opt_set(av_class, opt->name, rate_str, 0);
+                        }
+                    }
+                    break;
+                case AV_OPT_TYPE_PIXEL_FMT:
                     ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::InputText(opt->name, new_str, IM_ARRAYSIZE(new_str))) {
+                    if (ImGui::BeginCombo(opt->name, 0, 0)) {
+                        const AVPixFmtDescriptor *pix_desc = NULL;
+                        AVPixelFormat fmt;
+
+                        av_opt_get_pixel_fmt(av_class, opt->name, 0, &fmt);
+                        while ((pix_desc = av_pix_fmt_desc_next(pix_desc))) {
+                            enum AVPixelFormat pix_fmt = av_pix_fmt_desc_get_id(pix_desc);
+                            const bool is_selected = av_pix_fmt_desc_get_id(pix_desc) == fmt;
+
+                            if (ImGui::Selectable(pix_desc->name, is_selected))
+                                av_opt_set_pixel_fmt(av_class, opt->name, pix_fmt, 0);
+
+                            if (is_selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    break;
+                case AV_OPT_TYPE_SAMPLE_FMT:
+                    break;
+                case AV_OPT_TYPE_COLOR:
+                    {
+                        float col[4] = { 0.4f, 0.7f, 0.0f, 0.5f };
+                        unsigned icol[4] = { 0 };
+                        char new_str[16] = { 0 };
+                        uint8_t *old_str = NULL;
+
+                        if (av_opt_get(av_class, opt->name, 0, &old_str))
+                            break;
+                        sscanf((const char *)old_str, "0x%02x%02x%02x%02X", &icol[0], &icol[1], &icol[2], &icol[3]);
+                        av_freep(&old_str);
+                        col[0] = icol[0] / 255.f;
+                        col[1] = icol[1] / 255.f;
+                        col[2] = icol[2] / 255.f;
+                        col[3] = icol[3] / 255.f;
+                        ImGui::SetNextItemWidth(200.f);
+                        ImGui::PushID(index++);
+                        ImGui::ColorEdit4(opt->name, col, ImGuiColorEditFlags_NoDragDrop);
+                        ImGui::PopID();
+                        icol[0] = col[0] * 255.f;
+                        icol[1] = col[1] * 255.f;
+                        icol[2] = col[2] * 255.f;
+                        icol[3] = col[3] * 255.f;
+                        snprintf(new_str, sizeof(new_str), "0x%02x%02x%02x%02x", icol[0], icol[1], icol[2], icol[3]);
                         av_opt_set(av_class, opt->name, new_str, 0);
                     }
-                }
-                break;
-            case AV_OPT_TYPE_RATIONAL:
-                {
-                    AVRational rate = (AVRational){ 0, 0 };
-                    int irate[2] = { 0, 0 };
+                    break;
+                case AV_OPT_TYPE_CHLAYOUT:
+                    {
+                        char new_layout[1024] = {0};
+                        AVChannelLayout ch_layout;
 
-                    if (rate.num == 0 && rate.den == 0)
-                        av_opt_get_q(av_class, opt->name, 0, &rate);
-                    irate[0] = rate.num;
-                    irate[1] = rate.den;
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::DragInt2(opt->name, irate, 1, -8192, 8192)) {
-                        rate.num = irate[0];
-                        rate.den = irate[1];
-                        av_opt_set_q(av_class, opt->name, rate, 0);
+                        if (av_opt_get_chlayout(av_class, opt->name, 0, &ch_layout) < 0)
+                            break;
+                        av_channel_layout_describe(&ch_layout, new_layout, sizeof(new_layout));
+                        ImGui::SetNextItemWidth(200.f);
+                        if (ImGui::InputText(opt->name, new_layout, IM_ARRAYSIZE(new_layout))) {
+                            av_channel_layout_from_string(&ch_layout, new_layout);
+                            av_opt_set_chlayout(av_class, opt->name, &ch_layout, 0);
+                        }
                     }
-                }
-                break;
-            case AV_OPT_TYPE_BINARY:
-                break;
-            case AV_OPT_TYPE_DICT:
-                break;
-            case AV_OPT_TYPE_IMAGE_SIZE:
-                {
-                    int size[2] = {0,0};
-
-                    av_opt_get_image_size(av_class, opt->name, 0, &size[0], &size[1]);
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::DragInt2(opt->name, size, 1, 1, 4096)) {
-                        av_opt_set_image_size(av_class, opt->name, size[0], size[1], 0);
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_VIDEO_RATE:
-                {
-                    int irate[2] = { 0, 0 };
-                    uint8_t *old_rate_str = NULL;
-                    char rate_str[256];
-
-                    av_opt_get(av_class, opt->name, 0, &old_rate_str);
-                    if (old_rate_str) {
-                        sscanf((const char *)old_rate_str, "%d/%d", &irate[0], &irate[1]);
-                        av_freep(&old_rate_str);
-                    }
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::DragInt2(opt->name, irate, 1, -8192, 8192)) {
-                        snprintf(rate_str, sizeof(rate_str), "%d/%d", irate[0], irate[1]);
-                        av_opt_set(av_class, opt->name, rate_str, 0);
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_PIXEL_FMT:
-                ImGui::SetNextItemWidth(200.f);
-                if (ImGui::BeginCombo(opt->name, 0, 0)) {
-                    const AVPixFmtDescriptor *pix_desc = NULL;
-                    AVPixelFormat fmt;
-
-                    av_opt_get_pixel_fmt(av_class, opt->name, 0, &fmt);
-                    while ((pix_desc = av_pix_fmt_desc_next(pix_desc))) {
-                        enum AVPixelFormat pix_fmt = av_pix_fmt_desc_get_id(pix_desc);
-                        const bool is_selected = av_pix_fmt_desc_get_id(pix_desc) == fmt;
-
-                        if (ImGui::Selectable(pix_desc->name, is_selected))
-                            av_opt_set_pixel_fmt(av_class, opt->name, pix_fmt, 0);
-
-                        if (is_selected)
-                            ImGui::SetItemDefaultFocus();
-                    }
-                    ImGui::EndCombo();
-                }
-                break;
-            case AV_OPT_TYPE_SAMPLE_FMT:
-                break;
-            case AV_OPT_TYPE_COLOR:
-                {
-                    float col[4] = { 0.4f, 0.7f, 0.0f, 0.5f };
-                    unsigned icol[4] = { 0 };
-                    char new_str[16] = { 0 };
-                    uint8_t *old_str = NULL;
-
-                    if (av_opt_get(av_class, opt->name, 0, &old_str))
-                        break;
-                    sscanf((const char *)old_str, "0x%02x%02x%02x%02X", &icol[0], &icol[1], &icol[2], &icol[3]);
-                    av_freep(&old_str);
-                    col[0] = icol[0] / 255.f;
-                    col[1] = icol[1] / 255.f;
-                    col[2] = icol[2] / 255.f;
-                    col[3] = icol[3] / 255.f;
-                    ImGui::SetNextItemWidth(200.f);
-                    ImGui::PushID(index++);
-                    ImGui::ColorEdit4(opt->name, col, ImGuiColorEditFlags_NoDragDrop);
-                    ImGui::PopID();
-                    icol[0] = col[0] * 255.f;
-                    icol[1] = col[1] * 255.f;
-                    icol[2] = col[2] * 255.f;
-                    icol[3] = col[3] * 255.f;
-                    snprintf(new_str, sizeof(new_str), "0x%02x%02x%02x%02x", icol[0], icol[1], icol[2], icol[3]);
-                    av_opt_set(av_class, opt->name, new_str, 0);
-                }
-                break;
-            case AV_OPT_TYPE_CHLAYOUT:
-                {
-                    char new_layout[1024] = {0};
-                    AVChannelLayout ch_layout;
-
-                    if (av_opt_get_chlayout(av_class, opt->name, 0, &ch_layout) < 0)
-                        break;
-                    av_channel_layout_describe(&ch_layout, new_layout, sizeof(new_layout));
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::InputText(opt->name, new_layout, IM_ARRAYSIZE(new_layout))) {
-                        av_channel_layout_from_string(&ch_layout, new_layout);
-                        av_opt_set_chlayout(av_class, opt->name, &ch_layout, 0);
-                    }
-                }
-                break;
-            case AV_OPT_TYPE_CONST:
-                break;
-            default:
-                break;
+                    break;
+                case AV_OPT_TYPE_CONST:
+                    break;
+                default:
+                    break;
+            }
         }
 
         if (ImNodes::IsNodeSelected(node->edge) && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
@@ -2618,7 +2719,6 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
             while ((opt = av_opt_next(ctx->priv, opt))) {
                 double min, max;
-                void *ptr;
 
                 if (!(opt->flags & AV_OPT_FLAG_RUNTIME_PARAM))
                     continue;
@@ -2629,294 +2729,571 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                 if (!query_ranges((void *)&ctx->filter->priv_class, opt, &min, &max))
                     continue;
 
-                ptr = av_opt_ptr(ctx->filter->priv_class, ctx->priv, opt->name);
-                if (!ptr)
+                if (((AVOptionType)(opt->type & (~AV_OPT_TYPE_FLAG_ARRAY))) == AV_OPT_TYPE_CONST)
                     continue;
 
                 ImGui::PushID(opt_index);
-                switch (opt->type) {
-                    case AV_OPT_TYPE_FLAGS:
-                    case AV_OPT_TYPE_BOOL:
-                    case AV_OPT_TYPE_INT:
-                    case AV_OPT_TYPE_DOUBLE:
-                    case AV_OPT_TYPE_FLOAT:
-                    case AV_OPT_TYPE_INT64:
-                    case AV_OPT_TYPE_UINT64:
-                    case AV_OPT_TYPE_STRING:
-                    case AV_OPT_TYPE_COLOR:
-                        if (ImGui::Button("Send")) {
-                            char arg[1024] = { 0 };
+                if (opt->type & AV_OPT_TYPE_FLAG_ARRAY) {
+                    AVOptionType type = (AVOptionType)(opt->type & (~AV_OPT_TYPE_FLAG_ARRAY));
 
-                            switch (opt->type) {
-                                case AV_OPT_TYPE_FLAGS:
-                                    snprintf(arg, sizeof(arg) - 1, "%u", opt_storage[opt_index].u.u32);
-                                    break;
-                                case AV_OPT_TYPE_BOOL:
-                                case AV_OPT_TYPE_INT:
-                                    snprintf(arg, sizeof(arg) - 1, "%d", opt_storage[opt_index].u.i32);
-                                    break;
-                                case AV_OPT_TYPE_INT64:
-                                    snprintf(arg, sizeof(arg) - 1, "%ld", opt_storage[opt_index].u.i64);
-                                    break;
-                                case AV_OPT_TYPE_UINT64:
-                                    snprintf(arg, sizeof(arg) - 1, "%lu", opt_storage[opt_index].u.u64);
-                                    break;
-                                case AV_OPT_TYPE_DOUBLE:
-                                    snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.dbl);
-                                    break;
-                                case AV_OPT_TYPE_FLOAT:
-                                    snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.flt);
-                                    break;
-                                case AV_OPT_TYPE_STRING:
-                                    snprintf(arg, strlen(opt_storage[opt_index].u.str) + 1, "%s", opt_storage[opt_index].u.str);
-                                    break;
-                                case AV_OPT_TYPE_COLOR:
-                                    snprintf(arg, sizeof(arg)-1, "0x%02x%02x%02x%02x",
-                                             av_clip_uint8(opt_storage[opt_index].u.col[0] * 255),
-                                             av_clip_uint8(opt_storage[opt_index].u.col[1] * 255),
-                                             av_clip_uint8(opt_storage[opt_index].u.col[2] * 255),
-                                             av_clip_uint8(opt_storage[opt_index].u.col[3] * 255));
-                                    break;
-                                default:
-                                    break;
+                    switch (type) {
+                        case AV_OPT_TYPE_FLAGS:
+                        case AV_OPT_TYPE_BOOL:
+                        case AV_OPT_TYPE_UINT:
+                        case AV_OPT_TYPE_INT:
+                        case AV_OPT_TYPE_DOUBLE:
+                        case AV_OPT_TYPE_FLOAT:
+                        case AV_OPT_TYPE_INT64:
+                        case AV_OPT_TYPE_UINT64:
+                        case AV_OPT_TYPE_STRING:
+                        case AV_OPT_TYPE_COLOR:
+                            if (ImGui::Button("Send")) {
+                                std::stringstream arg;
+                                const char separator = opt->default_val.arr->sep;
+
+                                switch (type) {
+                                    case AV_OPT_TYPE_FLAGS:
+                                    case AV_OPT_TYPE_UINT:
+                                        for (unsigned int i = 0; i < opt_storage[opt_index].nb_items; i++) {
+                                            arg << opt_storage[opt_index].u.u32_array[i] << separator;
+                                        }
+                                        break;
+                                    case AV_OPT_TYPE_BOOL:
+                                    case AV_OPT_TYPE_INT:
+                                        for (unsigned int i = 0; i < opt_storage[opt_index].nb_items; i++) {
+                                            arg << opt_storage[opt_index].u.i32_array[i] << separator;
+                                        }
+                                        break;
+                                    case AV_OPT_TYPE_INT64:
+                                        for (unsigned int i = 0; i < opt_storage[opt_index].nb_items; i++) {
+                                            arg << opt_storage[opt_index].u.i64_array[i] << separator;
+                                        }
+                                        break;
+                                    case AV_OPT_TYPE_UINT64:
+                                        for (unsigned int i = 0; i < opt_storage[opt_index].nb_items; i++) {
+                                            arg << opt_storage[opt_index].u.u64_array[i] << separator;
+                                        }
+                                        break;
+                                    case AV_OPT_TYPE_DOUBLE:
+                                        for (unsigned int i = 0; i < opt_storage[opt_index].nb_items; i++) {
+                                            arg << opt_storage[opt_index].u.dbl_array[i] << separator;
+                                        }
+                                        break;
+                                    case AV_OPT_TYPE_FLOAT:
+                                        for (unsigned int i = 0; i < opt_storage[opt_index].nb_items; i++) {
+                                            arg << opt_storage[opt_index].u.flt_array[i] << separator;
+                                        }
+                                        break;
+                                    case AV_OPT_TYPE_STRING:
+                                        for (unsigned int i = 0; i < opt_storage[opt_index].nb_items; i++) {
+                                            arg << opt_storage[opt_index].u.str_array[i] << separator;
+                                        }
+                                        break;
+                                    case AV_OPT_TYPE_COLOR:
+                                        break;
+                                    default:
+                                        break;
+                                }
+
+                                auto x = arg.str();
+                                if (!x.empty()) {
+                                    x.pop_back();
+                                    avfilter_graph_send_command(filter_graph, ctx->name, opt->name, x.c_str(), NULL, 0, 0);
+                                }
                             }
+                            ImGui::SameLine();
+                            break;
+                        default:
+                            break;
+                    }
+                } else {
+                    switch (opt->type) {
+                        case AV_OPT_TYPE_FLAGS:
+                        case AV_OPT_TYPE_BOOL:
+                        case AV_OPT_TYPE_UINT:
+                        case AV_OPT_TYPE_INT:
+                        case AV_OPT_TYPE_DOUBLE:
+                        case AV_OPT_TYPE_FLOAT:
+                        case AV_OPT_TYPE_INT64:
+                        case AV_OPT_TYPE_UINT64:
+                        case AV_OPT_TYPE_STRING:
+                        case AV_OPT_TYPE_COLOR:
+                            if (ImGui::Button("Send")) {
+                                char arg[1024] = { 0 };
 
-                            avfilter_graph_send_command(filter_graph, ctx->name, opt->name, arg, NULL, 0, 0);
-                        }
-                        ImGui::SameLine();
-                    default:
-                        break;
+                                switch (opt->type) {
+                                    case AV_OPT_TYPE_FLAGS:
+                                    case AV_OPT_TYPE_UINT:
+                                        snprintf(arg, sizeof(arg) - 1, "%u", opt_storage[opt_index].u.u32);
+                                        break;
+                                    case AV_OPT_TYPE_BOOL:
+                                    case AV_OPT_TYPE_INT:
+                                        snprintf(arg, sizeof(arg) - 1, "%d", opt_storage[opt_index].u.i32);
+                                        break;
+                                    case AV_OPT_TYPE_INT64:
+                                        snprintf(arg, sizeof(arg) - 1, "%ld", opt_storage[opt_index].u.i64);
+                                        break;
+                                    case AV_OPT_TYPE_UINT64:
+                                        snprintf(arg, sizeof(arg) - 1, "%lu", opt_storage[opt_index].u.u64);
+                                        break;
+                                    case AV_OPT_TYPE_DOUBLE:
+                                        snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.dbl);
+                                        break;
+                                    case AV_OPT_TYPE_FLOAT:
+                                        snprintf(arg, sizeof(arg) - 1, "%f", opt_storage[opt_index].u.flt);
+                                        break;
+                                    case AV_OPT_TYPE_STRING:
+                                        snprintf(arg, strlen(opt_storage[opt_index].u.str) + 1, "%s", opt_storage[opt_index].u.str);
+                                        break;
+                                    case AV_OPT_TYPE_COLOR:
+                                        snprintf(arg, sizeof(arg)-1, "0x%02x%02x%02x%02x",
+                                                 av_clip_uint8(opt_storage[opt_index].u.col[0] * 255),
+                                                 av_clip_uint8(opt_storage[opt_index].u.col[1] * 255),
+                                                 av_clip_uint8(opt_storage[opt_index].u.col[2] * 255),
+                                                 av_clip_uint8(opt_storage[opt_index].u.col[3] * 255));
+                                        break;
+                                    default:
+                                        break;
+                                }
+
+                                avfilter_graph_send_command(filter_graph, ctx->name, opt->name, arg, NULL, 0, 0);
+                            }
+                            ImGui::SameLine();
+                            break;
+                        default:
+                            break;
+                    }
                 }
 
-                switch (opt->type) {
-                    case AV_OPT_TYPE_FLAGS:
-                        {
-                            const AVOption *copt = NULL;
-                            unsigned value = *(unsigned *)ptr;
-                            ImU64 imin = min;
-                            ImU64 imax = max;
-                            ImU64 uvalue;
+                if (opt->type & AV_OPT_TYPE_FLAG_ARRAY) {
+                    AVOptionType type = (AVOptionType)(opt->type & (~AV_OPT_TYPE_FLAG_ARRAY));
+                    unsigned int nb_elems = 0;
 
-                            if (opt_storage.size() <= opt_index) {
-                                OptStorage new_opt;
+                    av_opt_get_array_size(ctx->priv, opt->name, 0, &nb_elems);
+                    if (nb_elems > 0) {
+                        switch (type) {
+                            case AV_OPT_TYPE_FLAGS:
+                            case AV_OPT_TYPE_UINT:
+                                {
+                                    uint32_t *value = NULL;
 
-                                new_opt.u.u32 = *(unsigned *)ptr;
-                                opt_storage.push_back(new_opt);
-                            }
+                                    if (opt_storage.size() <= opt_index) {
+                                        OptStorage new_opt = { 0 };
 
-                            uvalue = value = opt_storage[opt_index].u.u32;
-                            if (tree == false)
-                                ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &uvalue, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
-                                value = uvalue;
-                                opt_storage[opt_index].u.u32 = value;
-                            }
-                            if (opt->unit) {
-                                while ((copt = av_opt_next(ctx->priv, copt))) {
-                                    if (!copt->unit)
-                                        continue;
-                                    if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
-                                        continue;
+                                        value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        new_opt.nb_items = nb_elems;
+                                        new_opt.u.u32_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, new_opt.u.u32_array);
+                                        opt_storage.push_back(new_opt);
+                                    } else if (nb_elems != opt_storage[opt_index].nb_items) {
+                                        av_free(opt_storage[opt_index].u.u32_array);
+                                        opt_storage[opt_index].u.u32_array = NULL;
+                                        opt_storage[opt_index].nb_items = 0;
+
+                                        value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        opt_storage[opt_index].nb_items = nb_elems;
+                                        opt_storage[opt_index].u.u32_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, opt_storage[opt_index].u.u32_array);
+                                    }
 
                                     if (tree == false)
                                         ImGui::SetNextItemWidth(200.f);
-                                    ImGui::CheckboxFlags(copt->name, &uvalue, copt->default_val.i64);
-                                    if (copt->help) {
-                                        ImGui::SameLine();
-                                        ImGui::Text("\t\t%s", copt->help);
+                                    if (ImGui::DragScalarN(opt->name, ImGuiDataType_U32, opt_storage[opt_index].u.u32_array,  opt_storage[opt_index].nb_items,
+                                                           (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                        ;
+                                    }
+                                }
+                                break;
+                            case AV_OPT_TYPE_BOOL:
+                            case AV_OPT_TYPE_INT:
+                                {
+                                    int32_t *value = NULL;
+
+                                    if (opt_storage.size() <= opt_index) {
+                                        OptStorage new_opt = { 0 };
+
+                                        value = (int32_t *)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        new_opt.nb_items = nb_elems;
+                                        new_opt.u.i32_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, new_opt.u.i32_array);
+                                        opt_storage.push_back(new_opt);
+                                    } else if (nb_elems != opt_storage[opt_index].nb_items) {
+                                        av_free(opt_storage[opt_index].u.i32_array);
+                                        opt_storage[opt_index].u.i32_array = NULL;
+                                        opt_storage[opt_index].nb_items = 0;
+
+                                        value = (int32_t *)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        opt_storage[opt_index].nb_items = nb_elems;
+                                        opt_storage[opt_index].u.i32_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, opt_storage[opt_index].u.i32_array);
+                                    }
+
+                                    if (tree == false)
+                                        ImGui::SetNextItemWidth(200.f);
+                                    if (ImGui::DragScalarN(opt->name, ImGuiDataType_S32, opt_storage[opt_index].u.i32_array, opt_storage[opt_index].nb_items,
+                                                           (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                        ;
+                                    }
+                                }
+                                break;
+                            case AV_OPT_TYPE_FLOAT:
+                                {
+                                    float *value = NULL;
+                                    float fmax = max;
+                                    float fmin = min;
+
+                                    if (opt_storage.size() <= opt_index) {
+                                        OptStorage new_opt = { 0 };
+
+                                        value = (float *)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        new_opt.nb_items = nb_elems;
+                                        new_opt.u.flt_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, new_opt.u.flt_array);
+                                        opt_storage.push_back(new_opt);
+                                    } else if (nb_elems != opt_storage[opt_index].nb_items) {
+                                        av_free(opt_storage[opt_index].u.flt_array);
+                                        opt_storage[opt_index].u.flt_array = NULL;
+                                        opt_storage[opt_index].nb_items = 0;
+
+                                        value = (float *)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        opt_storage[opt_index].nb_items = nb_elems;
+                                        opt_storage[opt_index].u.flt_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, opt_storage[opt_index].u.flt_array);
+                                    }
+
+                                    if (tree == false)
+                                        ImGui::SetNextItemWidth(200.f);
+                                    if (ImGui::DragScalarN(opt->name, ImGuiDataType_Float, opt_storage[opt_index].u.flt_array, opt_storage[opt_index].nb_items,
+                                                           (fmax-fmin)/200.0, &fmin, &fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                        ;
+                                    }
+                                }
+                                break;
+                            case AV_OPT_TYPE_DOUBLE:
+                                {
+                                    double *value = NULL;
+
+                                    if (opt_storage.size() <= opt_index) {
+                                        OptStorage new_opt = { 0 };
+
+                                        value = (double *)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        new_opt.nb_items = nb_elems;
+                                        new_opt.u.dbl_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, new_opt.u.dbl_array);
+                                        opt_storage.push_back(new_opt);
+                                    } else if (nb_elems != opt_storage[opt_index].nb_items) {
+                                        av_free(opt_storage[opt_index].u.dbl_array);
+                                        opt_storage[opt_index].u.dbl_array = NULL;
+                                        opt_storage[opt_index].nb_items = 0;
+
+                                        value = (double *)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        opt_storage[opt_index].nb_items = nb_elems;
+                                        opt_storage[opt_index].u.dbl_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, opt_storage[opt_index].u.dbl_array);
+                                    }
+
+                                    if (tree == false)
+                                        ImGui::SetNextItemWidth(200.f);
+                                    if (ImGui::DragScalarN(opt->name, ImGuiDataType_Double, opt_storage[opt_index].u.dbl_array, opt_storage[opt_index].nb_items,
+                                                           (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                        ;
+                                    }
+                                }
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                } else {
+                    switch (opt->type) {
+                        case AV_OPT_TYPE_FLAGS:
+                            {
+                                const AVOption *copt = NULL;
+                                int64_t value;
+                                ImU64 imin = min;
+                                ImU64 imax = max;
+                                ImU64 uvalue;
+
+                                if (av_opt_get_int(ctx->priv, opt->name, 0, &value))
+                                    break;
+
+                                if (opt_storage.size() <= opt_index) {
+                                    OptStorage new_opt = { 0 };
+
+                                    new_opt.u.u32 = (uint64_t)value;
+                                    opt_storage.push_back(new_opt);
+                                }
+
+                                uvalue = value = opt_storage[opt_index].u.u32;
+                                if (tree == false)
+                                    ImGui::SetNextItemWidth(200.f);
+                                if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &uvalue, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
+                                    value = uvalue;
+                                    opt_storage[opt_index].u.u32 = uvalue;
+                                }
+                                if (opt->unit) {
+                                    while ((copt = av_opt_next(ctx->priv, copt))) {
+                                        if (!copt->unit)
+                                            continue;
+                                        if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
+                                            continue;
+
+                                        if (tree == false)
+                                            ImGui::SetNextItemWidth(200.f);
+                                        ImGui::CheckboxFlags(copt->name, &uvalue, copt->default_val.i64);
+                                        if (copt->help) {
+                                            ImGui::SameLine();
+                                            ImGui::Text("\t\t%s", copt->help);
+                                        }
+                                    }
+                                }
+
+                                if (value != (int64_t)uvalue) {
+                                    value = uvalue;
+                                    opt_storage[opt_index].u.u32 = value;
+                                }
+                            }
+                            break;
+                        case AV_OPT_TYPE_BOOL:
+                            {
+                                int64_t value;
+                                int imin = min;
+                                int imax = max;
+
+                                if (av_opt_get_int(ctx->priv, opt->name, 0, &value))
+                                    break;
+
+                                if (opt_storage.size() <= opt_index) {
+                                    OptStorage new_opt = { 0 };
+
+                                    new_opt.u.i32 = value;
+                                    opt_storage.push_back(new_opt);
+                                }
+
+                                value = opt_storage[opt_index].u.i32;
+                                if (tree == false)
+                                    ImGui::SetNextItemWidth(200.f);
+                                if (ImGui::DragScalar(opt->name, ImGuiDataType_U32, &value, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
+                                    opt_storage[opt_index].u.i32 = value;
+                                }
+                            }
+                            break;
+                        case AV_OPT_TYPE_INT:
+                            {
+                                int64_t value;
+                                int ivalue;
+                                int imin = min;
+                                int imax = max;
+
+                                if (av_opt_get_int(ctx->priv, opt->name, 0, &value))
+                                    break;
+
+                                if (opt_storage.size() <= opt_index) {
+                                    OptStorage new_opt = { 0 };
+
+                                    new_opt.u.i32 = value;
+                                    opt_storage.push_back(new_opt);
+                                }
+
+                                ivalue = opt_storage[opt_index].u.i32;
+                                if (tree == false)
+                                    ImGui::SetNextItemWidth(200.f);
+                                if (imax < INT_MAX/2 && imin > INT_MIN/2) {
+                                    if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
+                                        opt_storage[opt_index].u.i32 = ivalue;
+                                    }
+                                } else {
+                                    if (ImGui::DragInt(opt->name, &ivalue, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
+                                        opt_storage[opt_index].u.i32 = ivalue;
                                     }
                                 }
                             }
+                            break;
+                        case AV_OPT_TYPE_INT64:
+                            {
+                                int64_t value;
+                                int64_t imin = min;
+                                int64_t imax = max;
 
-                            if (value != (int64_t)uvalue) {
-                                value = uvalue;
-                                opt_storage[opt_index].u.u32 = value;
-                            }
-                        }
-                        break;
-                    case AV_OPT_TYPE_BOOL:
-                        {
-                            int value = *(int *)ptr;
-                            int imin = min;
-                            int imax = max;
+                                if (av_opt_get_int(ctx->priv, opt->name, 0, &value))
+                                    break;
 
-                            if (opt_storage.size() <= opt_index) {
-                                OptStorage new_opt;
+                                if (opt_storage.size() <= opt_index) {
+                                    OptStorage new_opt = { 0 };
 
-                                new_opt.u.i32 = *(int *)ptr;
-                                opt_storage.push_back(new_opt);
-                            }
-
-                            value = opt_storage[opt_index].u.i32;
-                            if (tree == false)
-                                ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::DragScalar(opt->name, ImGuiDataType_U32, &value, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
-                                opt_storage[opt_index].u.i32 = value;
-                            }
-                        }
-                        break;
-                    case AV_OPT_TYPE_INT:
-                        {
-                            int value = *(int *)ptr;
-                            int imin = min;
-                            int imax = max;
-
-                            if (opt_storage.size() <= opt_index) {
-                                OptStorage new_opt;
-
-                                new_opt.u.i32 = *(int *)ptr;
-                                opt_storage.push_back(new_opt);
-                            }
-                            value = opt_storage[opt_index].u.i32;
-                            if (tree == false)
-                                ImGui::SetNextItemWidth(200.f);
-                            if (imax < INT_MAX/2 && imin > INT_MIN/2) {
-                                if (ImGui::SliderInt(opt->name, &value, imin, imax)) {
-                                    opt_storage[opt_index].u.i32 = value;
+                                    new_opt.u.i64 = value;
+                                    opt_storage.push_back(new_opt);
                                 }
-                            } else {
-                                if (ImGui::DragInt(opt->name, &value, imin, imax, ImGuiSliderFlags_AlwaysClamp)) {
-                                    opt_storage[opt_index].u.i32 = value;
+                                value = opt_storage[opt_index].u.i64;
+                                if (tree == false)
+                                    ImGui::SetNextItemWidth(200.f);
+                                if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &imin, &imax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
+                                    opt_storage[opt_index].u.i64 = value;
                                 }
                             }
-                        }
-                        break;
-                    case AV_OPT_TYPE_INT64:
-                        {
-                            int64_t value = *(int64_t *)ptr;
-                            int64_t imin = min;
-                            int64_t imax = max;
+                            break;
+                        case AV_OPT_TYPE_UINT64:
+                            {
+                                int64_t value;
+                                uint64_t uvalue;
+                                uint64_t umin = min;
+                                uint64_t umax = max;
 
-                            if (opt_storage.size() <= opt_index) {
-                                OptStorage new_opt;
+                                if (av_opt_get_int(ctx->priv, opt->name, 0, &value))
+                                    break;
 
-                                new_opt.u.i64 = *(int64_t *)ptr;
-                                opt_storage.push_back(new_opt);
+                                if (opt_storage.size() <= opt_index) {
+                                    OptStorage new_opt = { 0 };
+
+                                    new_opt.u.u64 = (uint64_t)value;
+                                    opt_storage.push_back(new_opt);
+                                }
+                                uvalue = opt_storage[opt_index].u.u64;
+                                if (tree == false)
+                                    ImGui::SetNextItemWidth(200.f);
+                                if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &uvalue, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
+                                    opt_storage[opt_index].u.u64 = uvalue;
+                                }
                             }
-                            value = opt_storage[opt_index].u.i64;
-                            if (tree == false)
-                                ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::DragScalar(opt->name, ImGuiDataType_S64, &value, 1, &imin, &imax, "%ld", ImGuiSliderFlags_AlwaysClamp)) {
-                                opt_storage[opt_index].u.i64 = value;
+                            break;
+                        case AV_OPT_TYPE_DOUBLE:
+                            {
+                                double value;
+
+                                if (av_opt_get_double(ctx->priv, opt->name, 0, &value))
+                                    break;
+
+                                if (opt_storage.size() <= opt_index) {
+                                    OptStorage new_opt = { 0 };
+
+                                    new_opt.u.dbl = value;
+                                    opt_storage.push_back(new_opt);
+                                }
+                                value = opt_storage[opt_index].u.dbl;
+                                if (tree == false)
+                                    ImGui::SetNextItemWidth(200.f);
+                                if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                    opt_storage[opt_index].u.dbl = value;
+                                }
                             }
-                        }
-                        break;
-                    case AV_OPT_TYPE_UINT64:
-                        {
-                            uint64_t value = *(uint64_t *)ptr;
-                            uint64_t umin = min;
-                            uint64_t umax = max;
+                            break;
+                        case AV_OPT_TYPE_FLOAT:
+                            {
+                                float fmax = max;
+                                float fmin = min;
+                                double value;
+                                float fvalue;
 
-                            if (opt_storage.size() <= opt_index) {
-                                OptStorage new_opt;
+                                if (av_opt_get_double(ctx->priv, opt->name, 0, &value))
+                                    break;
 
-                                new_opt.u.u64 = *(uint64_t *)ptr;
-                                opt_storage.push_back(new_opt);
+                                if (opt_storage.size() <= opt_index) {
+                                    OptStorage new_opt = { 0 };
+
+                                    new_opt.u.flt = value;
+                                    opt_storage.push_back(new_opt);
+                                }
+                                fvalue = opt_storage[opt_index].u.flt;
+                                if (tree == false)
+                                    ImGui::SetNextItemWidth(200.f);
+                                if (ImGui::DragFloat(opt->name, &fvalue, (fmax - fmin)/200.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp))
+                                    opt_storage[opt_index].u.flt = fvalue;
                             }
-                            value = opt_storage[opt_index].u.u64;
-                            if (tree == false)
-                                ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::DragScalar(opt->name, ImGuiDataType_U64, &value, 1, &umin, &umax, "%lu", ImGuiSliderFlags_AlwaysClamp)) {
-                                opt_storage[opt_index].u.u64 = value;
+                            break;
+                        case AV_OPT_TYPE_STRING:
+                            {
+                                char string[1024] = { 0 };
+                                uint8_t *str = NULL;
+
+                                if (opt_storage.size() <= opt_index) {
+                                    OptStorage new_opt = { 0 };
+
+                                    av_opt_get(ctx->priv, opt->name, 0, &str);
+                                    new_opt.u.str = (char *)str;
+                                    opt_storage.push_back(new_opt);
+                                }
+
+                                if (opt_storage[opt_index].u.str)
+                                    memcpy(string, opt_storage[opt_index].u.str, std::min(sizeof(string) - 1, strlen(opt_storage[opt_index].u.str)));
+                                if (tree == false)
+                                    ImGui::SetNextItemWidth(200.f);
+                                if (ImGui::InputText(opt->name, string, IM_ARRAYSIZE(string))) {
+                                    av_freep(&opt_storage[opt_index].u.str);
+                                    opt_storage[opt_index].u.str = av_strdup(string);
+                                }
                             }
-                        }
-                        break;
-                    case AV_OPT_TYPE_DOUBLE:
-                        {
-                            double value = *(double *)ptr;
+                            break;
+                        case AV_OPT_TYPE_COLOR:
+                            {
+                                uint8_t icol[4];
+                                uint8_t *value;
+                                float col[4];
 
-                            if (opt_storage.size() <= opt_index) {
-                                OptStorage new_opt;
+                                if (av_opt_get(ctx->priv, opt->name, 0, &value))
+                                    break;
 
-                                new_opt.u.dbl = *(double *)ptr;
-                                opt_storage.push_back(new_opt);
+                                sscanf((char *)value, "0x%02hhX%02hhX%02hhX%02hhX", &icol[0], &icol[1], &icol[2], &icol[3]);
+                                if (opt_storage.size() <= opt_index) {
+                                    OptStorage new_opt = { 0 };
+
+                                    new_opt.u.col[0] = icol[0] / 255.f;
+                                    new_opt.u.col[1] = icol[1] / 255.f;
+                                    new_opt.u.col[2] = icol[2] / 255.f;
+                                    new_opt.u.col[3] = icol[3] / 255.f;
+                                    opt_storage.push_back(new_opt);
+                                }
+                                col[0] = opt_storage[opt_index].u.col[0];
+                                col[1] = opt_storage[opt_index].u.col[1];
+                                col[2] = opt_storage[opt_index].u.col[2];
+                                col[3] = opt_storage[opt_index].u.col[3];
+                                if (tree == false)
+                                    ImGui::SetNextItemWidth(200.f);
+                                if (ImGui::ColorEdit4(opt->name, col, ImGuiColorEditFlags_NoDragDrop)) {
+                                    opt_storage[opt_index].u.col[0] = col[0];
+                                    opt_storage[opt_index].u.col[1] = col[1];
+                                    opt_storage[opt_index].u.col[2] = col[2];
+                                    opt_storage[opt_index].u.col[3] = col[3];
+                                }
                             }
-                            value = opt_storage[opt_index].u.dbl;
-                            if (tree == false)
-                                ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::DragScalar(opt->name, ImGuiDataType_Double, &value, (max-min)/25.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                                opt_storage[opt_index].u.dbl = value;
-                            }
-                        }
-                        break;
-                    case AV_OPT_TYPE_FLOAT:
-                        {
-                            float fmax = max;
-                            float fmin = min;
-                            float value;
-
-                            if (opt_storage.size() <= opt_index) {
-                                OptStorage new_opt;
-
-                                new_opt.u.flt = *(float *)ptr;
-                                opt_storage.push_back(new_opt);
-                            }
-                            value = opt_storage[opt_index].u.flt;
-                            if (tree == false)
-                                ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::DragFloat(opt->name, &value, (fmax - fmin)/25.f, fmin, fmax, "%f", ImGuiSliderFlags_AlwaysClamp))
-                                opt_storage[opt_index].u.flt = value;
-                        }
-                        break;
-                    case AV_OPT_TYPE_STRING:
-                        {
-                            char string[1024] = { 0 };
-                            uint8_t *str = NULL;
-
-                            if (opt_storage.size() <= opt_index) {
-                                OptStorage new_opt;
-
-                                av_opt_get(ctx->priv, opt->name, 0, &str);
-                                new_opt.u.str = (char *)str;
-                                opt_storage.push_back(new_opt);
-                            }
-
-                            if (opt_storage[opt_index].u.str)
-                                memcpy(string, opt_storage[opt_index].u.str, std::min(sizeof(string) - 1, strlen(opt_storage[opt_index].u.str)));
-                            if (tree == false)
-                                ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::InputText(opt->name, string, IM_ARRAYSIZE(string))) {
-                                av_freep(&opt_storage[opt_index].u.str);
-                                opt_storage[opt_index].u.str = av_strdup(string);
-                            }
-                        }
-                        break;
-                    case AV_OPT_TYPE_COLOR:
-                        {
-                            uint8_t *icol = (uint8_t *)ptr;
-                            float col[4];
-
-                            if (opt_storage.size() <= opt_index) {
-                                OptStorage new_opt;
-
-                                new_opt.u.col[0] = icol[0] / 255.f;
-                                new_opt.u.col[1] = icol[1] / 255.f;
-                                new_opt.u.col[2] = icol[2] / 255.f;
-                                new_opt.u.col[3] = icol[3] / 255.f;
-                                opt_storage.push_back(new_opt);
-                            }
-                            col[0] = opt_storage[opt_index].u.col[0];
-                            col[1] = opt_storage[opt_index].u.col[1];
-                            col[2] = opt_storage[opt_index].u.col[2];
-                            col[3] = opt_storage[opt_index].u.col[3];
-                            if (tree == false)
-                                ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::ColorEdit4(opt->name, col, ImGuiColorEditFlags_NoDragDrop)) {
-                                opt_storage[opt_index].u.col[0] = col[0];
-                                opt_storage[opt_index].u.col[1] = col[1];
-                                opt_storage[opt_index].u.col[2] = col[2];
-                                opt_storage[opt_index].u.col[3] = col[3];
-                            }
-                        }
-                        break;
-                    default:
-                        break;
+                            break;
+                        default:
+                            break;
+                    }
                 }
 
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("%s", opt->help);
 
                 opt_index++;
+                if (opt_index > opt_storage.size()) {
+                    OptStorage new_opt = { 0 };
+
+                    opt_storage.push_back(new_opt);
+                }
 
                 ImGui::PopID();
             }
