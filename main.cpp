@@ -4508,15 +4508,15 @@ static void draw_filters_commands(unsigned *toggle_filter)
         if (!ctx->filter)
             continue;
 
-        if (!imgui_filter.PassFilter(ctx->filter->name))
+        if (!imgui_filter.PassFilter(ctx->name))
             continue;
 
-        if (ImGui::Selectable(ctx->filter->name, is_selected)) {
+        if (ImGui::Selectable(ctx->name, is_selected)) {
             selected_filter = n;
         }
 
         if (ImGui::IsItemActive() || ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", ctx->name);
+            ImGui::SetTooltip("%s", ctx->filter->description);
         }
 
         if (ImGui::IsItemClicked() && ImGui::IsItemActive()) {
