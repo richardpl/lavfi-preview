@@ -82,6 +82,10 @@ typedef struct Edge2Pad {
     enum AVMediaType type;
 } Edge2Pad;
 
+typedef struct ColorItem {
+    float c[4];
+} ColorItem;
+
 typedef struct OptStorage {
     unsigned nb_items;
     union {
@@ -93,7 +97,7 @@ typedef struct OptStorage {
         double dbl;
         AVRational q;
         char *str;
-        float col[4];
+        ColorItem col;
 
         int32_t *i32_array;
         uint32_t *u32_array;
@@ -103,6 +107,7 @@ typedef struct OptStorage {
         double *dbl_array;
         AVRational *q_array;
         char **str_array;
+        ColorItem *col_array;
     } u;
 } OptStorage;
 
@@ -2271,7 +2276,7 @@ static void draw_options(FilterNode *node, void *av_class)
                             if (!value)
                                 break;
 
-                            if (av_opt_get_array(av_class, opt->name, 0, 0, nb_elems, type, value) < 0) {
+                            if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
                                 av_freep(&value);
                                 break;
                             }
@@ -2279,7 +2284,7 @@ static void draw_options(FilterNode *node, void *av_class)
                             ImGui::SetNextItemWidth(200.f);
                             if (ImGui::DragScalarN(opt->name, ImGuiDataType_Double, value, nb_elems,
                                                    (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                                av_opt_set_array(av_class, opt->name, 0, 0, nb_elems, type, value);
+                                av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value);
                             }
                             av_freep(&value);
                         }
@@ -2293,7 +2298,7 @@ static void draw_options(FilterNode *node, void *av_class)
                             if (!value)
                                 break;
 
-                            if (av_opt_get_array(av_class, opt->name, 0, 0, nb_elems, type, value) < 0) {
+                            if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
                                 av_freep(&value);
                                 break;
                             }
@@ -2301,11 +2306,12 @@ static void draw_options(FilterNode *node, void *av_class)
                             ImGui::SetNextItemWidth(200.f);
                             if (ImGui::DragScalarN(opt->name, ImGuiDataType_Float, value, nb_elems,
                                                    (fmax-fmin)/200.f, &fmin, &fmax, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                                av_opt_set_array(av_class, opt->name, 0, 0, nb_elems, type, value);
+                                av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value);
                             }
                             av_freep(&value);
                         }
                         break;
+                    case AV_OPT_TYPE_BOOL:
                     case AV_OPT_TYPE_INT:
                         {
                             int32_t *value = (int32_t *)av_calloc(nb_elems, sizeof(*value));
@@ -2313,7 +2319,7 @@ static void draw_options(FilterNode *node, void *av_class)
                             if (!value)
                                 break;
 
-                            if (av_opt_get_array(av_class, opt->name, 0, 0, nb_elems, type, value) < 0) {
+                            if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
                                 av_freep(&value);
                                 break;
                             }
@@ -2321,7 +2327,65 @@ static void draw_options(FilterNode *node, void *av_class)
                             ImGui::SetNextItemWidth(200.f);
                             if (ImGui::DragScalarN(opt->name, ImGuiDataType_S32, value, nb_elems,
                                                    (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
-                                av_opt_set_array(av_class, opt->name, 0, 0, nb_elems, type, value);
+                                av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value);
+                            }
+                            av_freep(&value);
+                        }
+                        break;
+                    case AV_OPT_TYPE_FLAGS:
+                    case AV_OPT_TYPE_UINT:
+                        {
+                            uint32_t *value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
+
+                            if (!value)
+                                break;
+
+                            if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
+                                av_freep(&value);
+                                break;
+                            }
+
+                            ImGui::SetNextItemWidth(200.f);
+                            if (ImGui::DragScalarN(opt->name, ImGuiDataType_U32, value, nb_elems,
+                                                   (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value);
+                            }
+                            av_freep(&value);
+                        }
+                        break;
+                    case AV_OPT_TYPE_STRING:
+                        {
+                            char **value = (char **)av_calloc(nb_elems, sizeof(*value));
+                            bool new_value = false;
+
+                            if (!value)
+                                break;
+
+                            if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
+                                av_freep(&value);
+                                break;
+                            }
+
+                            for (unsigned int i = 0; i < nb_elems; i++) {
+                                char label[1024] = {0};
+                                char string[1024] = {0};
+
+                                snprintf(label, sizeof(label), "%s.%u", opt->name, i);
+
+                                ImGui::SetNextItemWidth(200.f);
+                                if (value[i])
+                                    memcpy(string, value[i], std::min(sizeof(string)-1, strlen(value[i])));
+                                if (ImGui::InputText(label, string, IM_ARRAYSIZE(string))) {
+                                    av_freep(&value[i]);
+                                    value[i] = av_strdup(string);
+                                    new_value = true;
+                                }
+                            }
+
+                            if (new_value == true)
+                                av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value);
+                            for (unsigned int i = 0; i < nb_elems; i++) {
+                                av_freep(&value[i]);
                             }
                             av_freep(&value);
                         }
@@ -2790,6 +2854,17 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         }
                                         break;
                                     case AV_OPT_TYPE_COLOR:
+                                        for (unsigned int i = 0; i < opt_storage[opt_index].nb_items; i++) {
+                                            char item[12] = {0};
+
+                                            snprintf(item, sizeof(item)-1, "0x%02x%02x%02x%02x",
+                                                     av_clip_uint8(opt_storage[opt_index].u.col_array[i].c[0] * 255),
+                                                     av_clip_uint8(opt_storage[opt_index].u.col_array[i].c[1] * 255),
+                                                     av_clip_uint8(opt_storage[opt_index].u.col_array[i].c[2] * 255),
+                                                     av_clip_uint8(opt_storage[opt_index].u.col_array[i].c[3] * 255));
+
+                                            arg << item << separator;
+                                        }
                                         break;
                                     default:
                                         break;
@@ -2847,10 +2922,10 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         break;
                                     case AV_OPT_TYPE_COLOR:
                                         snprintf(arg, sizeof(arg)-1, "0x%02x%02x%02x%02x",
-                                                 av_clip_uint8(opt_storage[opt_index].u.col[0] * 255),
-                                                 av_clip_uint8(opt_storage[opt_index].u.col[1] * 255),
-                                                 av_clip_uint8(opt_storage[opt_index].u.col[2] * 255),
-                                                 av_clip_uint8(opt_storage[opt_index].u.col[3] * 255));
+                                                 av_clip_uint8(opt_storage[opt_index].u.col.c[0] * 255),
+                                                 av_clip_uint8(opt_storage[opt_index].u.col.c[1] * 255),
+                                                 av_clip_uint8(opt_storage[opt_index].u.col.c[2] * 255),
+                                                 av_clip_uint8(opt_storage[opt_index].u.col.c[3] * 255));
                                         break;
                                     default:
                                         break;
@@ -2886,7 +2961,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                                         new_opt.nb_items = nb_elems;
                                         new_opt.u.u32_array = value;
-                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, new_opt.u.u32_array);
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, new_opt.u.u32_array);
                                         opt_storage.push_back(new_opt);
                                     } else if (nb_elems != opt_storage[opt_index].nb_items) {
                                         av_free(opt_storage[opt_index].u.u32_array);
@@ -2899,7 +2974,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                                         opt_storage[opt_index].nb_items = nb_elems;
                                         opt_storage[opt_index].u.u32_array = value;
-                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, opt_storage[opt_index].u.u32_array);
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, opt_storage[opt_index].u.u32_array);
                                     }
 
                                     if (tree == false)
@@ -2924,7 +2999,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                                         new_opt.nb_items = nb_elems;
                                         new_opt.u.i32_array = value;
-                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, new_opt.u.i32_array);
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, new_opt.u.i32_array);
                                         opt_storage.push_back(new_opt);
                                     } else if (nb_elems != opt_storage[opt_index].nb_items) {
                                         av_free(opt_storage[opt_index].u.i32_array);
@@ -2937,7 +3012,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                                         opt_storage[opt_index].nb_items = nb_elems;
                                         opt_storage[opt_index].u.i32_array = value;
-                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, opt_storage[opt_index].u.i32_array);
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, opt_storage[opt_index].u.i32_array);
                                     }
 
                                     if (tree == false)
@@ -2963,7 +3038,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                                         new_opt.nb_items = nb_elems;
                                         new_opt.u.flt_array = value;
-                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, new_opt.u.flt_array);
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, new_opt.u.flt_array);
                                         opt_storage.push_back(new_opt);
                                     } else if (nb_elems != opt_storage[opt_index].nb_items) {
                                         av_free(opt_storage[opt_index].u.flt_array);
@@ -2976,7 +3051,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                                         opt_storage[opt_index].nb_items = nb_elems;
                                         opt_storage[opt_index].u.flt_array = value;
-                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, opt_storage[opt_index].u.flt_array);
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, opt_storage[opt_index].u.flt_array);
                                     }
 
                                     if (tree == false)
@@ -3000,7 +3075,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                                         new_opt.nb_items = nb_elems;
                                         new_opt.u.dbl_array = value;
-                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, new_opt.u.dbl_array);
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, new_opt.u.dbl_array);
                                         opt_storage.push_back(new_opt);
                                     } else if (nb_elems != opt_storage[opt_index].nb_items) {
                                         av_free(opt_storage[opt_index].u.dbl_array);
@@ -3013,7 +3088,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                                         opt_storage[opt_index].nb_items = nb_elems;
                                         opt_storage[opt_index].u.dbl_array = value;
-                                        av_opt_get_array(ctx->priv, opt->name, 0, 0, nb_elems, type, opt_storage[opt_index].u.dbl_array);
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, opt_storage[opt_index].u.dbl_array);
                                     }
 
                                     if (tree == false)
@@ -3021,6 +3096,54 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                     if (ImGui::DragScalarN(opt->name, ImGuiDataType_Double, opt_storage[opt_index].u.dbl_array, opt_storage[opt_index].nb_items,
                                                            (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
                                         ;
+                                    }
+                                }
+                                break;
+                            case AV_OPT_TYPE_STRING:
+                                {
+                                    char **value = NULL;
+
+                                    if (opt_storage.size() <= opt_index) {
+                                        OptStorage new_opt = { 0 };
+
+                                        value = (char **)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        new_opt.nb_items = nb_elems;
+                                        new_opt.u.str_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, new_opt.u.str_array);
+                                        opt_storage.push_back(new_opt);
+                                    } else if (nb_elems != opt_storage[opt_index].nb_items) {
+                                        av_free(opt_storage[opt_index].u.str_array);
+                                        opt_storage[opt_index].u.str_array = NULL;
+                                        opt_storage[opt_index].nb_items = 0;
+
+                                        value = (char **)av_calloc(nb_elems, sizeof(*value));
+                                        if (!value)
+                                            break;
+
+                                        opt_storage[opt_index].nb_items = nb_elems;
+                                        opt_storage[opt_index].u.str_array = value;
+                                        av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, opt_storage[opt_index].u.str_array);
+                                    }
+
+                                    for (unsigned int i = 0; i < nb_elems; i++) {
+                                        char label[1024] = {0};
+                                        char string[1024] = { 0 };
+
+                                        if (tree == false)
+                                            ImGui::SetNextItemWidth(200.f);
+
+                                        if (opt_storage[opt_index].u.str_array[i])
+                                            memcpy(string, opt_storage[opt_index].u.str_array[i],
+                                                   std::min(sizeof(string)-1, strlen(opt_storage[opt_index].u.str_array[i])));
+
+                                        snprintf(label, sizeof(label), "%s.%u", opt->name, i);
+                                        if (ImGui::InputText(label, string, IM_ARRAYSIZE(string))) {
+                                            av_freep(&opt_storage[opt_index].u.str_array[i]);
+                                            opt_storage[opt_index].u.str_array[i] = av_strdup(string);
+                                        }
                                     }
                                 }
                                 break;
@@ -3260,23 +3383,23 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                 if (opt_storage.size() <= opt_index) {
                                     OptStorage new_opt = { 0 };
 
-                                    new_opt.u.col[0] = icol[0] / 255.f;
-                                    new_opt.u.col[1] = icol[1] / 255.f;
-                                    new_opt.u.col[2] = icol[2] / 255.f;
-                                    new_opt.u.col[3] = icol[3] / 255.f;
+                                    new_opt.u.col.c[0] = icol[0] / 255.f;
+                                    new_opt.u.col.c[1] = icol[1] / 255.f;
+                                    new_opt.u.col.c[2] = icol[2] / 255.f;
+                                    new_opt.u.col.c[3] = icol[3] / 255.f;
                                     opt_storage.push_back(new_opt);
                                 }
-                                col[0] = opt_storage[opt_index].u.col[0];
-                                col[1] = opt_storage[opt_index].u.col[1];
-                                col[2] = opt_storage[opt_index].u.col[2];
-                                col[3] = opt_storage[opt_index].u.col[3];
+                                col[0] = opt_storage[opt_index].u.col.c[0];
+                                col[1] = opt_storage[opt_index].u.col.c[1];
+                                col[2] = opt_storage[opt_index].u.col.c[2];
+                                col[3] = opt_storage[opt_index].u.col.c[3];
                                 if (tree == false)
                                     ImGui::SetNextItemWidth(200.f);
                                 if (ImGui::ColorEdit4(opt->name, col, ImGuiColorEditFlags_NoDragDrop)) {
-                                    opt_storage[opt_index].u.col[0] = col[0];
-                                    opt_storage[opt_index].u.col[1] = col[1];
-                                    opt_storage[opt_index].u.col[2] = col[2];
-                                    opt_storage[opt_index].u.col[3] = col[3];
+                                    opt_storage[opt_index].u.col.c[0] = col[0];
+                                    opt_storage[opt_index].u.col.c[1] = col[1];
+                                    opt_storage[opt_index].u.col.c[2] = col[2];
+                                    opt_storage[opt_index].u.col.c[3] = col[3];
                                 }
                             }
                             break;
