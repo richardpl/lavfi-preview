@@ -87,7 +87,6 @@ typedef struct ColorItem {
 } ColorItem;
 
 typedef struct OptStorage {
-    unsigned nb_items;
     union {
         int32_t i32;
         uint32_t u32;
@@ -109,6 +108,7 @@ typedef struct OptStorage {
         char **str_array;
         ColorItem *col_array;
     } u;
+    unsigned nb_items;
 } OptStorage;
 
 typedef struct BufferSink {
@@ -2394,6 +2394,71 @@ static void draw_options(FilterNode *node, void *av_class)
                         break;
                 }
             }
+
+            if (ImNodes::IsNodeSelected(node->edge) && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
+                ImGui::SetTooltip("%s", opt->help);
+
+            {
+                ImGui::SameLine();
+                ImGui::PushID(opt->name);
+                if ((nb_elems >= opt->default_val.arr->size_max) &&
+                    opt->default_val.arr->size_max > 0)
+                    ImGui::BeginDisabled();
+                if (ImGui::SmallButton("+")) {
+                    OptStorage new_element = { 0 };
+
+                    switch (type) {
+                    case AV_OPT_TYPE_FLOAT:
+                        new_element.u.flt = (max-min)/2;
+                        break;
+                    case AV_OPT_TYPE_DOUBLE:
+                        new_element.u.dbl = (max-min)/2;
+                        break;
+                    case AV_OPT_TYPE_UINT:
+                        new_element.u.u32 = (max-min)/2;
+                        break;
+                    case AV_OPT_TYPE_INT:
+                        new_element.u.i32 = (max-min)/2;
+                        break;
+                    case AV_OPT_TYPE_INT64:
+                        new_element.u.i64 = (max-min)/2;
+                        break;
+                    case AV_OPT_TYPE_UINT64:
+                        new_element.u.u64 = (max-min)/2;
+                        break;
+                    case AV_OPT_TYPE_BOOL:
+                        new_element.u.i32 = (max-min)/2;
+                        break;
+                    case AV_OPT_TYPE_FLAGS:
+                        new_element.u.u32 = (max-min)/2;
+                        break;
+                    case AV_OPT_TYPE_STRING:
+                        new_element.u.str = av_strdup("<empty>");
+                        break;
+                    default:
+                        break;
+                    }
+
+                    av_opt_set_array(av_class, opt->name, 0, nb_elems, 1, type, &new_element);
+                }
+                if ((nb_elems >= opt->default_val.arr->size_max) &&
+                    opt->default_val.arr->size_max > 0)
+                    ImGui::EndDisabled();
+                ImGui::PopID();
+            }
+
+            {
+                ImGui::SameLine();
+                ImGui::PushID(opt->name);
+                if (nb_elems <= opt->default_val.arr->size_min)
+                    ImGui::BeginDisabled();
+                if (ImGui::SmallButton("-")) {
+                    av_opt_set_array(av_class, opt->name, 0, nb_elems-1, 1, type, NULL);
+                }
+                if (nb_elems <= opt->default_val.arr->size_min)
+                    ImGui::EndDisabled();
+                ImGui::PopID();
+            }
         } else {
             switch (opt->type) {
                 case AV_OPT_TYPE_INT64:
@@ -2747,10 +2812,10 @@ static void draw_options(FilterNode *node, void *av_class)
                 default:
                     break;
             }
-        }
 
-        if (ImNodes::IsNodeSelected(node->edge) && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
-            ImGui::SetTooltip("%s", opt->help);
+            if (ImNodes::IsNodeSelected(node->edge) && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
+                ImGui::SetTooltip("%s", opt->help);
+        }
     }
 }
 
