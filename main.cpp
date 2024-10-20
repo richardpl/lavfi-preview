@@ -1785,11 +1785,11 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
     }
 
     if (sink->fullscreen) {
-        ImGui::GetWindowDrawList()->AddImage((void*)(intptr_t)*texture, ImVec2(0.f, 0.f),
+        ImGui::GetWindowDrawList()->AddImage(*texture, ImVec2(0.f, 0.f),
                                              ImGui::GetWindowSize(),
                                              ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), IM_COL32_WHITE);
     } else {
-        ImGui::Image((void*)(intptr_t)*texture, ImVec2(width, height));
+        ImGui::Image(*texture, ImVec2(width, height));
     }
 
     if ((ImGui::IsItemHovered() || sink->fullscreen) && ImGui::IsKeyDown(ImGuiKey_Z)) {
@@ -1812,7 +1812,7 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
         else if (region_y > my_tex_h - region_sz) { region_y = my_tex_h - region_sz; }
         ImVec2 uv0 = ImVec2((region_x) / my_tex_w, (region_y) / my_tex_h);
         ImVec2 uv1 = ImVec2((region_x + region_sz) / my_tex_w, (region_y + region_sz) / my_tex_h);
-        ImGui::Image((void*)(intptr_t)*texture, ImVec2(region_sz * zoom, region_sz * zoom), uv0, uv1, tint_col, border_col);
+        ImGui::Image(*texture, ImVec2(region_sz * zoom, region_sz * zoom), uv0, uv1, tint_col, border_col);
         ImGui::EndTooltip();
     }
 
