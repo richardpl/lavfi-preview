@@ -2315,6 +2315,8 @@ static void draw_options(FilterNode *node, void *av_class)
                     case AV_OPT_TYPE_INT:
                         {
                             int32_t *value = (int32_t *)av_calloc(nb_elems, sizeof(*value));
+                            int32_t imin = min;
+                            int32_t imax = max;
 
                             if (!value)
                                 break;
@@ -2326,7 +2328,7 @@ static void draw_options(FilterNode *node, void *av_class)
 
                             ImGui::SetNextItemWidth(200.f);
                             if (ImGui::DragScalarN(opt->name, ImGuiDataType_S32, value, nb_elems,
-                                                   (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                                   1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                                 av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value);
                             }
                             av_freep(&value);
@@ -2336,6 +2338,8 @@ static void draw_options(FilterNode *node, void *av_class)
                     case AV_OPT_TYPE_UINT:
                         {
                             uint32_t *value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
+                            uint32_t umin = min;
+                            uint32_t umax = max;
 
                             if (!value)
                                 break;
@@ -2347,7 +2351,7 @@ static void draw_options(FilterNode *node, void *av_class)
 
                             ImGui::SetNextItemWidth(200.f);
                             if (ImGui::DragScalarN(opt->name, ImGuiDataType_U32, value, nb_elems,
-                                                   (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                                   1, &umin, &umax, "%u", ImGuiSliderFlags_AlwaysClamp)) {
                                 av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value);
                             }
                             av_freep(&value);
@@ -3016,6 +3020,8 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                             case AV_OPT_TYPE_UINT:
                                 {
                                     uint32_t *value = NULL;
+                                    uint32_t umax = max;
+                                    uint32_t umin = min;
 
                                     if (opt_storage.size() <= opt_index) {
                                         OptStorage new_opt = { 0 };
@@ -3045,7 +3051,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                     if (tree == false)
                                         ImGui::SetNextItemWidth(200.f);
                                     if (ImGui::DragScalarN(opt->name, ImGuiDataType_U32, opt_storage[opt_index].u.u32_array,  opt_storage[opt_index].nb_items,
-                                                           (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                                           1, &umin, &umax, "%u", ImGuiSliderFlags_AlwaysClamp)) {
                                         ;
                                     }
                                 }
@@ -3054,6 +3060,8 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                             case AV_OPT_TYPE_INT:
                                 {
                                     int32_t *value = NULL;
+                                    int32_t imax = max;
+                                    int32_t imin = min;
 
                                     if (opt_storage.size() <= opt_index) {
                                         OptStorage new_opt = { 0 };
@@ -3083,7 +3091,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                     if (tree == false)
                                         ImGui::SetNextItemWidth(200.f);
                                     if (ImGui::DragScalarN(opt->name, ImGuiDataType_S32, opt_storage[opt_index].u.i32_array, opt_storage[opt_index].nb_items,
-                                                           (max-min)/200.0, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp)) {
+                                                           1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                                         ;
                                     }
                                 }
