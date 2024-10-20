@@ -3752,7 +3752,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     }
 
     if (ImGui::BeginPopup("Add Filter")) {
-        if (ImGui::BeginMenu("Source Filters", filter_graph_is_valid == false)) {
+        if (ImGui::BeginMenu("Source", filter_graph_is_valid == false)) {
+            ImGui::SetTooltip("%s", "Insert Source Filter");
             if (ImGui::BeginMenu("Video")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
@@ -3794,7 +3795,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Simple Filters", filter_graph_is_valid == false)) {
+        if (ImGui::BeginMenu("Simple", filter_graph_is_valid == false)) {
+            ImGui::SetTooltip("%s", "Insert Simple Filter");
             if (ImGui::BeginMenu("Video")) {
                 static ImGuiTextFilter imgui_filter;
                 const AVFilter *filter = NULL;
@@ -3834,7 +3836,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Complex Filters", filter_graph_is_valid == false)) {
+        if (ImGui::BeginMenu("Complex", filter_graph_is_valid == false)) {
+            ImGui::SetTooltip("%s", "Insert Complex Filter");
             if (ImGui::BeginMenu("Video")) {
                 static ImGuiTextFilter imgui_filter;
                 const AVFilter *filter = NULL;
@@ -3874,7 +3877,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Media Filters", filter_graph_is_valid == false)) {
+        if (ImGui::BeginMenu("Media", filter_graph_is_valid == false)) {
             const AVFilter *filter = NULL;
             void *iterator = NULL;
 
@@ -3887,7 +3890,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Sink Filters", filter_graph_is_valid == false)) {
+        if (ImGui::BeginMenu("Sink", filter_graph_is_valid == false)) {
+            ImGui::SetTooltip("%s", "Insert Sink Filter");
             if (ImGui::BeginMenu("Video")) {
                 const AVFilter *filter = NULL;
                 void *iterator = NULL;
@@ -4132,31 +4136,35 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Export FilterGraph", filter_graph_is_valid == true)) {
-            if (ImGui::BeginMenu("Save as Script")) {
-                static char file_name[1024] = { 0 };
+        if (ImGui::BeginMenu("Graph")) {
+            ImGui::SetTooltip("%s", "Export/Import FilterGraph");
+            if (ImGui::BeginMenu("Export", filter_graph_is_valid == true)) {
+                if (ImGui::BeginMenu("Save as Script")) {
+                    static char file_name[1024] = { 0 };
 
-                ImGui::InputText("File name:", file_name, IM_ARRAYSIZE(file_name));
-                if (strlen(file_name) > 0 && ImGui::Button("Save")) {
-                    exportfile_filter_graph(file_name);
-                    memset(file_name, 0, sizeof(file_name));
+                    ImGui::InputText("File name:", file_name, IM_ARRAYSIZE(file_name));
+                    if (strlen(file_name) > 0 && ImGui::Button("Save")) {
+                        exportfile_filter_graph(file_name);
+                        memset(file_name, 0, sizeof(file_name));
+                    }
+                    ImGui::EndMenu();
                 }
                 ImGui::EndMenu();
             }
-            ImGui::EndMenu();
-        }
 
-        if (ImGui::BeginMenu("Import FilterGraph", filter_graph_is_valid == false &&
-                             filter_links.size() == 0 &&
-                             filter_nodes.size() == 0)) {
-            if (ImGui::BeginMenu("Load Script")) {
-                static char file_name[1024] = { 0 };
+            if (ImGui::BeginMenu("Import", filter_graph_is_valid == false &&
+                                 filter_links.size() == 0 &&
+                                 filter_nodes.size() == 0)) {
+                if (ImGui::BeginMenu("Load Script")) {
+                    static char file_name[1024] = { 0 };
 
-                ImGui::InputText("File name:", file_name, IM_ARRAYSIZE(file_name));
-                if (strlen(file_name) > 0 && ImGui::Button("Load")) {
-                    av_freep(&import_script_file_name);
-                    import_script_file_name = av_asprintf("%s", file_name);
-                    memset(file_name, 0, sizeof(file_name));
+                    ImGui::InputText("File name:", file_name, IM_ARRAYSIZE(file_name));
+                    if (strlen(file_name) > 0 && ImGui::Button("Load")) {
+                        av_freep(&import_script_file_name);
+                        import_script_file_name = av_asprintf("%s", file_name);
+                        memset(file_name, 0, sizeof(file_name));
+                    }
+                    ImGui::EndMenu();
                 }
                 ImGui::EndMenu();
             }
