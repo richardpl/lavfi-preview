@@ -2398,7 +2398,7 @@ static void draw_options(FilterNode *node, void *av_class)
             if (ImNodes::IsNodeSelected(node->edge) && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
                 ImGui::SetTooltip("%s", opt->help);
 
-            {
+            if (opt->default_val.arr) {
                 ImGui::SameLine();
                 ImGui::PushID(opt->name);
                 if ((nb_elems >= opt->default_val.arr->size_max) &&
@@ -2447,7 +2447,7 @@ static void draw_options(FilterNode *node, void *av_class)
                 ImGui::PopID();
             }
 
-            {
+            if (opt->default_val.arr) {
                 ImGui::SameLine();
                 ImGui::PushID(opt->name);
                 if (nb_elems <= opt->default_val.arr->size_min)
