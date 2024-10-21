@@ -216,6 +216,7 @@ bool show_log_window = false;
 int log_level = AV_LOG_INFO;
 ImGuiTextBuffer log_buffer;
 ImVector<int> log_lines_offsets;
+ImVector<int> log_lines_levels;
 std::mutex log_mutex;
 
 GLint global_upscale_interpolation = GL_NEAREST;
@@ -4666,7 +4667,7 @@ static void log_callback(void *ptr, int level, const char *fmt, va_list args)
     log_mutex.lock();
 
     if (log_level >= level) {
-        int old_size = log_buffer.size();
+        int new_size;
 
         switch (level) {
         case AV_LOG_QUIET:
@@ -4697,9 +4698,9 @@ static void log_callback(void *ptr, int level, const char *fmt, va_list args)
             break;
         }
         log_buffer.appendfv(fmt, args);
-        for (int new_size = log_buffer.size(); old_size < new_size; old_size++)
-            if (log_buffer[old_size] == '\n')
-                log_lines_offsets.push_back(old_size + 1);
+        new_size = log_buffer.size();
+        log_lines_levels.push_back(level);
+        log_lines_offsets.push_back(new_size);
     }
 
     log_mutex.unlock();
@@ -4719,15 +4720,44 @@ static void show_log(bool *p_open, bool focused)
     }
 
     filter.Draw("###Log Filter", ImGui::GetWindowSize().x);
-    if (filter.IsActive()) {
-        for (int line_no = 0; line_no < log_lines_offsets.Size; line_no++) {
-            const char *line_start = log_buffer.begin() + log_lines_offsets[line_no];
-            const char *line_end = (line_no + 1 < log_lines_offsets.Size) ? (log_buffer.begin() + log_lines_offsets[line_no + 1] - 1) : log_buffer.end();
-            if (filter.PassFilter(line_start, line_end))
-                ImGui::TextUnformatted(line_start, line_end);
+    for (int line_no = 0; line_no < log_lines_offsets.Size; line_no++) {
+        const char *line_start = log_buffer.begin() + ((line_no > 1) ? log_lines_offsets[line_no-1] : 0);
+        const char *line_end = log_buffer.begin() + log_lines_offsets[line_no];
+        ImVec4 color;
+
+        if (!filter.IsActive() || filter.PassFilter(line_start, line_end)) {
+            const int line_length = line_end - line_start;
+            const int level = log_lines_levels[line_no];
+
+            switch (level) {
+                case AV_LOG_PANIC:
+                    color = ImVec4(1.f, 0.3f, 1.f, 1.f);
+                    break;
+                case AV_LOG_FATAL:
+                    color = ImVec4(1.f, 0, 1.f, 1.f);
+                    break;
+                case AV_LOG_ERROR:
+                    color = ImVec4(1.f, 0.f, 0.f, 1.f);
+                    break;
+                case AV_LOG_WARNING:
+                    color = ImVec4(1.f, 1.f, 0, 1.f);
+                    break;
+                case AV_LOG_INFO:
+                    color = ImVec4(0, 0, 1.f, 1.f);
+                    break;
+                case AV_LOG_VERBOSE:
+                    color = ImVec4(0, 0.5f, 1.f, 1.f);
+                    break;
+                case AV_LOG_DEBUG:
+                    color = ImVec4(0.5f, 0.5f, 1.f, 1.f);
+                    break;
+                default:
+                    color = ImVec4(1.f, 1.f, 1.f, 1.f);
+                    break;
+            }
+
+            ImGui::TextColored(color, "%.*s", line_length, line_start);
         }
-    } else {
-        ImGui::TextUnformatted(log_buffer.begin(), log_buffer.end());
     }
 
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
