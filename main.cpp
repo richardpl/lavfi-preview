@@ -2580,11 +2580,13 @@ static void draw_options(FilterNode *node, void *av_class)
                         }
 
                         if (opt->unit) {
+                            char preview_value[20];
                             char combo_name[20];
 
                             snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                            snprintf(preview_value, sizeof(preview_value), "%ld", value);
                             ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::BeginCombo(combo_name, 0, 0)) {
+                            if (ImGui::BeginCombo(combo_name, preview_value, 0)) {
                                 const AVOption *copt = NULL;
 
                                 while ((copt = av_opt_next(obj, copt))) {
@@ -2632,11 +2634,13 @@ static void draw_options(FilterNode *node, void *av_class)
                         }
 
                         if (opt->unit) {
+                            char preview_value[20];
                             char combo_name[20];
 
                             snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                            snprintf(preview_value, sizeof(preview_value), "%ld", value);
                             ImGui::SetNextItemWidth(200.f);
-                            if (ImGui::BeginCombo(combo_name, 0, 0)) {
+                            if (ImGui::BeginCombo(combo_name, preview_value, 0)) {
                                 const AVOption *copt = NULL;
 
                                 while ((copt = av_opt_next(obj, copt))) {
@@ -2758,23 +2762,31 @@ static void draw_options(FilterNode *node, void *av_class)
                     }
                     break;
                 case AV_OPT_TYPE_PIXEL_FMT:
-                    ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::BeginCombo(opt->name, 0, 0)) {
-                        const AVPixFmtDescriptor *pix_desc = NULL;
+                    {
                         AVPixelFormat fmt;
+                        const char *preview_name;
 
                         av_opt_get_pixel_fmt(av_class, opt->name, 0, &fmt);
-                        while ((pix_desc = av_pix_fmt_desc_next(pix_desc))) {
-                            enum AVPixelFormat pix_fmt = av_pix_fmt_desc_get_id(pix_desc);
-                            const bool is_selected = av_pix_fmt_desc_get_id(pix_desc) == fmt;
+                        ImGui::SetNextItemWidth(200.f);
+                        preview_name = av_get_pix_fmt_name(fmt);
+                        if (!preview_name)
+                            preview_name = "none";
 
-                            if (ImGui::Selectable(pix_desc->name, is_selected))
-                                av_opt_set_pixel_fmt(av_class, opt->name, pix_fmt, 0);
+                        if (ImGui::BeginCombo(opt->name, preview_name, 0)) {
+                            const AVPixFmtDescriptor *pix_desc = NULL;
 
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
+                            while ((pix_desc = av_pix_fmt_desc_next(pix_desc))) {
+                                enum AVPixelFormat pix_fmt = av_pix_fmt_desc_get_id(pix_desc);
+                                const bool is_selected = av_pix_fmt_desc_get_id(pix_desc) == fmt;
+
+                                if (ImGui::Selectable(pix_desc->name, is_selected))
+                                    av_opt_set_pixel_fmt(av_class, opt->name, pix_fmt, 0);
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
                         }
-                        ImGui::EndCombo();
                     }
                     break;
                 case AV_OPT_TYPE_SAMPLE_FMT:
