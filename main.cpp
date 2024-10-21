@@ -47,6 +47,15 @@ extern "C" {
 #include "ringbuffer/ringbuffer.c"
 }
 
+static const AVSampleFormat all_sample_fmts[] = {
+    AV_SAMPLE_FMT_NONE,
+    AV_SAMPLE_FMT_U8, AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_S32,
+    AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_DBL,
+    AV_SAMPLE_FMT_U8P, AV_SAMPLE_FMT_S16P, AV_SAMPLE_FMT_S32P,
+    AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_DBLP,
+    AV_SAMPLE_FMT_S64, AV_SAMPLE_FMT_S64P,
+};
+
 #define AL_BUFFERS 16
 
 typedef struct FrameInfo {
@@ -2769,6 +2778,34 @@ static void draw_options(FilterNode *node, void *av_class)
                     }
                     break;
                 case AV_OPT_TYPE_SAMPLE_FMT:
+                    {
+                        AVSampleFormat fmt;
+                        ImGui::SetNextItemWidth(200.f);
+                        const char *preview_name;
+
+                        av_opt_get_sample_fmt(av_class, opt->name, 0, &fmt);
+                        preview_name = av_get_sample_fmt_name(fmt);
+                        if (!preview_name)
+                            preview_name = "none";
+
+                        if (ImGui::BeginCombo(opt->name, preview_name, 0)) {
+                            const unsigned nb_sample_fmts = sizeof(all_sample_fmts)/sizeof(all_sample_fmts[0]);
+
+                            for (unsigned i = 0; i < nb_sample_fmts; i++) {
+                                const bool is_selected = all_sample_fmts[i] == fmt;
+                                const char *name = av_get_sample_fmt_name(all_sample_fmts[i]);
+
+                                if (name == NULL)
+                                    name = "none";
+                                if (ImGui::Selectable(name, is_selected))
+                                    av_opt_set_sample_fmt(av_class, opt->name, all_sample_fmts[i], 0);
+
+                                if (is_selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+                    }
                     break;
                 case AV_OPT_TYPE_COLOR:
                     {
