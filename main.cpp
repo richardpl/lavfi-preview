@@ -2004,13 +2004,15 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
     }
 
     if (sink->fullscreen) {
+        const char *label = (sink->muted ^ muted_all) ? "MUTED" : NULL;
         ImVec2 window_size = { -1, -1 };
 
-        ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -audio_sample_range[0], audio_sample_range[1], window_size);
+        ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, label, -audio_sample_range[0], audio_sample_range[1], window_size);
     } else {
         ImVec2 window_size = { audio_window_size[0], audio_window_size[1] };
+        const char *label = (sink->muted ^ muted_all) ? "MUTED" : NULL;
 
-        ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, NULL, -audio_sample_range[0], audio_sample_range[1], window_size);
+        ImGui::PlotLines("##Audio Samples", sink->samples, sink->nb_samples, 0, label, -audio_sample_range[0], audio_sample_range[1], window_size);
     }
 
     if (sink->show_osd ^ show_osd_all)
