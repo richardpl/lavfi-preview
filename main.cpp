@@ -549,8 +549,12 @@ static int filters_setup()
             ret = av_opt_set_int_list(filter_ctx, "pix_fmts", depth ? hi_pix_fmts : pix_fmts,
                                       AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR, "Cannot set buffersink output pixel format.\n");
-                goto error;
+                ret = av_opt_set_array(filter_ctx, "pixel_formats", AV_OPT_SEARCH_CHILDREN, 0, 1,
+                                       AV_OPT_TYPE_PIXEL_FMT, depth ? hi_pix_fmts : pix_fmts);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Cannot set buffersink output pixel format.\n");
+                    goto error;
+                }
             }
 
             buffer_sinks.push_back(new_sink);
@@ -572,15 +576,23 @@ static int filters_setup()
             ret = av_opt_set_int_list(filter_ctx, "sample_fmts", audio_format ? hi_sample_fmts : sample_fmts,
                                       AV_SAMPLE_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample formats.\n");
-                goto error;
+                ret = av_opt_set_array(filter_ctx, "sample_formats", AV_OPT_SEARCH_CHILDREN, 0, 1,
+                                       AV_OPT_TYPE_SAMPLE_FMT, audio_format ? hi_sample_fmts : sample_fmts);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample formats.\n");
+                    goto error;
+                }
             }
 
             ret = av_opt_set_int_list(filter_ctx, "sample_rates", sample_rates,
                                       0, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample rates.\n");
-                goto error;
+                ret = av_opt_set_array(filter_ctx, "samplerates", AV_OPT_SEARCH_CHILDREN, 0, 1,
+                                       AV_OPT_TYPE_INT, sample_rates);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample rates.\n");
+                    goto error;
+                }
             }
 
             abuffer_sinks.push_back(new_sink);
