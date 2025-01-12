@@ -2896,7 +2896,7 @@ static int begin_group()
 static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigned *toggle_filter,
                                  bool is_opened, bool *clean_storage, bool tree)
 {
-    if (ctx->filter->process_command) {
+    if (1) {
         if (tree == false) {
             if (filter_nodes[n].colapsed == false && ImGui::Button("Commands"))
                 filter_nodes[n].colapsed = true;
