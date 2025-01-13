@@ -2275,7 +2275,7 @@ static void draw_options(FilterNode *node, void *av_class)
             continue;
         last_offset = opt->offset;
 
-        node->have_exports |= (opt->flags & AV_OPT_FLAG_EXPORT);
+        node->have_exports |= !!(opt->flags & AV_OPT_FLAG_EXPORT);
 
         if (opt->flags & AV_OPT_FLAG_READONLY)
             continue;
@@ -3577,18 +3577,40 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
             unsigned opt_index = 0;
 
             while ((opt = av_opt_next(ctx->priv, opt))) {
+                AVOptionType type = (AVOptionType)(opt->type & (~AV_OPT_TYPE_FLAG_ARRAY));
+                unsigned int nb_elems = 0;
+
                 if (!(opt->flags & AV_OPT_FLAG_EXPORT))
                     continue;
+
+                av_opt_get_array_size(ctx->priv, opt->name, 0, &nb_elems);
 
                 ImGui::PushID(opt_index);
                 if (tree == false)
                     ImGui::SetNextItemWidth(200.f);
-                switch (opt->type) {
+                switch (type) {
                     case AV_OPT_TYPE_FLAGS:
                     case AV_OPT_TYPE_BOOL:
                     case AV_OPT_TYPE_INT:
                         {
                             int64_t value;
+                            int *array;
+
+                            if (nb_elems > 0) {
+                                array = (int *)av_calloc(nb_elems, sizeof(*array));
+                                if (!array)
+                                    break;
+
+                                av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, array);
+
+                                for (unsigned i = 0; i < nb_elems; i++) {
+                                    ImGui::LabelText("##export", "%s%d: %d", opt->name, i, array[i]);
+                                }
+
+                                av_freep(&array);
+
+                                break;
+                            }
 
                             if (av_opt_get_int(ctx->priv, opt->name, 0, &value))
                                 break;
@@ -3618,7 +3640,23 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                         break;
                     case AV_OPT_TYPE_DOUBLE:
                         {
-                            double value;
+                            double value, *array;
+
+                            if (nb_elems > 0) {
+                                array = (double *)av_calloc(nb_elems, sizeof(*array));
+                                if (!array)
+                                    break;
+
+                                av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, array);
+
+                                for (unsigned i = 0; i < nb_elems; i++) {
+                                    ImGui::LabelText("##export", "%s%d: %g", opt->name, i, array[i]);
+                                }
+
+                                av_freep(&array);
+
+                                break;
+                            }
 
                             if (av_opt_get_double(ctx->priv, opt->name, 0, &value))
                                 break;
@@ -3629,6 +3667,23 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                     case AV_OPT_TYPE_FLOAT:
                         {
                             double value;
+                            float *array;
+
+                            if (nb_elems > 0) {
+                                array = (float *)av_calloc(nb_elems, sizeof(*array));
+                                if (!array)
+                                    break;
+
+                                av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, array);
+
+                                for (unsigned i = 0; i < nb_elems; i++) {
+                                    ImGui::LabelText("##export", "%s%d: %g", opt->name, i, array[i]);
+                                }
+
+                                av_freep(&array);
+
+                                break;
+                            }
 
                             if (av_opt_get_double(ctx->priv, opt->name, 0, &value))
                                 break;
