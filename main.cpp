@@ -42,6 +42,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
 #include <libavformat/avformat.h>
 #include <libavdevice/avdevice.h>
 #include "ringbuffer/ringbuffer.c"
@@ -120,6 +121,15 @@ typedef struct OptStorage {
     unsigned nb_items;
 } OptStorage;
 
+typedef struct BufferSource {
+    std::string stream_url;
+    int stream_index;
+    enum AVMediaType type;
+    AVFilterContext *ctx;
+    AVFormatContext *fmt_ctx;
+    AVCodecContext *dec_ctx;
+} BufferSource;
+
 typedef struct BufferSink {
     unsigned id;
     char *label;
@@ -180,6 +190,7 @@ typedef struct FilterNode {
     char *filter_options;
     AVFilterContext *probe;
     AVFilterContext *ctx;
+    std::string stream_url;
 
     std::vector<int> inpad_edges;
     std::vector<int> outpad_edges;
@@ -265,6 +276,7 @@ std::mutex filtergraph_mutex;
 std::vector<ALuint> play_sources;
 std::thread play_sound_thread;
 
+std::vector<BufferSource> buffer_sources;
 std::vector<BufferSink> abuffer_sinks;
 std::vector<BufferSink> buffer_sinks;
 std::vector<std::condition_variable> acv;
@@ -273,6 +285,7 @@ std::vector<std::mutex> amutexes;
 std::vector<std::mutex> mutexes;
 std::vector<std::thread> audio_sink_threads;
 std::vector<std::thread> video_sink_threads;
+std::vector<std::thread> source_threads;
 std::vector<FilterNode> filter_nodes;
 std::vector<std::pair<int, int>> filter_links;
 std::vector<Edge2Pad> edge2pad;
@@ -449,11 +462,136 @@ static void kill_video_sink_threads()
     }
 }
 
+static void kill_source_threads()
+{
+    for (unsigned i = 0; i < source_threads.size(); i++) {
+        if (source_threads[i].joinable()) {
+            source_threads[i].join();
+        }
+    }
+}
+
 static int get_nb_filter_threads(const AVFilter *filter)
 {
     if (filter->flags & AVFILTER_FLAG_SLICE_THREADS)
         return 0;
     return 1;
+}
+
+static void source_worker_thread(BufferSource *source)
+{
+    const int stream_index = source->stream_index;
+    AVFilterContext *buffersrc_ctx = source->ctx;
+    AVFormatContext *fmt_ctx = source->fmt_ctx;
+    AVCodecContext *dec_ctx = source->dec_ctx;
+    AVPacket *packet = av_packet_alloc();
+    AVFrame *frame = av_frame_alloc();
+    int ret;
+
+    while (source->ctx) {
+        if (need_filters_reinit)
+            break;
+
+        if (!av_buffersrc_get_nb_failed_requests(buffersrc_ctx)) {
+            av_usleep(50000);
+            continue;
+        }
+
+        if ((ret = av_read_frame(fmt_ctx, packet)) < 0)
+            break;
+
+        if (packet->stream_index == stream_index) {
+            ret = avcodec_send_packet(dec_ctx, packet);
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_ERROR, "Error while sending a packet to the decoder\n");
+                break;
+            }
+
+            while (ret >= 0) {
+                ret = avcodec_receive_frame(dec_ctx, frame);
+                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                    break;
+                } else if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Error while receiving a frame from the decoder\n");
+                    break;
+                }
+
+                if (ret >= 0) {
+                    if (av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF) < 0) {
+                        av_log(NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n");
+                        break;
+                    }
+                }
+            }
+        }
+        av_packet_unref(packet);
+    }
+
+    if (ret == AVERROR_EOF) {
+        /* signal EOF to the filtergraph */
+        if (av_buffersrc_add_frame_flags(buffersrc_ctx, NULL, 0) < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Error while closing the filter source\n");
+        }
+    }
+}
+
+static void find_source_params(BufferSource *source)
+{
+    AVFilterContext *buffersrc_ctx = source->ctx;
+    int stream_index, ret;
+    const AVCodec *dec;
+
+    if (source->stream_url.empty())
+        return;
+
+    if ((ret = avformat_open_input(&source->fmt_ctx, source->stream_url.c_str(), NULL, NULL)) < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot open input\n");
+        return;
+    }
+
+    if ((ret = avformat_find_stream_info(source->fmt_ctx, NULL)) < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot find stream information\n");
+        return;
+    }
+
+    /* select the audio stream */
+    ret = av_find_best_stream(source->fmt_ctx, source->type, -1, -1, &dec, 0);
+    if (ret < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot find an stream in the input file\n");
+        return;
+    }
+    stream_index = source->stream_index = ret;
+
+    /* create decoding context */
+    source->dec_ctx = avcodec_alloc_context3(dec);
+    if (!source->dec_ctx)
+        return;
+    avcodec_parameters_to_context(source->dec_ctx, source->fmt_ctx->streams[stream_index]->codecpar);
+
+    if ((ret = avcodec_open2(source->dec_ctx, dec, NULL)) < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot open decoder\n");
+        return;
+    }
+
+    AVBufferSrcParameters *params = av_buffersrc_parameters_alloc();
+    params->time_base = source->fmt_ctx->streams[stream_index]->time_base;
+    switch (source->type) {
+    case AVMEDIA_TYPE_AUDIO:
+        params->format = source->dec_ctx->sample_fmt;
+        params->sample_rate = source->dec_ctx->sample_rate;
+        params->ch_layout = source->dec_ctx->ch_layout;
+        break;
+    case AVMEDIA_TYPE_VIDEO:
+        params->format = source->dec_ctx->pix_fmt;
+        params->frame_rate = source->dec_ctx->framerate;
+        params->width = source->dec_ctx->width;
+        params->height = source->dec_ctx->height;
+        break;
+    default:
+        break;
+    }
+    av_buffersrc_parameters_set(buffersrc_ctx, params);
+    av_free(params);
 }
 
 static int filters_setup()
@@ -468,9 +606,11 @@ static int filters_setup()
         play_sound_thread.join();
     play_sources.clear();
 
+    kill_source_threads();
     kill_audio_sink_threads();
     kill_video_sink_threads();
 
+    source_threads.clear();
     audio_sink_threads.clear();
     video_sink_threads.clear();
 
@@ -480,6 +620,7 @@ static int filters_setup()
     if (filter_nodes.size() == 0)
         return 0;
 
+    buffer_sources.clear();
     buffer_sinks.clear();
     abuffer_sinks.clear();
     cv.clear();
@@ -534,7 +675,29 @@ static int filters_setup()
             goto error;
         }
 
-        if (!strcmp(filter_ctx->filter->name, "buffersink")) {
+        if (!strcmp(filter_ctx->filter->name, "buffer")) {
+            BufferSource new_source;
+
+            new_source.fmt_ctx = NULL;
+            new_source.dec_ctx = NULL;
+            new_source.ctx = filter_ctx;
+            if (!filter_nodes[i].stream_url.empty())
+                new_source.stream_url = filter_nodes[i].stream_url;
+            new_source.type = AVMEDIA_TYPE_VIDEO;
+            find_source_params(&new_source);
+            buffer_sources.push_back(new_source);
+        } else if (!strcmp(filter_ctx->filter->name, "abuffer")) {
+            BufferSource new_source;
+
+            new_source.fmt_ctx = NULL;
+            new_source.dec_ctx = NULL;
+            new_source.ctx = filter_ctx;
+            if (!filter_nodes[i].stream_url.empty())
+                new_source.stream_url = filter_nodes[i].stream_url;
+            new_source.type = AVMEDIA_TYPE_AUDIO;
+            find_source_params(&new_source);
+            buffer_sources.push_back(new_source);
+        } else if (!strcmp(filter_ctx->filter->name, "buffersink")) {
             BufferSink new_sink = {0};
 
             new_sink.ctx = filter_ctx;
@@ -762,6 +925,15 @@ error:
 
     std::thread new_sound_thread(sound_thread, abuffer_sinks.size(), &play_sources);
     play_sound_thread.swap(new_sound_thread);
+
+    std::vector<std::thread> bufferthread_list(buffer_sources.size());
+    source_threads.swap(bufferthread_list);
+
+    for (unsigned i = 0; i < buffer_sources.size(); i++) {
+        std::thread source_thread(source_worker_thread, &buffer_sources[i]);
+
+        source_threads[i].swap(source_thread);
+    }
 
     return 0;
 }
@@ -1308,13 +1480,14 @@ static void importfile_filter_graph(const char *file_name)
         std::istringstream full_name(node.filter_name);
         std::getline(full_name, filter_name, '@');
         std::getline(full_name, instance_name, '@');
-        node.filter = avfilter_get_by_name(filter_name.c_str());
+        if (!filter_name.empty())
+            node.filter = avfilter_get_by_name(filter_name.c_str());
         if (!node.filter) {
             av_log(NULL, AV_LOG_ERROR, "Could not get filter by name: %s.\n", node.filter_name);
             goto error;
         }
         node.imported_id = instance_name.length() > 0;
-        node.filter_label = node.imported_id ? av_asprintf("%s@%s", node.filter->name, instance_name.c_str()) : av_asprintf("%s@%d", node.filter->name, node.id);
+        node.filter_label = node.imported_id && (!instance_name.empty()) ? av_asprintf("%s@%s", node.filter->name, instance_name.c_str()) : av_asprintf("%s@%d", node.filter->name, node.id);
         node.filter_options = opts;
         node.ctx_options = NULL;
         node.probe = avfilter_graph_alloc_filter(probe_graph, node.filter, "probe");
@@ -3777,6 +3950,11 @@ static void draw_node_options(FilterNode *node)
         node->colapsed = false;
 
     if (node->colapsed == true) {
+        for (unsigned i = 0; i < source_threads.size(); i++) {
+            if (source_threads[i].joinable())
+                return;
+        }
+
         for (unsigned i = 0; i < video_sink_threads.size(); i++) {
             if (video_sink_threads[i].joinable())
                 return;
@@ -3788,6 +3966,20 @@ static void draw_node_options(FilterNode *node)
         }
 
         ImGui::BeginGroup();
+
+        if (!strcmp(node->filter->name, "buffer") ||
+            !strcmp(node->filter->name, "abuffer")) {
+            char new_str[1024] = {0};
+
+            ImGui::SetNextItemWidth(200.f);
+            if (!node->stream_url.empty())
+                memcpy(new_str, node->stream_url.c_str(), std::min(sizeof(new_str), node->stream_url.size()));
+            else
+                node->stream_url = std::string("<empty>");
+            if (ImGui::InputText("URL", new_str, IM_ARRAYSIZE(new_str))) {
+                node->stream_url.assign(new_str);
+            }
+        }
 
         draw_options(node, av_class_priv);
         ImGui::Spacing();
@@ -4444,6 +4636,13 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     if (show_mini_map == true)
         ImNodes::MiniMap(0.2f, mini_map_location);
     ImNodes::EndNodeEditor();
+
+    for (unsigned i = 0; i < source_threads.size(); i++) {
+        if (source_threads[i].joinable()) {
+            ImGui::End();
+            return;
+        }
+    }
 
     for (unsigned i = 0; i < video_sink_threads.size(); i++) {
         if (video_sink_threads[i].joinable()) {
@@ -5252,9 +5451,11 @@ restart_window:
         play_sound_thread.join();
     play_sources.clear();
 
+    kill_source_threads();
     kill_audio_sink_threads();
     kill_video_sink_threads();
 
+    source_threads.clear();
     video_sink_threads.clear();
     audio_sink_threads.clear();
 
