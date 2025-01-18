@@ -124,6 +124,7 @@ typedef struct OptStorage {
 typedef struct BufferSource {
     std::string stream_url;
     int stream_index;
+    bool ready;
     enum AVMediaType type;
     AVFilterContext *ctx;
     AVFormatContext *fmt_ctx;
@@ -167,7 +168,7 @@ typedef struct BufferSink {
     unsigned nb_samples;
     unsigned sample_index;
 
-    GLuint *texture;
+    GLuint texture;
     int width;
     int height;
 
@@ -360,7 +361,9 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
     int ret = 0;
 
     while (sink->ctx) {
-        if (need_filters_reinit)
+        if (need_filters_reinit == true)
+            break;
+        if (filter_graph_is_valid == false)
             break;
 
         std::unique_lock<std::mutex> lk(*mutex);
@@ -372,6 +375,11 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
         while (!ring_buffer_is_empty(&sink->empty_frames)) {
             ring_item_t item = { NULL, 0 };
             int64_t start, end;
+
+            if (need_filters_reinit == true)
+                break;
+            if (filter_graph_is_valid == false)
+                break;
 
             if (ring_buffer_is_full(&sink->consume_frames))
                 break;
@@ -410,7 +418,6 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
 
 static void notify_worker(BufferSink *sink, std::mutex *mutex, std::condition_variable *cv)
 {
-    std::unique_lock<std::mutex> lk(*mutex);
     sink->ready = true;
     cv->notify_one();
 }
@@ -465,6 +472,7 @@ static void kill_video_sink_threads()
 static void kill_source_threads()
 {
     for (unsigned i = 0; i < source_threads.size(); i++) {
+        buffer_sources[i].ready = false;
         if (source_threads[i].joinable()) {
             source_threads[i].join();
         }
@@ -488,12 +496,14 @@ static void source_worker_thread(BufferSource *source)
     AVFrame *frame = av_frame_alloc();
     int ret;
 
-    while (source->ctx) {
-        if (need_filters_reinit)
+    while (source->ready == true) {
+        if (need_filters_reinit == true)
+            break;
+        if (filter_graph_is_valid == false)
             break;
 
         if (!av_buffersrc_get_nb_failed_requests(buffersrc_ctx)) {
-            av_usleep(50000);
+            av_usleep(1000);
             continue;
         }
 
@@ -508,6 +518,12 @@ static void source_worker_thread(BufferSource *source)
             }
 
             while (ret >= 0) {
+                if (source->ready == false)
+                    break;
+                if (need_filters_reinit == true)
+                    break;
+                if (filter_graph_is_valid == false)
+                    break;
                 ret = avcodec_receive_frame(dec_ctx, frame);
                 if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
                     break;
@@ -533,6 +549,9 @@ static void source_worker_thread(BufferSource *source)
             av_log(NULL, AV_LOG_ERROR, "Error while closing the filter source\n");
         }
     }
+
+    av_packet_free(&packet);
+    av_frame_free(&frame);
 }
 
 static void find_source_params(BufferSource *source)
@@ -592,6 +611,7 @@ static void find_source_params(BufferSource *source)
     }
     av_buffersrc_parameters_set(buffersrc_ctx, params);
     av_free(params);
+    source->ready = true;
 }
 
 static int filters_setup()
@@ -678,6 +698,7 @@ static int filters_setup()
         if (!strcmp(filter_ctx->filter->name, "buffer")) {
             BufferSource new_source;
 
+            new_source.ready = false;
             new_source.fmt_ctx = NULL;
             new_source.dec_ctx = NULL;
             new_source.ctx = filter_ctx;
@@ -689,6 +710,7 @@ static int filters_setup()
         } else if (!strcmp(filter_ctx->filter->name, "abuffer")) {
             BufferSource new_source;
 
+            new_source.ready = false;
             new_source.fmt_ctx = NULL;
             new_source.dec_ctx = NULL;
             new_source.ctx = filter_ctx;
@@ -847,7 +869,7 @@ error:
         sink->frame_number = 0;
         sink->frame_nb_samples = 0;
         sink->nb_samples = 0;
-        sink->texture = NULL;
+        sink->texture = 0;
         sink->width = 0;
         sink->height = 0;
         sink->buffers.resize(4);
@@ -894,7 +916,7 @@ error:
         sink->pts = AV_NOPTS_VALUE;
         sink->samples = (float *)av_calloc(sink->nb_samples, sizeof(float));
         sink->audio_queue_size = audio_queue_size;
-        sink->texture = NULL;
+        sink->texture = 0;
         sink->width = 0;
         sink->height = 0;
         sink->buffers.resize(sink->audio_queue_size);
@@ -949,7 +971,7 @@ static void load_frame(GLuint *out_texture, int *width, int *height, AVFrame *fr
 
     glBindTexture(GL_TEXTURE_2D, *out_texture);
     if (sink->pts != frame->pts) {
-        sink->texture = out_texture;
+        sink->texture = *out_texture;
         sink->width = *width;
         sink->height = *height;
         sink->pts = frame->pts;
@@ -1903,10 +1925,9 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
     } else if (sink->texture &&
                sink->width > 0 &&
                sink->height > 0) {
-        texture = sink->texture;
+        texture = &sink->texture;
         width = sink->width;
         height = sink->height;
-        glBindTexture(GL_TEXTURE_2D, *texture);
     } else {
         return;
     }
@@ -1979,11 +2000,11 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
         }
     }
 
-    if (sink->fullscreen) {
+    if (sink->fullscreen && texture) {
         ImGui::GetWindowDrawList()->AddImage(*texture, ImVec2(0.f, 0.f),
                                              ImGui::GetWindowSize(),
                                              ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), IM_COL32_WHITE);
-    } else {
+    } else if (texture) {
         ImGui::Image(*texture, ImVec2(width, height));
     }
 
@@ -5186,6 +5207,11 @@ restart_window:
         int64_t min_qpts = INT64_MAX;
 
         glfwPollEvents();
+
+        if (filter_graph_is_valid == false) {
+            kill_source_threads();
+            source_threads.clear();
+        }
 
         if (show_abuffersink_window == false) {
             if (audio_sink_threads.size() > 0) {
