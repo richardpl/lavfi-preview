@@ -601,7 +601,7 @@ static void find_source_params(BufferSource *source)
     case AVMEDIA_TYPE_AUDIO:
         params->format = source->dec_ctx->sample_fmt;
         params->sample_rate = source->dec_ctx->sample_rate;
-        params->ch_layout = source->dec_ctx->ch_layout;
+        av_channel_layout_copy(&params->ch_layout, &source->dec_ctx->ch_layout);
         break;
     case AVMEDIA_TYPE_VIDEO:
         params->format = source->dec_ctx->pix_fmt;
