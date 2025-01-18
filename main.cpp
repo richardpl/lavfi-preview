@@ -608,6 +608,8 @@ static void find_source_params(BufferSource *source)
         params->frame_rate = source->dec_ctx->framerate;
         params->width = source->dec_ctx->width;
         params->height = source->dec_ctx->height;
+        params->color_range = source->dec_ctx->color_range;
+        params->color_space = source->dec_ctx->colorspace;
         break;
     default:
         break;
