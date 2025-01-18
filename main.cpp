@@ -552,6 +552,9 @@ static void source_worker_thread(BufferSource *source)
 
     av_packet_free(&packet);
     av_frame_free(&frame);
+
+    avcodec_free_context(&source->dec_ctx);
+    avformat_close_input(&source->fmt_ctx);
 }
 
 static void find_source_params(BufferSource *source)
