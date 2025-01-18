@@ -1,6 +1,6 @@
 GUI for libavfilter
 
-![screenshot](https://github.com/richardpl/lavfi-preview/blob/master/assets/demo.gif)
+![screenshot](https://github.com/richardpl/lavfi-preview/blob/master/assets/demo.png)
 
 GUI to preview filtergraphs from libavfilter.
 
