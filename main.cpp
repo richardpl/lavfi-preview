@@ -4226,6 +4226,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             const AVFilter *filter = NULL;
             void *iterator = NULL;
 
+            ImGui::SetTooltip("%s", "Insert Media Filter");
             while ((filter = av_filter_iterate(&iterator))) {
                 if (!is_media_filter(filter))
                     continue;
