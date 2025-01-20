@@ -2781,7 +2781,7 @@ static void draw_options(FilterNode *node, void *av_class)
                         ivalue = value;
                         ImGui::SetNextItemWidth(200.f);
                         if (imax < INT_MAX/2 && imin > INT_MIN/2) {
-                            if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
+                            if (ImGui::SliderInt(opt->name, &ivalue, imin, imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                                 value = ivalue;
                                 av_opt_set_int(av_class, opt->name, value, 0);
                             }
@@ -2835,7 +2835,7 @@ static void draw_options(FilterNode *node, void *av_class)
                         ivalue = value;
                         ImGui::SetNextItemWidth(200.f);
                         if (imax < INT_MAX/2 && imin > INT_MIN/2) {
-                            if (ImGui::SliderInt(opt->name, &ivalue, imin, imax)) {
+                            if (ImGui::SliderInt(opt->name, &ivalue, imin, imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                                 value = ivalue;
                                 av_opt_set_int(av_class, opt->name, value, 0);
                             }
@@ -3556,7 +3556,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                 value = opt_storage[opt_index].u.i32;
                                 if (tree == false)
                                     ImGui::SetNextItemWidth(200.f);
-                                if (ImGui::DragScalar(opt->name, ImGuiDataType_U32, &value, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
+                                if (ImGui::DragScalar(opt->name, ImGuiDataType_S32, &value, 1, &imin, &imax, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                                     opt_storage[opt_index].u.i32 = value;
                                 }
                             }
