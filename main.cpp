@@ -4583,8 +4583,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             media_type = avfilter_pad_get_type(filter_ctx->input_pads, j);
             if (media_type == AVMEDIA_TYPE_VIDEO) {
                 ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(  0, 255, 255, 255));
-            } else {
+            } else if (media_type == AVMEDIA_TYPE_AUDIO) {
                 ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255, 255,   0, 255));
+            } else {
+                ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255,   0,   0, 255));
             }
             edge2pad[edge] = (Edge2Pad { i, false, false, j, media_type });
             filter_node->inpad_edges[j] = edge;
@@ -4606,8 +4608,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             media_type = avfilter_pad_get_type(filter_ctx->output_pads, j);
             if (media_type == AVMEDIA_TYPE_VIDEO) {
                 ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(  0, 255, 255, 255));
-            } else {
+            } else if (media_type == AVMEDIA_TYPE_AUDIO) {
                 ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255, 255,   0, 255));
+            } else {
+                ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255,   0,   0, 255));
             }
             edge2pad[edge] = (Edge2Pad { i, false, true, j, media_type });
             filter_node->outpad_edges[j] = edge;
