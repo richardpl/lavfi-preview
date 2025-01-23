@@ -78,7 +78,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: lavfi-preview
+          name: lavfi-preview-${{ matrix.runs-on }}
           path: artifacts/*
   release:
     name: Release
@@ -93,6 +93,8 @@ jobs:
         with:
           name: lavfi-preview
           path: artifacts
+          pattern: lavfi-preview-*
+          merge-multiple: true
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
