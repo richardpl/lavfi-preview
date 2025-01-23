@@ -101,12 +101,12 @@ jobs:
           set -xe
           TAGNAME="${GITHUB_REF#refs/*/}"
           gh release create -t "Release $TAGNAME" $TAGNAME artifacts/*
-  merge:
-    runs-on: ubuntu-latest
-    needs: upload
-    steps:
-      - name: Merge Artifacts
-        uses: actions/upload-artifact/merge@v4
-        with:
-          name: lavfi-preview
-          pattern: lavfi-preview-*
+#  merge:
+#    runs-on: ubuntu-latest
+#    needs: upload
+#    steps:
+#      - name: Merge Artifacts
+#        uses: actions/upload-artifact/merge@v4
+#        with:
+#          name: lavfi-preview
+#          pattern: lavfi-preview-*
