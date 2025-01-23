@@ -76,7 +76,7 @@ jobs:
           mv lavfi-preview* artifacts/lavfi-preview-${{ matrix.target }}$(test -f *.exe && echo .exe)
           xz -9 -e artifacts/*
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: lavfi-preview
           path: artifacts/*
