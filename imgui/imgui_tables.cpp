@@ -1,4 +1,4 @@
-// dear imgui, v1.91.7
+// dear imgui, v1.91.9 WIP
 // (tables and columns code)
 
 /*
@@ -340,6 +340,7 @@ bool    ImGui::BeginTableEx(const char* name, ImGuiID id, int columns_count, ImG
     {
         ItemSize(outer_rect);
         ItemAdd(outer_rect, id);
+        g.NextWindowData.ClearFlags();
         return false;
     }
 
@@ -374,6 +375,7 @@ bool    ImGui::BeginTableEx(const char* name, ImGuiID id, int columns_count, ImG
     table->ColumnsCount = columns_count;
     table->IsLayoutLocked = false;
     table->InnerWidth = inner_width;
+    table->NavLayer = (ImS8)outer_window->DC.NavLayerCurrent;
     temp_data->UserOuterSize = outer_size;
 
     // Instance data (for instance 0, TableID == TableInstanceID)
@@ -414,12 +416,15 @@ bool    ImGui::BeginTableEx(const char* name, ImGuiID id, int columns_count, ImG
 
         // Reset scroll if we are reactivating it
         if ((previous_flags & (ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY)) == 0)
-            if ((g.NextWindowData.Flags & ImGuiNextWindowDataFlags_HasScroll) == 0)
+            if ((g.NextWindowData.HasFlags & ImGuiNextWindowDataFlags_HasScroll) == 0)
                 SetNextWindowScroll(ImVec2(0.0f, 0.0f));
 
         // Create scrolling region (without border and zero window padding)
-        ImGuiWindowFlags child_window_flags = (flags & ImGuiTableFlags_ScrollX) ? ImGuiWindowFlags_HorizontalScrollbar : ImGuiWindowFlags_None;
-        BeginChildEx(name, instance_id, outer_rect.GetSize(), ImGuiChildFlags_None, child_window_flags);
+        ImGuiChildFlags child_child_flags = (g.NextWindowData.HasFlags & ImGuiNextWindowDataFlags_HasChildFlags) ? g.NextWindowData.ChildFlags : ImGuiChildFlags_None;
+        ImGuiWindowFlags child_window_flags = (g.NextWindowData.HasFlags & ImGuiNextWindowDataFlags_HasWindowFlags) ? g.NextWindowData.WindowFlags : ImGuiWindowFlags_None;
+        if (flags & ImGuiTableFlags_ScrollX)
+            child_window_flags |= ImGuiWindowFlags_HorizontalScrollbar;
+        BeginChildEx(name, instance_id, outer_rect.GetSize(), child_child_flags, child_window_flags);
         table->InnerWindow = g.CurrentWindow;
         table->WorkRect = table->InnerWindow->WorkRect;
         table->OuterRect = table->InnerWindow->Rect();
@@ -1050,7 +1055,8 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
         const int column_n = table->DisplayOrderToIndex[order_n];
         ImGuiTableColumn* column = &table->Columns[column_n];
 
-        column->NavLayerCurrent = (ImS8)(table->FreezeRowsCount > 0 ? ImGuiNavLayer_Menu : ImGuiNavLayer_Main); // Use Count NOT request so Header line changes layer when frozen
+        // Initial nav layer: using FreezeRowsCount, NOT FreezeRowsRequest, so Header line changes layer when frozen
+        column->NavLayerCurrent = (ImS8)(table->FreezeRowsCount > 0 ? ImGuiNavLayer_Menu : (ImGuiNavLayer)table->NavLayer);
 
         if (offset_x_frozen && table->FreezeColumnsCount == visible_n)
         {
@@ -1493,7 +1499,7 @@ void    ImGui::EndTable()
     if (inner_window != outer_window)
     {
         short backup_nav_layers_active_mask = inner_window->DC.NavLayersActiveMask;
-        inner_window->DC.NavLayersActiveMask |= 1 << ImGuiNavLayer_Main; // So empty table don't appear to navigate differently.
+        inner_window->DC.NavLayersActiveMask |= 1 << table->NavLayer; // So empty table don't appear to navigate differently.
         g.CurrentTable = NULL; // To avoid error recovery recursing
         EndChild();
         g.CurrentTable = table;
@@ -2032,7 +2038,7 @@ void ImGui::TableEndRow(ImGuiTable* table)
     if (unfreeze_rows_request)
     {
         for (int column_n = 0; column_n < table->ColumnsCount; column_n++)
-            table->Columns[column_n].NavLayerCurrent = ImGuiNavLayer_Main;
+            table->Columns[column_n].NavLayerCurrent = table->NavLayer;
         const float y0 = ImMax(table->RowPosY2 + 1, table->InnerClipRect.Min.y);
         table_instance->LastFrozenHeight = y0 - table->OuterRect.Min.y;
 
@@ -3735,7 +3741,7 @@ void ImGui::TableLoadSettings(ImGuiTable* table)
         else
             column->DisplayOrder = (ImGuiTableColumnIdx)column_n;
         display_order_mask |= (ImU64)1 << column->DisplayOrder;
-        column->IsUserEnabled = column->IsUserEnabledNextFrame = column_settings->IsEnabled;
+        column->IsUserEnabled = column->IsUserEnabledNextFrame = (column_settings->IsEnabled != -1 ? column_settings->IsEnabled == 1 : (column->Flags & ImGuiTableColumnFlags_DefaultHide) ? 0 : 1);
         column->SortOrder = column_settings->SortOrder;
         column->SortDirection = column_settings->SortDirection;
     }
