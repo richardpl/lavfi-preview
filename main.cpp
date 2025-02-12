@@ -36,6 +36,7 @@ extern "C" {
 #include <libavutil/bprint.h>
 #include <libavutil/dict.h>
 #include <libavutil/opt.h>
+#include <libavutil/intreadwrite.h>
 #include <libavutil/parseutils.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/time.h>
@@ -2580,6 +2581,45 @@ static void draw_options(FilterNode *node, void *av_class)
                             av_freep(&value);
                         }
                         break;
+                    case AV_OPT_TYPE_COLOR:
+                        {
+                            uint32_t *value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
+
+                            if (!value)
+                                break;
+
+                            if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
+                                av_freep(&value);
+                                break;
+                            }
+
+                            for (unsigned int i = 0; i < nb_elems; i++) {
+                                char label[1024] = {0};
+                                uint8_t icol[4];
+                                float col[4];
+
+                                snprintf(label, sizeof(label), "%s.%u", opt->name, i);
+                                AV_WN32(icol, value[i]);
+
+                                col[0] = icol[0] / 255.f;
+                                col[1] = icol[1] / 255.f;
+                                col[2] = icol[2] / 255.f;
+                                col[3] = icol[3] / 255.f;
+
+                                ImGui::SetNextItemWidth(200.f);
+                                ImGui::ColorEdit4(label, col, ImGuiColorEditFlags_NoDragDrop);
+
+                                icol[0] = col[0] * 255.f;
+                                icol[1] = col[1] * 255.f;
+                                icol[2] = col[2] * 255.f;
+                                icol[3] = col[3] * 255.f;
+
+                                value[i] = AV_RN32(icol);
+                            }
+                            av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value);
+                            av_freep(&value);
+                        }
+                        break;
                     case AV_OPT_TYPE_STRING:
                         {
                             char **value = (char **)av_calloc(nb_elems, sizeof(*value));
@@ -3035,13 +3075,13 @@ static void draw_options(FilterNode *node, void *av_class)
                 case AV_OPT_TYPE_COLOR:
                     {
                         float col[4] = { 0.4f, 0.7f, 0.0f, 0.5f };
-                        unsigned icol[4] = { 0 };
+                        uint8_t icol[4] = { 0 };
                         char new_str[16] = { 0 };
                         uint8_t *old_str = NULL;
 
                         if (av_opt_get(av_class, opt->name, 0, &old_str))
                             break;
-                        sscanf((const char *)old_str, "0x%02x%02x%02x%02X", &icol[0], &icol[1], &icol[2], &icol[3]);
+                        sscanf((const char *)old_str, "0x%02hhx%02hhx%02hhx%02hhx", &icol[0], &icol[1], &icol[2], &icol[3]);
                         av_freep(&old_str);
                         col[0] = icol[0] / 255.f;
                         col[1] = icol[1] / 255.f;
@@ -3055,7 +3095,7 @@ static void draw_options(FilterNode *node, void *av_class)
                         icol[1] = col[1] * 255.f;
                         icol[2] = col[2] * 255.f;
                         icol[3] = col[3] * 255.f;
-                        snprintf(new_str, sizeof(new_str), "0x%02x%02x%02x%02x", icol[0], icol[1], icol[2], icol[3]);
+                        snprintf(new_str, sizeof(new_str), "0x%02hhx%02hhx%02hhx%02hhx", icol[0], icol[1], icol[2], icol[3]);
                         av_opt_set(av_class, opt->name, new_str, 0);
                     }
                     break;
