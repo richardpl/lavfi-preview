@@ -1,4 +1,4 @@
-// dear imgui, v1.91.9
+// dear imgui, v1.92.0 WIP
 // (headers)
 
 // Help:
@@ -28,8 +28,8 @@
 
 // Library Version
 // (Integer encoded as XYYZZ for use in #if preprocessor conditionals, e.g. '#if IMGUI_VERSION_NUM >= 12345')
-#define IMGUI_VERSION       "1.91.9"
-#define IMGUI_VERSION_NUM   19190
+#define IMGUI_VERSION       "1.92.0 WIP"
+#define IMGUI_VERSION_NUM   19192
 #define IMGUI_HAS_TABLE
 
 /*
@@ -37,6 +37,7 @@
 Index of this file:
 // [SECTION] Header mess
 // [SECTION] Forward declarations and basic types
+// [SECTION] Texture identifier (ImTextureID)
 // [SECTION] Dear ImGui end-user API functions
 // [SECTION] Flags & Enumerations
 // [SECTION] Tables API flags and structures (ImGuiTableFlags, ImGuiTableColumnFlags, ImGuiTableRowFlags, ImGuiTableBgTarget, ImGuiTableSortSpecs, ImGuiTableColumnSortSpecs)
@@ -250,22 +251,6 @@ typedef int ImGuiTreeNodeFlags;     // -> enum ImGuiTreeNodeFlags_   // Flags: f
 typedef int ImGuiViewportFlags;     // -> enum ImGuiViewportFlags_   // Flags: for ImGuiViewport
 typedef int ImGuiWindowFlags;       // -> enum ImGuiWindowFlags_     // Flags: for Begin(), BeginChild()
 
-// ImTexture: user data for renderer backend to identify a texture [Compile-time configurable type]
-// - To use something else than an opaque void* pointer: override with e.g. '#define ImTextureID MyTextureType*' in your imconfig.h file.
-// - This can be whatever to you want it to be! read the FAQ about ImTextureID for details.
-// - You can make this a structure with various constructors if you need. You will have to implement ==/!= operators.
-// - (note: before v1.91.4 (2024/10/08) the default type for ImTextureID was void*. Use intermediary intptr_t cast and read FAQ if you have casting warnings)
-#ifndef ImTextureID
-typedef ImU64 ImTextureID;          // Default: store a pointer or an integer fitting in a pointer (most renderer backends are ok with that)
-#endif
-
-// ImDrawIdx: vertex index. [Compile-time configurable type]
-// - To use 16-bit indices + allow large meshes: backend need to set 'io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset' and handle ImDrawCmd::VtxOffset (recommended).
-// - To use 32-bit indices: override with '#define ImDrawIdx unsigned int' in your imconfig.h file.
-#ifndef ImDrawIdx
-typedef unsigned short ImDrawIdx;   // Default: 16-bit (for maximum compatibility with renderer backends)
-#endif
-
 // Character types
 // (we generally use UTF-8 encoded string in the API. This is storage specifically for a decoded character used for keyboard input and display)
 typedef unsigned int ImWchar32;     // A single decoded U32 character/code point. We encode them as multi bytes UTF-8 when used in strings.
@@ -314,6 +299,19 @@ struct ImVec4
 #endif
 };
 IM_MSVC_RUNTIME_CHECKS_RESTORE
+
+//-----------------------------------------------------------------------------
+// [SECTION] Texture identifier (ImTextureID)
+//-----------------------------------------------------------------------------
+
+// ImTexture: user data for renderer backend to identify a texture [Compile-time configurable type]
+// - To use something else than an opaque void* pointer: override with e.g. '#define ImTextureID MyTextureType*' in your imconfig.h file.
+// - This can be whatever to you want it to be! read the FAQ about ImTextureID for details.
+// - You can make this a structure with various constructors if you need. You will have to implement ==/!= operators.
+// - (note: before v1.91.4 (2024/10/08) the default type for ImTextureID was void*. Use intermediary intptr_t cast and read FAQ if you have casting warnings)
+#ifndef ImTextureID
+typedef ImU64 ImTextureID;          // Default: store a pointer or an integer fitting in a pointer (most renderer backends are ok with that)
+#endif
 
 //-----------------------------------------------------------------------------
 // [SECTION] Dear ImGui end-user API functions
@@ -698,7 +696,7 @@ namespace ImGui
     // - This is essentially a thin wrapper to using BeginChild/EndChild with the ImGuiChildFlags_FrameStyle flag for stylistic changes + displaying a label.
     // - If you don't need a label you can probably simply use BeginChild() with the ImGuiChildFlags_FrameStyle flag for the same result.
     // - You can submit contents and manage your selection state however you want it, by creating e.g. Selectable() or any other items.
-    // - The simplified/old ListBox() api are helpers over BeginListBox()/EndListBox() which are kept available for convenience purpose. This is analoguous to how Combos are created.
+    // - The simplified/old ListBox() api are helpers over BeginListBox()/EndListBox() which are kept available for convenience purpose. This is analogous to how Combos are created.
     // - Choose frame width:   size.x > 0.0f: custom  /  size.x < 0.0f or -FLT_MIN: right-align   /  size.x = 0.0f (default): use current ItemWidth
     // - Choose frame height:  size.y > 0.0f: custom  /  size.y < 0.0f or -FLT_MIN: bottom-align  /  size.y = 0.0f (default): arbitrary default height which can fit ~7 items
     IMGUI_API bool          BeginListBox(const char* label, const ImVec2& size = ImVec2(0, 0)); // open a framed scrolling region
@@ -1024,7 +1022,7 @@ namespace ImGui
     IMGUI_API void          ResetMouseDragDelta(ImGuiMouseButton button = 0);                   //
     IMGUI_API ImGuiMouseCursor GetMouseCursor();                                                // get desired mouse cursor shape. Important: reset in ImGui::NewFrame(), this is updated during the frame. valid before Render(). If you use software rendering by setting io.MouseDrawCursor ImGui will render those for you
     IMGUI_API void          SetMouseCursor(ImGuiMouseCursor cursor_type);                       // set desired mouse cursor shape
-    IMGUI_API void          SetNextFrameWantCaptureMouse(bool want_capture_mouse);              // Override io.WantCaptureMouse flag next frame (said flag is left for your application to handle, typical when true it instucts your app to ignore inputs). This is equivalent to setting "io.WantCaptureMouse = want_capture_mouse;" after the next NewFrame() call.
+    IMGUI_API void          SetNextFrameWantCaptureMouse(bool want_capture_mouse);              // Override io.WantCaptureMouse flag next frame (said flag is left for your application to handle, typical when true it instructs your app to ignore inputs). This is equivalent to setting "io.WantCaptureMouse = want_capture_mouse;" after the next NewFrame() call.
 
     // Clipboard Utilities
     // - Also see the LogToClipboard() function to capture GUI into clipboard, or easily output text data to the clipboard.
@@ -1650,6 +1648,7 @@ enum ImGuiCol_
     ImGuiCol_ResizeGrip,            // Resize grip in lower-right and lower-left corners of windows.
     ImGuiCol_ResizeGripHovered,
     ImGuiCol_ResizeGripActive,
+    ImGuiCol_InputTextCursor,       // InputText cursor/caret
     ImGuiCol_TabHovered,            // Tab background, when hovered
     ImGuiCol_Tab,                   // Tab background, when tab-bar is focused & tab is unselected
     ImGuiCol_TabSelected,           // Tab background, when tab-bar is focused & tab is selected
@@ -2732,6 +2731,7 @@ struct ImGuiListClipper
 #ifdef IMGUI_DEFINE_MATH_OPERATORS
 #define IMGUI_DEFINE_MATH_OPERATORS_IMPLEMENTED
 IM_MSVC_RUNTIME_CHECKS_OFF
+// ImVec2 operators
 static inline ImVec2  operator*(const ImVec2& lhs, const float rhs)     { return ImVec2(lhs.x * rhs, lhs.y * rhs); }
 static inline ImVec2  operator/(const ImVec2& lhs, const float rhs)     { return ImVec2(lhs.x / rhs, lhs.y / rhs); }
 static inline ImVec2  operator+(const ImVec2& lhs, const ImVec2& rhs)   { return ImVec2(lhs.x + rhs.x, lhs.y + rhs.y); }
@@ -2747,9 +2747,14 @@ static inline ImVec2& operator*=(ImVec2& lhs, const ImVec2& rhs)        { lhs.x 
 static inline ImVec2& operator/=(ImVec2& lhs, const ImVec2& rhs)        { lhs.x /= rhs.x; lhs.y /= rhs.y; return lhs; }
 static inline bool    operator==(const ImVec2& lhs, const ImVec2& rhs)  { return lhs.x == rhs.x && lhs.y == rhs.y; }
 static inline bool    operator!=(const ImVec2& lhs, const ImVec2& rhs)  { return lhs.x != rhs.x || lhs.y != rhs.y; }
+// ImVec4 operators
+static inline ImVec4  operator*(const ImVec4& lhs, const float rhs)     { return ImVec4(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs); }
+static inline ImVec4  operator/(const ImVec4& lhs, const float rhs)     { return ImVec4(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs, lhs.w / rhs); }
 static inline ImVec4  operator+(const ImVec4& lhs, const ImVec4& rhs)   { return ImVec4(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w); }
 static inline ImVec4  operator-(const ImVec4& lhs, const ImVec4& rhs)   { return ImVec4(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w); }
 static inline ImVec4  operator*(const ImVec4& lhs, const ImVec4& rhs)   { return ImVec4(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z, lhs.w * rhs.w); }
+static inline ImVec4  operator/(const ImVec4& lhs, const ImVec4& rhs)   { return ImVec4(lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z, lhs.w / rhs.w); }
+static inline ImVec4  operator-(const ImVec4& lhs)                      { return ImVec4(-lhs.x, -lhs.y, -lhs.z, -lhs.w); }
 static inline bool    operator==(const ImVec4& lhs, const ImVec4& rhs)  { return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w; }
 static inline bool    operator!=(const ImVec4& lhs, const ImVec4& rhs)  { return lhs.x != rhs.x || lhs.y != rhs.y || lhs.z != rhs.z || lhs.w != rhs.w; }
 IM_MSVC_RUNTIME_CHECKS_RESTORE
@@ -2955,6 +2960,13 @@ struct ImGuiSelectionExternalStorage
 // The maximum line width to bake anti-aliased textures for. Build atlas with ImFontAtlasFlags_NoBakedLines to disable baking.
 #ifndef IM_DRAWLIST_TEX_LINES_WIDTH_MAX
 #define IM_DRAWLIST_TEX_LINES_WIDTH_MAX     (32)
+#endif
+
+// ImDrawIdx: vertex index. [Compile-time configurable type]
+// - To use 16-bit indices + allow large meshes: backend need to set 'io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset' and handle ImDrawCmd::VtxOffset (recommended).
+// - To use 32-bit indices: override with '#define ImDrawIdx unsigned int' in your imconfig.h file.
+#ifndef ImDrawIdx
+typedef unsigned short ImDrawIdx;   // Default: 16-bit (for maximum compatibility with renderer backends)
 #endif
 
 // ImDrawCallback: Draw callbacks for advanced uses [configurable type: override in imconfig.h]
@@ -3282,7 +3294,7 @@ struct ImFontConfig
     float           GlyphExtraAdvanceX;     // 0        // Extra spacing (in pixels) between glyphs. Please contact us if you are using this.
     unsigned int    FontBuilderFlags;       // 0        // Settings for custom font builder. THIS IS BUILDER IMPLEMENTATION DEPENDENT. Leave as zero if unsure.
     float           RasterizerMultiply;     // 1.0f     // Linearly brighten (>1.0f) or darken (<1.0f) font output. Brightening small fonts may be a good workaround to make them more readable. This is a silly thing we may remove in the future.
-    float           RasterizerDensity;      // 1.0f     // DPI scale for rasterization, not altering other font metrics: make it easy to swap between e.g. a 100% and a 400% fonts for a zooming display. IMPORTANT: If you increase this it is expected that you increase font scale accordingly, otherwise quality may look lowered.
+    float           RasterizerDensity;      // 1.0f     // DPI scale for rasterization, not altering other font metrics: make it easy to swap between e.g. a 100% and a 400% fonts for a zooming display, or handle Retina screen. IMPORTANT: If you change this it is expected that you increase/decrease font scale roughly to the inverse of this, otherwise quality may look lowered.
     ImWchar         EllipsisChar;           // 0        // Explicitly specify Unicode codepoint of ellipsis character. When fonts are being merged first specified ellipsis will be used.
 
     // [Internal]

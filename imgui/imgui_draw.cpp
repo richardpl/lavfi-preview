@@ -1,4 +1,4 @@
-// dear imgui, v1.91.9
+// dear imgui, v1.92.0 WIP
 // (drawing and font code)
 
 /*
@@ -217,6 +217,7 @@ void ImGui::StyleColorsDark(ImGuiStyle* dst)
     colors[ImGuiCol_ResizeGrip]             = ImVec4(0.26f, 0.59f, 0.98f, 0.20f);
     colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
     colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
+    colors[ImGuiCol_InputTextCursor]        = colors[ImGuiCol_Text];
     colors[ImGuiCol_TabHovered]             = colors[ImGuiCol_HeaderHovered];
     colors[ImGuiCol_Tab]                    = ImLerp(colors[ImGuiCol_Header],       colors[ImGuiCol_TitleBgActive], 0.80f);
     colors[ImGuiCol_TabSelected]            = ImLerp(colors[ImGuiCol_HeaderActive], colors[ImGuiCol_TitleBgActive], 0.60f);
@@ -280,6 +281,7 @@ void ImGui::StyleColorsClassic(ImGuiStyle* dst)
     colors[ImGuiCol_ResizeGrip]             = ImVec4(1.00f, 1.00f, 1.00f, 0.10f);
     colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.78f, 0.82f, 1.00f, 0.60f);
     colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.78f, 0.82f, 1.00f, 0.90f);
+    colors[ImGuiCol_InputTextCursor]        = colors[ImGuiCol_Text];
     colors[ImGuiCol_TabHovered]             = colors[ImGuiCol_HeaderHovered];
     colors[ImGuiCol_Tab]                    = ImLerp(colors[ImGuiCol_Header],       colors[ImGuiCol_TitleBgActive], 0.80f);
     colors[ImGuiCol_TabSelected]            = ImLerp(colors[ImGuiCol_HeaderActive], colors[ImGuiCol_TitleBgActive], 0.60f);
@@ -344,6 +346,7 @@ void ImGui::StyleColorsLight(ImGuiStyle* dst)
     colors[ImGuiCol_ResizeGrip]             = ImVec4(0.35f, 0.35f, 0.35f, 0.17f);
     colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
     colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
+    colors[ImGuiCol_InputTextCursor]        = colors[ImGuiCol_Text];
     colors[ImGuiCol_TabHovered]             = colors[ImGuiCol_HeaderHovered];
     colors[ImGuiCol_Tab]                    = ImLerp(colors[ImGuiCol_Header],       colors[ImGuiCol_TitleBgActive], 0.90f);
     colors[ImGuiCol_TabSelected]            = ImLerp(colors[ImGuiCol_HeaderActive], colors[ImGuiCol_TitleBgActive], 0.60f);
@@ -853,7 +856,7 @@ void ImDrawList::AddPolyline(const ImVec2* points, const int points_count, ImU32
                 dm_x *= half_draw_size; // dm_x, dm_y are offset to the outer edge of the AA area
                 dm_y *= half_draw_size;
 
-                // Add temporary vertexes for the outer edges
+                // Add temporary vertices for the outer edges
                 ImVec2* out_vtx = &temp_points[i2 * 2];
                 out_vtx[0].x = points[i2].x + dm_x;
                 out_vtx[0].y = points[i2].y + dm_y;
@@ -880,7 +883,7 @@ void ImDrawList::AddPolyline(const ImVec2* points, const int points_count, ImU32
                 idx1 = idx2;
             }
 
-            // Add vertexes for each point on the line
+            // Add vertices for each point on the line
             if (use_texture)
             {
                 // If we're using textures we only need to emit the left/right edge vertices
@@ -4006,7 +4009,7 @@ const char* ImFont::CalcWordWrapPositionA(float scale, const char* text, const c
             }
 
             // Allow wrapping after punctuation.
-            inside_word = (c != '.' && c != ',' && c != ';' && c != '!' && c != '?' && c != '\"');
+            inside_word = (c != '.' && c != ',' && c != ';' && c != '!' && c != '?' && c != '\"' && c != 0x3001 && c != 0x3002);
         }
 
         // We ignore blank width at the end of the line (they can be skipped)
@@ -4024,7 +4027,7 @@ const char* ImFont::CalcWordWrapPositionA(float scale, const char* text, const c
     // Wrap_width is too small to fit anything. Force displaying 1 character to minimize the height discontinuity.
     // +1 may not be a character start point in UTF-8 but it's ok because caller loops use (text >= word_wrap_eol).
     if (s == text && text < text_end)
-        return s + 1;
+        return s + ImTextCountUtf8BytesFromChar(s, text_end);
     return s;
 }
 
