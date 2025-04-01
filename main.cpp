@@ -778,7 +778,7 @@ static int filters_setup()
             ret = av_opt_set_int_list(filter_ctx, "sample_rates", sample_rates,
                                       0, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
-                ret = av_opt_set_array(filter_ctx, "sample_rates", AV_OPT_SEARCH_CHILDREN, 0, 1,
+                ret = av_opt_set_array(filter_ctx, "sample_rates", AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE, 0, 1,
                                        AV_OPT_TYPE_INT, sample_rates);
                 if (ret < 0) {
                     av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample rates.\n");
