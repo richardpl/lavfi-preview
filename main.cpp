@@ -4525,6 +4525,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         if (ImGui::BeginMenu("Graph")) {
             ImGui::SetTooltip("%s", "Export/Import FilterGraph");
             if (ImGui::BeginMenu("Export", filter_graph_is_valid == true)) {
+                ImGui::SetTooltip("%s", "Export FilterGraph");
                 if (ImGui::BeginMenu("Save as Script")) {
                     static char file_name[1024] = { 0 };
 
@@ -4541,6 +4542,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (ImGui::BeginMenu("Import", filter_graph_is_valid == false &&
                                  filter_links.size() == 0 &&
                                  filter_nodes.size() == 0)) {
+                ImGui::SetTooltip("%s", "Import FilterGraph");
                 if (ImGui::BeginMenu("Load Script")) {
                     static char file_name[1024] = { 0 };
 
