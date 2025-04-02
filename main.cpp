@@ -907,10 +907,14 @@ static int filters_setup()
                 goto error;
             }
 
+            output_streams[i].last_codec = codec;
             output_streams[i].elapsed_time = 0;
             output_streams[i].start_time = 0;
             output_streams[i].end_time = 0;
-
+            output_streams[i].last_frame_size = 0;
+            output_streams[i].last_packet_size = 0;
+            output_streams[i].sum_of_frames = 0;
+            output_streams[i].sum_of_packets = 0;
             output_streams[i].flt = sink->ctx;
             output_streams[i].enc = avcodec_alloc_context3(codec);
             if (!output_streams[i].enc) {
@@ -975,7 +979,15 @@ static int filters_setup()
                 goto error;
             }
 
-            output_streams[i].flt = sink->ctx;
+            output_streams[oi].last_codec = codec;
+            output_streams[oi].elapsed_time = 0;
+            output_streams[oi].start_time = 0;
+            output_streams[oi].end_time = 0;
+            output_streams[oi].last_frame_size = 0;
+            output_streams[oi].last_packet_size = 0;
+            output_streams[oi].sum_of_frames = 0;
+            output_streams[oi].sum_of_packets = 0;
+            output_streams[oi].flt = sink->ctx;
             output_streams[oi].enc = avcodec_alloc_context3(codec);
             if (!output_streams[oi].enc) {
                 av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u video stream\n", i);
@@ -5553,7 +5565,6 @@ static int write_frame(AVFormatContext *fmt_ctx, OutputStream *os)
         break;
     }
 
-    os->last_codec = c->codec;
     os->last_frame_size = frame_size;
     os->sum_of_frames += frame_size;
 
@@ -5878,6 +5889,9 @@ restart_window:
             for (unsigned i = 0; i < output_streams.size(); i++) {
                 OutputStream *os = &output_streams[i];
                 int ret;
+
+                if (!os->flt)
+                    break;
 
                 ret = av_buffersink_get_frame_flags(os->flt, os->frame, 0);
                 if (ret == AVERROR_EOF)
