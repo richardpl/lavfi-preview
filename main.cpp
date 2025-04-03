@@ -5471,7 +5471,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             node.edge = editor_edge++;
             node.inpad_edges.push_back(editor_edge);
             edge2pad.push_back(Edge2Pad { node.id, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
-            edge2pad.push_back(Edge2Pad { node.id, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
+            edge2pad.push_back(Edge2Pad { node.id, false, false, 0, type });
 
             filter_nodes.push_back(node);
             filter_links.push_back(std::make_pair(e, editor_edge++));
