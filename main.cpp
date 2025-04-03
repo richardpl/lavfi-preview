@@ -470,8 +470,6 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
         AVFormatContext *format_ctx = recorder->format_ctx;
         unsigned out_stream_eof = 0;
 
-        if (need_filters_reinit == true)
-            break;
         if (filter_graph_is_valid == false)
             break;
 
