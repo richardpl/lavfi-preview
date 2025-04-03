@@ -1103,6 +1103,9 @@ static int filters_setup()
                     goto error;
                 }
 
+                if (recorder[0].ostreams[i].enc->frame_size > 0)
+                    av_buffersink_set_frame_size(sink->ctx, recorder[0].ostreams[i].enc->frame_size);
+
                 recorder[0].ostreams[i].pkt = av_packet_alloc();
                 if (!recorder[0].ostreams[i].pkt) {
                     ret = AVERROR(ENOMEM);
