@@ -81,6 +81,16 @@ typedef struct OutputStream {
     uint64_t sum_of_packets;
 } OutputStream;
 
+typedef struct Recorder {
+    bool ready;
+    char *filename;
+    AVFormatContext *format_ctx;
+    const AVOutputFormat *oformat;
+    std::vector<const AVCodec *> audio_sink_codecs;
+    std::vector<const AVCodec *> video_sink_codecs;
+    std::vector<OutputStream> ostreams;
+} Recorder;
+
 typedef struct FrameInfo {
     int width, height;
     int nb_samples;
@@ -256,7 +266,7 @@ bool show_help = false;
 bool show_version = false;
 bool show_console = false;
 bool show_log_window = false;
-bool show_record_window = true;
+bool show_record_window = false;
 
 int log_level = AV_LOG_INFO;
 ImGuiTextBuffer log_buffer;
@@ -294,12 +304,10 @@ float log_alpha = 0.7f;
 float sink_alpha = 1.f;
 float version_alpha = 0.8f;
 
-const AVOutputFormat *output_format = NULL;
-char *output_file_name = NULL;
-std::vector<OutputStream> output_streams;
-std::vector<const AVCodec *> audio_sink_codecs;
-std::vector<const AVCodec *> video_sink_codecs;
-AVFormatContext *output_format_ctx = NULL;
+std::vector<Recorder> recorder;
+std::vector<std::condition_variable> recorder_cv;
+std::vector<std::thread> recorder_threads;
+std::vector<std::mutex> recorder_mutexes;
 
 int editor_edge = 0;
 ImNodesEditorContext *node_editor_context;
@@ -385,6 +393,138 @@ static void sound_thread(ALsizei nb_sources, std::vector<ALuint> *sources)
                 alSourcePlayv(nb_sources, sources->data());
         }
         av_usleep(100000);
+    }
+}
+
+static int write_frame(AVFormatContext *fmt_ctx, OutputStream *os)
+{
+    AVCodecContext *c = os->enc;
+    AVFrame *frame = os->frame;
+    AVPacket *pkt = os->pkt;
+    AVStream *st = os->st;
+    unsigned frame_size = 0;
+    int ret;
+
+    switch (c->codec_type) {
+    case AVMEDIA_TYPE_AUDIO:
+        frame_size = av_samples_get_buffer_size(NULL, frame->ch_layout.nb_channels,
+                                                frame->nb_samples, (AVSampleFormat)frame->format, 1);
+        break;
+    case AVMEDIA_TYPE_VIDEO:
+        frame_size = av_image_get_buffer_size((AVPixelFormat)frame->format, frame->width,
+                                              frame->height, 1);
+        break;
+    default:
+        break;
+    }
+
+    os->last_frame_size = frame_size;
+    os->sum_of_frames += frame_size;
+
+    ret = avcodec_send_frame(c, frame);
+    if (ret < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Error sending a frame to the encoder: %s\n",
+               av_err2str(ret));
+        return ret;
+    }
+
+    while (ret >= 0) {
+        ret = avcodec_receive_packet(c, pkt);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            break;
+        } else if (ret < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Error encoding a frame: %s\n", av_err2str(ret));
+            return ret;
+        }
+
+        os->last_packet_size = pkt->size;
+        os->sum_of_packets += pkt->size;
+
+        av_packet_rescale_ts(pkt, c->time_base, st->time_base);
+        pkt->stream_index = st->index;
+
+        ret = av_interleaved_write_frame(fmt_ctx, pkt);
+        if (ret < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Error while writing output packet: %s\n", av_err2str(ret));
+            return ret;
+        }
+    }
+
+    return ret == AVERROR_EOF ? AVERROR_EOF : 0;
+}
+
+static void kill_recorder_threads()
+{
+    for (unsigned i = 0; i < recorder_threads.size(); i++) {
+        recorder[i].ready = false;
+        if (recorder_threads[i].joinable()) {
+            recorder_threads[i].join();
+        }
+    }
+}
+
+static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::condition_variable *cv)
+{
+    while (recorder->format_ctx) {
+        AVFormatContext *format_ctx = recorder->format_ctx;
+        unsigned out_stream_eof = 0;
+
+        if (need_filters_reinit == true)
+            break;
+        if (filter_graph_is_valid == false)
+            break;
+
+        for (unsigned i = 0; i < recorder->ostreams.size(); i++) {
+            OutputStream *os = &recorder->ostreams[i];
+            int ret;
+
+            if (!os->flt)
+                break;
+
+            ret = av_buffersink_get_frame_flags(os->flt, os->frame, 0);
+            if (ret == AVERROR_EOF)
+                out_stream_eof++;
+
+            if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
+                break;
+
+            if (ret == AVERROR(EINVAL) || ret == AVERROR_EOF)
+                continue;
+
+            os->start_time = av_gettime_relative();
+
+            ret = write_frame(format_ctx, os);
+            if (ret == AVERROR_EOF)
+                out_stream_eof++;
+
+            os->end_time = av_gettime_relative();
+            os->elapsed_time += os->end_time - os->start_time;
+
+            av_frame_unref(os->frame);
+            if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
+                break;
+        }
+
+        if (out_stream_eof == recorder->ostreams.size())
+            break;
+    }
+
+    if (recorder->format_ctx) {
+        AVFormatContext *format_ctx = recorder->format_ctx;
+        av_write_trailer(format_ctx);
+        avio_closep(&format_ctx->pb);
+
+        for (unsigned i = 0; i < recorder->ostreams.size(); i++) {
+            OutputStream *os = &recorder->ostreams[i];
+
+            os->flt = NULL;
+            av_frame_free(&os->frame);
+            av_packet_free(&os->pkt);
+            avcodec_free_context(&os->enc);
+        }
+
+        avformat_free_context(format_ctx);
+        recorder->format_ctx = NULL;
     }
 }
 
@@ -659,8 +799,9 @@ static int filters_setup()
     if (need_filters_reinit == false)
         return 0;
 
-    avformat_free_context(output_format_ctx);
-    output_format_ctx = NULL;
+    kill_recorder_threads();
+    recorder_cv.clear();
+    recorder_mutexes.clear();
 
     if (play_sound_thread.joinable())
         play_sound_thread.join();
@@ -760,7 +901,7 @@ static int filters_setup()
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
         } else if (!strcmp(filter_ctx->filter->name, "buffersink")) {
-            const AVPixelFormat *encoder_fmts = video_sink_codecs.size() > 0 ? video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
+            const AVPixelFormat *encoder_fmts = (recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
             BufferSink new_sink = {0};
 
             new_sink.ctx = filter_ctx;
@@ -785,8 +926,8 @@ static int filters_setup()
 
             buffer_sinks.push_back(new_sink);
         } else if (!strcmp(filter_ctx->filter->name, "abuffersink")) {
-            const AVSampleFormat *encoder_fmts = audio_sink_codecs.size() > 0 ? audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
-            const int *encoder_samplerates = audio_sink_codecs.size() > 0 ? audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
+            const AVSampleFormat *encoder_fmts = (recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
+            const int *encoder_samplerates = (recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
             const int *encode_samplerates = encoder_samplerates ? encoder_samplerates : sample_rates;
             BufferSink new_sink = {0};
 
@@ -886,168 +1027,185 @@ static int filters_setup()
         show_abuffersink_window = false;
         show_buffersink_window = false;
 
-        avformat_alloc_output_context2(&output_format_ctx, output_format, NULL, output_file_name);
-        if (!output_format_ctx) {
-            av_log(NULL, AV_LOG_ERROR, "Could not create output format context.\n");
-            ret = AVERROR(ENOMEM);
-            goto error;
-        }
-
-        output_streams.resize(audio_sink_codecs.size() + video_sink_codecs.size());
-
-        for (unsigned i = 0; i < audio_sink_codecs.size(); i++) {
-            BufferSink *sink = &abuffer_sinks[i];
-            AVChannelLayout ch_layout;
-            const AVCodec *codec;
-
-            codec = audio_sink_codecs[i];
-            if (!codec) {
-                av_log(NULL, AV_LOG_ERROR, "No encoder set for %u audio stream\n", i);
-                ret = AVERROR(EINVAL);
-                goto error;
-            }
-
-            output_streams[i].last_codec = codec;
-            output_streams[i].elapsed_time = 0;
-            output_streams[i].start_time = 0;
-            output_streams[i].end_time = 0;
-            output_streams[i].last_frame_size = 0;
-            output_streams[i].last_packet_size = 0;
-            output_streams[i].sum_of_frames = 0;
-            output_streams[i].sum_of_packets = 0;
-            output_streams[i].flt = sink->ctx;
-            output_streams[i].enc = avcodec_alloc_context3(codec);
-            if (!output_streams[i].enc) {
-                av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u audio stream\n", i);
+        if (recorder.size() > 0) {
+            avformat_alloc_output_context2(&recorder[0].format_ctx, recorder[0].oformat, NULL, recorder[0].filename);
+            if (!recorder[0].format_ctx) {
+                av_log(NULL, AV_LOG_ERROR, "Could not create output format context.\n");
                 ret = AVERROR(ENOMEM);
                 goto error;
             }
 
-            output_streams[i].st = avformat_new_stream(output_format_ctx, NULL);
-            if (!output_streams[i].st) {
-                av_log(NULL, AV_LOG_ERROR, "Could not allocate audio stream %u\n", i);
-                goto error;
+            recorder[0].ostreams.resize(recorder[0].audio_sink_codecs.size() + recorder[0].video_sink_codecs.size());
+
+            for (unsigned i = 0; i < recorder[0].audio_sink_codecs.size(); i++) {
+                BufferSink *sink = &abuffer_sinks[i];
+                AVChannelLayout ch_layout;
+                const AVCodec *codec;
+
+                codec = recorder[0].audio_sink_codecs[i];
+                if (!codec) {
+                    av_log(NULL, AV_LOG_ERROR, "No encoder set for %u audio stream\n", i);
+                    ret = AVERROR(EINVAL);
+                    goto error;
+                }
+
+                recorder[0].ostreams[i].last_codec = codec;
+                recorder[0].ostreams[i].elapsed_time = 0;
+                recorder[0].ostreams[i].start_time = 0;
+                recorder[0].ostreams[i].end_time = 0;
+                recorder[0].ostreams[i].last_frame_size = 0;
+                recorder[0].ostreams[i].last_packet_size = 0;
+                recorder[0].ostreams[i].sum_of_frames = 0;
+                recorder[0].ostreams[i].sum_of_packets = 0;
+                recorder[0].ostreams[i].flt = sink->ctx;
+                recorder[0].ostreams[i].enc = avcodec_alloc_context3(codec);
+                if (!recorder[0].ostreams[i].enc) {
+                    av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u audio stream\n", i);
+                    ret = AVERROR(ENOMEM);
+                    goto error;
+                }
+
+                recorder[0].ostreams[i].st = avformat_new_stream(recorder[0].format_ctx, NULL);
+                if (!recorder[0].ostreams[i].st) {
+                    av_log(NULL, AV_LOG_ERROR, "Could not allocate audio stream %u\n", i);
+                    goto error;
+                }
+                recorder[0].ostreams[i].st->id = recorder[0].format_ctx->nb_streams-1;
+
+                recorder[0].ostreams[i].enc->sample_fmt = (AVSampleFormat)av_buffersink_get_format(sink->ctx);
+                recorder[0].ostreams[i].enc->time_base = av_buffersink_get_time_base(sink->ctx);
+                recorder[0].ostreams[i].enc->sample_rate = av_buffersink_get_sample_rate(sink->ctx);
+                av_buffersink_get_ch_layout(sink->ctx, &ch_layout);
+                av_channel_layout_copy(&recorder[0].ostreams[i].enc->ch_layout, &ch_layout);
+                recorder[0].ostreams[i].st->time_base = recorder[0].ostreams[i].enc->time_base;
+
+                if (recorder[0].oformat->flags & AVFMT_GLOBALHEADER)
+                    recorder[0].ostreams[i].enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+                ret = avcodec_open2(recorder[0].ostreams[i].enc, codec, NULL);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Error opening audio encoder for stream %u\n", i);
+                    goto error;
+                }
+
+                ret = avcodec_parameters_from_context(recorder[0].ostreams[i].st->codecpar, recorder[0].ostreams[i].enc);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Error in codec parameters for audio stream %u\n", i);
+                    goto error;
+                }
+
+                recorder[0].ostreams[i].pkt = av_packet_alloc();
+                if (!recorder[0].ostreams[i].pkt) {
+                    ret = AVERROR(ENOMEM);
+                    av_log(NULL, AV_LOG_ERROR, "Error to allocate packet for audio stream %u\n", i);
+                    goto error;
+                }
+
+                recorder[0].ostreams[i].frame = av_frame_alloc();
+                if (!recorder[0].ostreams[i].frame) {
+                    ret = AVERROR(ENOMEM);
+                    av_log(NULL, AV_LOG_ERROR, "Error to allocate frame for audio stream %u\n", i);
+                    goto error;
+                }
             }
-            output_streams[i].st->id = output_format_ctx->nb_streams-1;
 
-            output_streams[i].enc->sample_fmt = (AVSampleFormat)av_buffersink_get_format(sink->ctx);
-            output_streams[i].enc->time_base = av_buffersink_get_time_base(sink->ctx);
-            output_streams[i].enc->sample_rate = av_buffersink_get_sample_rate(sink->ctx);
-            av_buffersink_get_ch_layout(sink->ctx, &ch_layout);
-            av_channel_layout_copy(&output_streams[i].enc->ch_layout, &ch_layout);
-            output_streams[i].st->time_base = output_streams[i].enc->time_base;
+            for (unsigned i = 0; i < recorder[0].video_sink_codecs.size(); i++) {
+                const unsigned oi = recorder[0].audio_sink_codecs.size() + i;
+                BufferSink *sink = &buffer_sinks[i];
+                const AVCodec *codec;
 
-            if (output_format->flags & AVFMT_GLOBALHEADER)
-                output_streams[i].enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+                codec = recorder[0].video_sink_codecs[i];
+                if (!codec) {
+                    av_log(NULL, AV_LOG_ERROR, "No encoder set for %u video stream\n", i);
+                    ret = AVERROR(EINVAL);
+                    goto error;
+                }
 
-            ret = avcodec_open2(output_streams[i].enc, codec, NULL);
+                recorder[0].ostreams[oi].last_codec = codec;
+                recorder[0].ostreams[oi].elapsed_time = 0;
+                recorder[0].ostreams[oi].start_time = 0;
+                recorder[0].ostreams[oi].end_time = 0;
+                recorder[0].ostreams[oi].last_frame_size = 0;
+                recorder[0].ostreams[oi].last_packet_size = 0;
+                recorder[0].ostreams[oi].sum_of_frames = 0;
+                recorder[0].ostreams[oi].sum_of_packets = 0;
+                recorder[0].ostreams[oi].flt = sink->ctx;
+                recorder[0].ostreams[oi].enc = avcodec_alloc_context3(codec);
+                if (!recorder[0].ostreams[oi].enc) {
+                    av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u video stream\n", i);
+                    ret = AVERROR(ENOMEM);
+                    goto error;
+                }
+
+                recorder[0].ostreams[oi].st = avformat_new_stream(recorder[0].format_ctx, NULL);
+                if (!recorder[0].ostreams[oi].st) {
+                    av_log(NULL, AV_LOG_ERROR, "Could not allocate video stream %u\n", i);
+                    goto error;
+                }
+                recorder[0].ostreams[oi].st->id = recorder[0].format_ctx->nb_streams-1;
+
+                recorder[0].ostreams[oi].enc->width = (AVPixelFormat)av_buffersink_get_w(sink->ctx);
+                recorder[0].ostreams[oi].enc->height = (AVPixelFormat)av_buffersink_get_h(sink->ctx);
+                recorder[0].ostreams[oi].enc->pix_fmt = (AVPixelFormat)av_buffersink_get_format(sink->ctx);
+                recorder[0].ostreams[oi].enc->time_base = av_buffersink_get_time_base(sink->ctx);
+                recorder[0].ostreams[oi].st->time_base = recorder[0].ostreams[oi].enc->time_base;
+
+                if (recorder[0].oformat->flags & AVFMT_GLOBALHEADER)
+                    recorder[0].ostreams[oi].enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+                ret = avcodec_open2(recorder[0].ostreams[oi].enc, codec, NULL);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Error opening video encoder for stream %u\n", i);
+                    goto error;
+                }
+
+                ret = avcodec_parameters_from_context(recorder[0].ostreams[oi].st->codecpar, recorder[0].ostreams[oi].enc);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Error in codec parameters for video stream %u\n", i);
+                    goto error;
+                }
+
+                recorder[0].ostreams[oi].pkt = av_packet_alloc();
+                if (!recorder[0].ostreams[oi].pkt) {
+                    ret = AVERROR(ENOMEM);
+                    av_log(NULL, AV_LOG_ERROR, "Error to allocate packet for video stream %u\n", i);
+                    goto error;
+                }
+
+                recorder[0].ostreams[oi].frame = av_frame_alloc();
+                if (!recorder[0].ostreams[oi].frame) {
+                    ret = AVERROR(ENOMEM);
+                    av_log(NULL, AV_LOG_ERROR, "Error to allocate frame for video stream %u\n", i);
+                    goto error;
+                }
+            }
+
+            ret = avio_open(&recorder[0].format_ctx->pb, recorder[0].filename, AVIO_FLAG_WRITE);
             if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR, "Error opening audio encoder for stream %u\n", i);
+                av_log(NULL, AV_LOG_ERROR, "Could not open '%s': %s\n", recorder[0].filename, av_err2str(ret));
                 goto error;
             }
 
-            ret = avcodec_parameters_from_context(output_streams[i].st->codecpar, output_streams[i].enc);
+            ret = avformat_write_header(recorder[0].format_ctx, NULL);
             if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR, "Error in codec parameters for audio stream %u\n", i);
+                av_log(NULL, AV_LOG_ERROR, "Error occurred when writing header: %s\n", av_err2str(ret));
                 goto error;
             }
 
-            output_streams[i].pkt = av_packet_alloc();
-            if (!output_streams[i].pkt) {
-                ret = AVERROR(ENOMEM);
-                av_log(NULL, AV_LOG_ERROR, "Error to allocate packet for audio stream %u\n", i);
-                goto error;
+            std::vector<std::condition_variable> recorder_cv_list(recorder.size());
+            recorder_cv.swap(recorder_cv_list);
+
+            std::vector<std::mutex> recorder_mutex_list(recorder.size());
+            recorder_mutexes.swap(recorder_mutex_list);
+
+            std::vector<std::thread> recorder_thread_list(recorder.size());
+            recorder_threads.swap(recorder_thread_list);
+
+            for (unsigned i = 0; i < recorder.size(); i++) {
+                std::thread rec_thread(recorder_thread, &recorder[i], &recorder_mutexes[i], &recorder_cv[i]);
+
+                recorder_threads[i].swap(rec_thread);
             }
-
-            output_streams[i].frame = av_frame_alloc();
-            if (!output_streams[i].frame) {
-                ret = AVERROR(ENOMEM);
-                av_log(NULL, AV_LOG_ERROR, "Error to allocate frame for audio stream %u\n", i);
-                goto error;
-            }
-        }
-
-        for (unsigned i = 0; i < video_sink_codecs.size(); i++) {
-            const unsigned oi = audio_sink_codecs.size() + i;
-            BufferSink *sink = &buffer_sinks[i];
-            const AVCodec *codec;
-
-            codec = video_sink_codecs[i];
-            if (!codec) {
-                av_log(NULL, AV_LOG_ERROR, "No encoder set for %u video stream\n", i);
-                ret = AVERROR(EINVAL);
-                goto error;
-            }
-
-            output_streams[oi].last_codec = codec;
-            output_streams[oi].elapsed_time = 0;
-            output_streams[oi].start_time = 0;
-            output_streams[oi].end_time = 0;
-            output_streams[oi].last_frame_size = 0;
-            output_streams[oi].last_packet_size = 0;
-            output_streams[oi].sum_of_frames = 0;
-            output_streams[oi].sum_of_packets = 0;
-            output_streams[oi].flt = sink->ctx;
-            output_streams[oi].enc = avcodec_alloc_context3(codec);
-            if (!output_streams[oi].enc) {
-                av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u video stream\n", i);
-                ret = AVERROR(ENOMEM);
-                goto error;
-            }
-
-            output_streams[oi].st = avformat_new_stream(output_format_ctx, NULL);
-            if (!output_streams[oi].st) {
-                av_log(NULL, AV_LOG_ERROR, "Could not allocate video stream %u\n", i);
-                goto error;
-            }
-            output_streams[oi].st->id = output_format_ctx->nb_streams-1;
-
-            output_streams[oi].enc->width = (AVPixelFormat)av_buffersink_get_w(sink->ctx);
-            output_streams[oi].enc->height = (AVPixelFormat)av_buffersink_get_h(sink->ctx);
-            output_streams[oi].enc->pix_fmt = (AVPixelFormat)av_buffersink_get_format(sink->ctx);
-            output_streams[oi].enc->time_base = av_buffersink_get_time_base(sink->ctx);
-            output_streams[oi].st->time_base = output_streams[oi].enc->time_base;
-
-            if (output_format->flags & AVFMT_GLOBALHEADER)
-                output_streams[oi].enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-
-            ret = avcodec_open2(output_streams[oi].enc, codec, NULL);
-            if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR, "Error opening video encoder for stream %u\n", i);
-                goto error;
-            }
-
-            ret = avcodec_parameters_from_context(output_streams[oi].st->codecpar, output_streams[oi].enc);
-            if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR, "Error in codec parameters for video stream %u\n", i);
-                goto error;
-            }
-
-            output_streams[oi].pkt = av_packet_alloc();
-            if (!output_streams[oi].pkt) {
-                ret = AVERROR(ENOMEM);
-                av_log(NULL, AV_LOG_ERROR, "Error to allocate packet for video stream %u\n", i);
-                goto error;
-            }
-
-            output_streams[oi].frame = av_frame_alloc();
-            if (!output_streams[oi].frame) {
-                ret = AVERROR(ENOMEM);
-                av_log(NULL, AV_LOG_ERROR, "Error to allocate frame for video stream %u\n", i);
-                goto error;
-            }
-        }
-
-        ret = avio_open(&output_format_ctx->pb, output_file_name, AVIO_FLAG_WRITE);
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Could not open '%s': %s\n", output_file_name, av_err2str(ret));
-            goto error;
-        }
-
-        ret = avformat_write_header(output_format_ctx, NULL);
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Error occurred when writing header: %s\n", av_err2str(ret));
-            goto error;
         }
     } else {
         show_abuffersink_window = true;
@@ -1059,8 +1217,10 @@ error:
     need_muxing = false;
 
     if (ret < 0) {
-        avformat_free_context(output_format_ctx);
-        output_format_ctx = NULL;
+        if (recorder.size() > 0) {
+            avformat_free_context(recorder[0].format_ctx);
+            recorder[0].format_ctx = NULL;
+        }
         return ret;
     }
 
@@ -4323,7 +4483,7 @@ static void set_style_colors(int style)
 
 static void select_muxer(const AVOutputFormat *ofmt)
 {
-    output_format = ofmt;
+    recorder[0].oformat = ofmt;
 }
 
 static void handle_muxeritem(const AVOutputFormat *ofmt)
@@ -4345,9 +4505,9 @@ static int is_device(const AVClass *avclass)
 static void select_encoder(const AVCodec *codec, const bool is_audio, const int n)
 {
     if (is_audio) {
-        audio_sink_codecs[n] = codec;
+        recorder[0].audio_sink_codecs[n] = codec;
     } else {
-        video_sink_codecs[n] = codec;
+        recorder[0].video_sink_codecs[n] = codec;
     }
 }
 
@@ -4383,7 +4543,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         need_muxing = false;
     }
 
-    if (ImGui::IsKeyReleased(ImGuiKey_R) && ImGui::GetIO().KeyCtrl) {
+    if (ImGui::IsKeyReleased(ImGuiKey_R) && ImGui::GetIO().KeyCtrl && need_muxing == false) {
         need_filters_reinit = true;
         need_muxing = true;
     }
@@ -4826,24 +4986,26 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (ImGui::BeginMenu("Record", filter_graph_is_valid == true)) {
                 static char file_name[1024] = { 0 };
 
+                recorder.resize(1);
+
                 ImGui::SetTooltip("%s", "Record FilterGraph Output");
-                ImGui::Text("Format: %s", output_format ? output_format->name : "<none>");
-                ImGui::Text("File: %s", output_file_name ? output_file_name : "<none>");
+                ImGui::Text("File: %s", recorder[0].filename ? recorder[0].filename : "<none>");
+                ImGui::Text("Format: %s", recorder[0].oformat ? recorder[0].oformat->name : "<none>");
 
-                audio_sink_codecs.resize(abuffer_sinks.size());
-                video_sink_codecs.resize(buffer_sinks.size());
+                recorder[0].audio_sink_codecs.resize(abuffer_sinks.size());
+                recorder[0].video_sink_codecs.resize(buffer_sinks.size());
 
-                for (unsigned i = 0; i < audio_sink_codecs.size(); i++) {
-                    ImGui::Text("Audio Encoder.%u: %s", i, audio_sink_codecs[i] ? audio_sink_codecs[i]->name : "<none>");
+                for (unsigned i = 0; i < recorder[0].audio_sink_codecs.size(); i++) {
+                    ImGui::Text("Audio Encoder.%u: %s", i, recorder[0].audio_sink_codecs[i] ? recorder[0].audio_sink_codecs[i]->name : "<none>");
                 }
 
-                for (unsigned i = 0; i < video_sink_codecs.size(); i++) {
-                    ImGui::Text("Video Encoder.%u: %s", i, video_sink_codecs[i] ? video_sink_codecs[i]->name : "<none>");
+                for (unsigned i = 0; i < recorder[0].video_sink_codecs.size(); i++) {
+                    ImGui::Text("Video Encoder.%u: %s", i, recorder[0].video_sink_codecs[i] ? recorder[0].video_sink_codecs[i]->name : "<none>");
                 }
 
                 ImGui::Separator();
 
-                for (unsigned i = 0; i < audio_sink_codecs.size(); i++) {
+                for (unsigned i = 0; i < recorder[0].audio_sink_codecs.size(); i++) {
                     char menu_name[1024] = { 0 };
 
                     snprintf(menu_name, sizeof(menu_name), "Audio Encoder.%u", i);
@@ -4863,7 +5025,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     }
                 }
 
-                for (unsigned i = 0; i < video_sink_codecs.size(); i++) {
+                for (unsigned i = 0; i < recorder[0].video_sink_codecs.size(); i++) {
                     char menu_name[1024] = { 0 };
 
                     snprintf(menu_name, sizeof(menu_name), "Video Encoder.%u", i);
@@ -4903,8 +5065,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                 ImGui::InputText("File name:", file_name, IM_ARRAYSIZE(file_name));
                 if (strlen(file_name) > 0 && ImGui::Button("Set")) {
-                    av_freep(&output_file_name);
-                    output_file_name = av_strdup(file_name);
+                    av_freep(&recorder[0].filename);
+                    recorder[0].filename = av_strdup(file_name);
                     memset(file_name, 0, sizeof(file_name));
                 }
                 ImGui::EndMenu();
@@ -5520,84 +5682,29 @@ static void show_record(bool *p_open, bool focused)
         return;
     }
 
-    for (unsigned i = 0; i < output_streams.size(); i++) {
-        OutputStream *os = &output_streams[i];
+    if (recorder.size() > 0) {
+        for (unsigned i = 0; i < recorder[0].ostreams.size(); i++) {
+            OutputStream *os = &recorder[0].ostreams[i];
 
-        if (os->last_codec)
-            ImGui::Text("Encoder.%d: %s", i, os->last_codec->name);
-        ImGui::Separator();
-        ImGui::Text("Last Frame Encoding Time: %g", (os->end_time - os->start_time)/ 100000.);
-        ImGui::Text("Overall Encoding Time: %g", os->elapsed_time / 100000.);
-        ImGui::Separator();
-        ImGui::Text("Last Frame Size: %lu", os->last_frame_size);
-        ImGui::Text("Last Packet Size: %lu", os->last_packet_size);
-        ImGui::Text("Last Frame Compression Ratio: %g", os->last_packet_size / (double)os->last_frame_size);
-        ImGui::Separator();
-        ImGui::Text("Frame Size Sum: %lu", os->sum_of_frames);
-        ImGui::Text("Packet Size Sum: %lu", os->sum_of_packets);
-        ImGui::Text("Compression Ratio : %g", os->sum_of_packets / (double)os->sum_of_frames);
-        ImGui::Separator();
-        ImGui::Separator();
+            if (os->last_codec)
+                ImGui::Text("Encoder.%d: %s", i, os->last_codec->name);
+            ImGui::Separator();
+            ImGui::Text("Last Frame Encoding Time: %g", (os->end_time - os->start_time)/ 100000.);
+            ImGui::Text("Overall Encoding Time: %g", os->elapsed_time / 100000.);
+            ImGui::Separator();
+            ImGui::Text("Last Frame Size: %lu", os->last_frame_size);
+            ImGui::Text("Last Packet Size: %lu", os->last_packet_size);
+            ImGui::Text("Last Frame Compression Ratio: %g", os->last_packet_size / (double)os->last_frame_size);
+            ImGui::Separator();
+            ImGui::Text("Frame Size Sum: %lu", os->sum_of_frames);
+            ImGui::Text("Packet Size Sum: %lu", os->sum_of_packets);
+            ImGui::Text("Compression Ratio : %g", os->sum_of_packets / (double)os->sum_of_frames);
+            ImGui::Separator();
+            ImGui::Separator();
+        }
     }
 
     ImGui::End();
-}
-
-static int write_frame(AVFormatContext *fmt_ctx, OutputStream *os)
-{
-    AVCodecContext *c = os->enc;
-    AVFrame *frame = os->frame;
-    AVPacket *pkt = os->pkt;
-    AVStream *st = os->st;
-    unsigned frame_size = 0;
-    int ret;
-
-    switch (c->codec_type) {
-    case AVMEDIA_TYPE_AUDIO:
-        frame_size = av_samples_get_buffer_size(NULL, frame->ch_layout.nb_channels,
-                                                frame->nb_samples, (AVSampleFormat)frame->format, 1);
-        break;
-    case AVMEDIA_TYPE_VIDEO:
-        frame_size = av_image_get_buffer_size((AVPixelFormat)frame->format, frame->width,
-                                              frame->height, 1);
-        break;
-    default:
-        break;
-    }
-
-    os->last_frame_size = frame_size;
-    os->sum_of_frames += frame_size;
-
-    ret = avcodec_send_frame(c, frame);
-    if (ret < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Error sending a frame to the encoder: %s\n",
-               av_err2str(ret));
-        return ret;
-    }
-
-    while (ret >= 0) {
-        ret = avcodec_receive_packet(c, pkt);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-            break;
-        } else if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Error encoding a frame: %s\n", av_err2str(ret));
-            return ret;
-        }
-
-        os->last_packet_size = pkt->size;
-        os->sum_of_packets += pkt->size;
-
-        av_packet_rescale_ts(pkt, c->time_base, st->time_base);
-        pkt->stream_index = st->index;
-
-        ret = av_interleaved_write_frame(fmt_ctx, pkt);
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Error while writing output packet: %s\n", av_err2str(ret));
-            return ret;
-        }
-    }
-
-    return ret == AVERROR_EOF ? AVERROR_EOF : 0;
 }
 
 int main(int, char**)
@@ -5705,6 +5812,7 @@ restart_window:
         glfwPollEvents();
 
         if (filter_graph_is_valid == false) {
+            kill_recorder_threads();
             kill_source_threads();
             source_threads.clear();
         }
@@ -5773,7 +5881,7 @@ restart_window:
         min_qpts = std::min(min_qpts, min_aqpts);
         min_aqpts = min_qpts;
 
-        if (filter_graph_is_valid && output_format_ctx == NULL) {
+        if (filter_graph_is_valid && (recorder.size() == 0 || recorder[0].format_ctx == NULL)) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
                 ring_item_t item = { NULL, 0 };
@@ -5802,7 +5910,7 @@ restart_window:
             }
         }
 
-        if (filter_graph_is_valid && output_format_ctx == NULL) {
+        if (filter_graph_is_valid && (recorder.size() == 0 || recorder[0].format_ctx == NULL)) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
                 ALint processed = 0;
@@ -5828,7 +5936,7 @@ restart_window:
             }
         }
 
-        if (filter_graph_is_valid && output_format_ctx == NULL) {
+        if (filter_graph_is_valid && (recorder.size() == 0 || recorder[0].format_ctx == NULL)) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
                 ring_item_t item = { NULL, 0 };
@@ -5852,7 +5960,7 @@ restart_window:
             last_buffersink_window = 0;
         }
 
-        if (filter_graph_is_valid && output_format_ctx == NULL) {
+        if (filter_graph_is_valid && (recorder.size() == 0 || recorder[0].format_ctx == NULL)) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
                 ALint queued = 0;
@@ -5883,64 +5991,12 @@ restart_window:
             last_abuffersink_window = 0;
         }
 
-        if (filter_graph_is_valid && output_format_ctx != NULL) {
-            unsigned out_stream_eof = 0;
-
-            for (unsigned i = 0; i < output_streams.size(); i++) {
-                OutputStream *os = &output_streams[i];
-                int ret;
-
-                if (!os->flt)
-                    break;
-
-                ret = av_buffersink_get_frame_flags(os->flt, os->frame, 0);
-                if (ret == AVERROR_EOF)
-                    out_stream_eof++;
-
-                if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
-                    break;
-
-                if (ret == AVERROR(EINVAL) || ret == AVERROR_EOF)
-                    continue;
-
-                os->start_time = av_gettime_relative();
-
-                ret = write_frame(output_format_ctx, os);
-                if (ret == AVERROR_EOF)
-                    out_stream_eof++;
-
-                os->end_time = av_gettime_relative();
-                os->elapsed_time += os->end_time - os->start_time;
-
-                av_frame_unref(os->frame);
-                if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
-                    break;
-            }
-
-            if (out_stream_eof == output_streams.size()) {
-                av_write_trailer(output_format_ctx);
-                avio_closep(&output_format_ctx->pb);
-
-                for (unsigned i = 0; i < output_streams.size(); i++) {
-                    OutputStream *os = &output_streams[i];
-
-                    os->flt = NULL;
-                    av_frame_free(&os->frame);
-                    av_packet_free(&os->pkt);
-                    avcodec_free_context(&os->enc);
-                }
-
-                avformat_free_context(output_format_ctx);
-                output_format_ctx = NULL;
-            }
-        }
-
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        if (output_format_ctx == NULL) {
+        if (recorder.size() == 0 || recorder[0].format_ctx == NULL) {
             if (filter_graph_is_valid && show_buffersink_window == true) {
                 for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                     BufferSink *sink = &buffer_sinks[i];
@@ -6028,6 +6084,9 @@ restart_window:
 
     need_filters_reinit = true;
 
+    kill_recorder_threads();
+    recorder.clear();
+
     if (play_sound_thread.joinable())
         play_sound_thread.join();
     play_sources.clear();
@@ -6039,9 +6098,6 @@ restart_window:
     source_threads.clear();
     video_sink_threads.clear();
     audio_sink_threads.clear();
-
-    audio_sink_codecs.clear();
-    video_sink_codecs.clear();
 
     for (unsigned i = 0; i < filter_nodes.size(); i++) {
         FilterNode *node = &filter_nodes[i];
@@ -6061,9 +6117,6 @@ restart_window:
 
     avfilter_graph_free(&filter_graph);
     avfilter_graph_free(&probe_graph);
-
-    avformat_free_context(output_format_ctx);
-    output_format_ctx = NULL;
 
     filter_links.clear();
 
