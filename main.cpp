@@ -495,7 +495,7 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
             if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
                 break;
 
-            if (ret == AVERROR(EINVAL) || ret == AVERROR_EOF)
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
                 continue;
 
             os->start_enc_time = av_gettime_relative();
