@@ -530,6 +530,7 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
 
         avformat_free_context(format_ctx);
         recorder->format_ctx = NULL;
+        av_freep(&recorder->filename);
     }
 }
 
