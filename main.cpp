@@ -155,7 +155,7 @@ typedef struct OptStorage {
 } OptStorage;
 
 typedef struct BufferSource {
-    std::string stream_url;
+    std::string *stream_url;
     int stream_index;
     bool ready;
     enum AVMediaType type;
@@ -741,10 +741,10 @@ static void find_source_params(BufferSource *source)
     int stream_index, ret;
     const AVCodec *dec;
 
-    if (source->stream_url.empty())
+    if (source->stream_url == NULL || source->stream_url->empty())
         return;
 
-    if ((ret = avformat_open_input(&source->fmt_ctx, source->stream_url.c_str(), NULL, NULL)) < 0) {
+    if ((ret = avformat_open_input(&source->fmt_ctx, source->stream_url->c_str(), NULL, NULL)) < 0) {
         av_log(NULL, AV_LOG_ERROR, "Cannot open input\n");
         return;
     }
@@ -883,26 +883,26 @@ static int filters_setup()
         }
 
         if (!strcmp(filter_ctx->filter->name, "buffer")) {
-            BufferSource new_source;
+            BufferSource new_source = {0};
 
             new_source.ready = false;
             new_source.fmt_ctx = NULL;
             new_source.dec_ctx = NULL;
             new_source.ctx = filter_ctx;
             if (!filter_nodes[i].stream_url.empty())
-                new_source.stream_url = filter_nodes[i].stream_url;
+                new_source.stream_url = &filter_nodes[i].stream_url;
             new_source.type = AVMEDIA_TYPE_VIDEO;
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
         } else if (!strcmp(filter_ctx->filter->name, "abuffer")) {
-            BufferSource new_source;
+            BufferSource new_source = {0};
 
             new_source.ready = false;
             new_source.fmt_ctx = NULL;
             new_source.dec_ctx = NULL;
             new_source.ctx = filter_ctx;
             if (!filter_nodes[i].stream_url.empty())
-                new_source.stream_url = filter_nodes[i].stream_url;
+                new_source.stream_url = &filter_nodes[i].stream_url;
             new_source.type = AVMEDIA_TYPE_AUDIO;
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
@@ -1964,7 +1964,7 @@ struct {
         const int pab = pa.second;
         const int pba = pb.first;
         const int pbb = pb.second;
-        int pia, pib;
+        int pia = 0, pib = 0;
 
         if (!edge2pad[paa].is_output)
             pia = edge2pad[paa].pad_index;
@@ -1989,7 +1989,7 @@ struct {
         const int pab = pa.second;
         const int pba = pb.first;
         const int pbb = pb.second;
-        int pia, pib;
+        int pia = 0, pib = 0;
 
         if (edge2pad[paa].is_output)
             pia = edge2pad[paa].pad_index;
