@@ -70,7 +70,8 @@ typedef struct OutputStream {
 
     AVPacket *pkt;
 
-    int64_t start_time, end_time, elapsed_time;
+    int64_t start_flt_time, end_flt_time, elapsed_flt_time;
+    int64_t start_enc_time, end_enc_time, elapsed_enc_time;
 
     const AVCodec *last_codec;
 
@@ -481,7 +482,13 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
             if (!os->flt)
                 break;
 
+            os->start_flt_time = av_gettime_relative();
+
             ret = av_buffersink_get_frame_flags(os->flt, os->frame, 0);
+
+            os->end_flt_time = av_gettime_relative();
+            os->elapsed_flt_time += os->end_flt_time - os->start_flt_time;
+
             if (ret == AVERROR_EOF)
                 out_stream_eof++;
 
@@ -491,14 +498,14 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
             if (ret == AVERROR(EINVAL) || ret == AVERROR_EOF)
                 continue;
 
-            os->start_time = av_gettime_relative();
+            os->start_enc_time = av_gettime_relative();
 
             ret = write_frame(format_ctx, os);
             if (ret == AVERROR_EOF)
                 out_stream_eof++;
 
-            os->end_time = av_gettime_relative();
-            os->elapsed_time += os->end_time - os->start_time;
+            os->end_enc_time = av_gettime_relative();
+            os->elapsed_enc_time += os->end_enc_time - os->start_enc_time;
 
             av_frame_unref(os->frame);
             if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
@@ -1050,9 +1057,12 @@ static int filters_setup()
                 }
 
                 recorder[0].ostreams[i].last_codec = codec;
-                recorder[0].ostreams[i].elapsed_time = 0;
-                recorder[0].ostreams[i].start_time = 0;
-                recorder[0].ostreams[i].end_time = 0;
+                recorder[0].ostreams[i].elapsed_enc_time = 0;
+                recorder[0].ostreams[i].start_enc_time = 0;
+                recorder[0].ostreams[i].end_enc_time = 0;
+                recorder[0].ostreams[i].elapsed_flt_time = 0;
+                recorder[0].ostreams[i].start_flt_time = 0;
+                recorder[0].ostreams[i].end_flt_time = 0;
                 recorder[0].ostreams[i].last_frame_size = 0;
                 recorder[0].ostreams[i].last_packet_size = 0;
                 recorder[0].ostreams[i].sum_of_frames = 0;
@@ -1122,9 +1132,12 @@ static int filters_setup()
                 }
 
                 recorder[0].ostreams[oi].last_codec = codec;
-                recorder[0].ostreams[oi].elapsed_time = 0;
-                recorder[0].ostreams[oi].start_time = 0;
-                recorder[0].ostreams[oi].end_time = 0;
+                recorder[0].ostreams[oi].elapsed_enc_time = 0;
+                recorder[0].ostreams[oi].start_enc_time = 0;
+                recorder[0].ostreams[oi].end_enc_time = 0;
+                recorder[0].ostreams[oi].elapsed_flt_time = 0;
+                recorder[0].ostreams[oi].start_flt_time = 0;
+                recorder[0].ostreams[oi].end_flt_time = 0;
                 recorder[0].ostreams[oi].last_frame_size = 0;
                 recorder[0].ostreams[oi].last_packet_size = 0;
                 recorder[0].ostreams[oi].sum_of_frames = 0;
@@ -5689,8 +5702,11 @@ static void show_record(bool *p_open, bool focused)
             if (os->last_codec)
                 ImGui::Text("Encoder.%d: %s", i, os->last_codec->name);
             ImGui::Separator();
-            ImGui::Text("Last Frame Encoding Time: %g", (os->end_time - os->start_time)/ 1000000.);
-            ImGui::Text("Overall Encoding Time: %g", os->elapsed_time / 1000000.);
+            ImGui::Text("Last Frame Filtering Time: %g", (os->end_flt_time - os->start_flt_time)/ 1000000.);
+            ImGui::Text("Overall Filtering Time: %g", os->elapsed_flt_time / 1000000.);
+            ImGui::Separator();
+            ImGui::Text("Last Frame Encoding Time: %g", (os->end_enc_time - os->start_enc_time)/ 1000000.);
+            ImGui::Text("Overall Encoding Time: %g", os->elapsed_enc_time / 1000000.);
             ImGui::Separator();
             ImGui::Text("Last Frame Size: %lu", os->last_frame_size);
             ImGui::Text("Last Packet Size: %lu", os->last_packet_size);
