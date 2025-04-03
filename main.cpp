@@ -5689,8 +5689,8 @@ static void show_record(bool *p_open, bool focused)
             if (os->last_codec)
                 ImGui::Text("Encoder.%d: %s", i, os->last_codec->name);
             ImGui::Separator();
-            ImGui::Text("Last Frame Encoding Time: %g", (os->end_time - os->start_time)/ 100000.);
-            ImGui::Text("Overall Encoding Time: %g", os->elapsed_time / 100000.);
+            ImGui::Text("Last Frame Encoding Time: %g", (os->end_time - os->start_time)/ 1000000.);
+            ImGui::Text("Overall Encoding Time: %g", os->elapsed_time / 1000000.);
             ImGui::Separator();
             ImGui::Text("Last Frame Size: %lu", os->last_frame_size);
             ImGui::Text("Last Packet Size: %lu", os->last_packet_size);
