@@ -544,7 +544,6 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
 
         avformat_free_context(format_ctx);
         recorder->format_ctx = NULL;
-        av_freep(&recorder->filename);
     }
 }
 
@@ -6125,6 +6124,11 @@ restart_window:
     need_filters_reinit = true;
 
     kill_recorder_threads();
+    for (unsigned i = 0; i < recorder.size(); i++) {
+        recorder[i].audio_sink_codecs.clear();
+        recorder[i].video_sink_codecs.clear();
+        av_freep(&recorder[i].filename);
+    }
     recorder.clear();
 
     if (play_sound_thread.joinable())
