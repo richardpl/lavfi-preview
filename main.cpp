@@ -70,6 +70,9 @@ typedef struct OutputStream {
 
     AVPacket *pkt;
 
+    int64_t last_pts;
+    AVRational last_time_base;
+
     int64_t start_flt_time, end_flt_time, elapsed_flt_time;
     int64_t start_enc_time, end_enc_time, elapsed_enc_time;
 
@@ -443,6 +446,8 @@ static int write_frame(AVFormatContext *fmt_ctx, OutputStream *os)
         os->sum_of_packets += pkt->size;
 
         av_packet_rescale_ts(pkt, c->time_base, st->time_base);
+        os->last_pts = pkt->pts;
+        os->last_time_base = st->time_base;
         pkt->stream_index = st->index;
 
         ret = av_interleaved_write_frame(fmt_ctx, pkt);
@@ -5738,6 +5743,8 @@ static void show_record(bool *p_open, bool focused)
             ImGui::Text("Frame Size Sum: %lu", os->sum_of_frames);
             ImGui::Text("Packet Size Sum: %lu", os->sum_of_packets);
             ImGui::Text("Compression Ratio : %g", os->sum_of_packets / (double)os->sum_of_frames);
+            ImGui::Separator();
+            ImGui::Text("Output Stream Duration: %g", os->last_pts != AV_NOPTS_VALUE ? av_q2d(os->last_time_base) * os->last_pts : NAN);
             ImGui::Separator();
             ImGui::Separator();
         }
