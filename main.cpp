@@ -550,6 +550,8 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
         avformat_free_context(format_ctx);
         recorder->format_ctx = NULL;
     }
+
+    need_muxing = false;
 }
 
 static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_variable *cv)
@@ -933,7 +935,7 @@ static int filters_setup()
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
         } else if (!strcmp(filter_ctx->filter->name, "buffersink")) {
-            const AVPixelFormat *encoder_fmts = (recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
+            const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
             BufferSink new_sink = {0};
 
             new_sink.ctx = filter_ctx;
@@ -958,8 +960,8 @@ static int filters_setup()
 
             buffer_sinks.push_back(new_sink);
         } else if (!strcmp(filter_ctx->filter->name, "abuffersink")) {
-            const AVSampleFormat *encoder_fmts = (recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
-            const int *encoder_samplerates = (recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
+            const AVSampleFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
+            const int *encoder_samplerates = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
             const int *encode_samplerates = encoder_samplerates ? encoder_samplerates : sample_rates;
             BufferSink new_sink = {0};
 
@@ -975,6 +977,7 @@ static int filters_setup()
             new_sink.upscale_interpolator = 0;
             new_sink.downscale_interpolator = 0;
             new_sink.frame_number = 0;
+
             ret = av_opt_set_int_list(filter_ctx, "sample_fmts", need_muxing ? encoder_fmts : audio_format ? hi_sample_fmts : sample_fmts,
                                       AV_SAMPLE_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
@@ -986,7 +989,7 @@ static int filters_setup()
                 }
             }
 
-            ret = av_opt_set_int_list(filter_ctx, "sample_rates", sample_rates,
+            ret = av_opt_set_int_list(filter_ctx, "sample_rates", need_muxing ? encode_samplerates : sample_rates,
                                       0, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
                 ret = av_opt_set_array(filter_ctx, "sample_rates", AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE, 0, 1,
@@ -1059,16 +1062,7 @@ static int filters_setup()
         show_abuffersink_window = false;
         show_buffersink_window = false;
 
-        if (recorder.size() > 0) {
-            avformat_alloc_output_context2(&recorder[0].format_ctx, recorder[0].oformat, NULL, recorder[0].filename);
-            if (!recorder[0].format_ctx) {
-                av_log(NULL, AV_LOG_ERROR, "Could not create output format context.\n");
-                ret = AVERROR(ENOMEM);
-                goto error;
-            }
-
-            recorder[0].ostreams.resize(recorder[0].audio_sink_codecs.size() + recorder[0].video_sink_codecs.size());
-
+        if (recorder.size() > 0 && recorder[0].format_ctx != NULL) {
             for (unsigned i = 0; i < recorder[0].audio_sink_codecs.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
                 AVChannelLayout ch_layout;
@@ -1093,11 +1087,19 @@ static int filters_setup()
                 recorder[0].ostreams[i].sum_of_frames = 0;
                 recorder[0].ostreams[i].sum_of_packets = 0;
                 recorder[0].ostreams[i].flt = sink->ctx;
-                recorder[0].ostreams[i].enc = avcodec_alloc_context3(codec);
-                if (!recorder[0].ostreams[i].enc) {
-                    av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u audio stream\n", i);
-                    ret = AVERROR(ENOMEM);
-                    goto error;
+
+                recorder[0].ostreams[i].enc->sample_fmt = (AVSampleFormat)av_buffersink_get_format(sink->ctx);
+                recorder[0].ostreams[i].enc->time_base = av_buffersink_get_time_base(sink->ctx);
+                recorder[0].ostreams[i].enc->sample_rate = av_buffersink_get_sample_rate(sink->ctx);
+                av_buffersink_get_ch_layout(sink->ctx, &ch_layout);
+                av_channel_layout_copy(&recorder[0].ostreams[i].enc->ch_layout, &ch_layout);
+
+                if (recorder[0].oformat->flags & AVFMT_GLOBALHEADER)
+                    recorder[0].ostreams[i].enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+                ret = avcodec_open2(recorder[0].ostreams[i].enc, codec, NULL);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Error opening audio encoder for stream %u\n", i);
                 }
 
                 recorder[0].ostreams[i].st = avformat_new_stream(recorder[0].format_ctx, NULL);
@@ -1106,22 +1108,7 @@ static int filters_setup()
                     goto error;
                 }
                 recorder[0].ostreams[i].st->id = recorder[0].format_ctx->nb_streams-1;
-
-                recorder[0].ostreams[i].enc->sample_fmt = (AVSampleFormat)av_buffersink_get_format(sink->ctx);
-                recorder[0].ostreams[i].enc->time_base = av_buffersink_get_time_base(sink->ctx);
-                recorder[0].ostreams[i].enc->sample_rate = av_buffersink_get_sample_rate(sink->ctx);
-                av_buffersink_get_ch_layout(sink->ctx, &ch_layout);
-                av_channel_layout_copy(&recorder[0].ostreams[i].enc->ch_layout, &ch_layout);
                 recorder[0].ostreams[i].st->time_base = recorder[0].ostreams[i].enc->time_base;
-
-                if (recorder[0].oformat->flags & AVFMT_GLOBALHEADER)
-                    recorder[0].ostreams[i].enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-
-                ret = avcodec_open2(recorder[0].ostreams[i].enc, codec, NULL);
-                if (ret < 0) {
-                    av_log(NULL, AV_LOG_ERROR, "Error opening audio encoder for stream %u\n", i);
-                    goto error;
-                }
 
                 ret = avcodec_parameters_from_context(recorder[0].ostreams[i].st->codecpar, recorder[0].ostreams[i].enc);
                 if (ret < 0) {
@@ -1171,11 +1158,18 @@ static int filters_setup()
                 recorder[0].ostreams[oi].sum_of_frames = 0;
                 recorder[0].ostreams[oi].sum_of_packets = 0;
                 recorder[0].ostreams[oi].flt = sink->ctx;
-                recorder[0].ostreams[oi].enc = avcodec_alloc_context3(codec);
-                if (!recorder[0].ostreams[oi].enc) {
-                    av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u video stream\n", i);
-                    ret = AVERROR(ENOMEM);
-                    goto error;
+
+                recorder[0].ostreams[oi].enc->width = (AVPixelFormat)av_buffersink_get_w(sink->ctx);
+                recorder[0].ostreams[oi].enc->height = (AVPixelFormat)av_buffersink_get_h(sink->ctx);
+                recorder[0].ostreams[oi].enc->pix_fmt = (AVPixelFormat)av_buffersink_get_format(sink->ctx);
+                recorder[0].ostreams[oi].enc->time_base = av_buffersink_get_time_base(sink->ctx);
+
+                if (recorder[0].oformat->flags & AVFMT_GLOBALHEADER)
+                    recorder[0].ostreams[oi].enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+                ret = avcodec_open2(recorder[0].ostreams[oi].enc, codec, NULL);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Error opening video encoder for stream %u\n", i);
                 }
 
                 recorder[0].ostreams[oi].st = avformat_new_stream(recorder[0].format_ctx, NULL);
@@ -1184,21 +1178,7 @@ static int filters_setup()
                     goto error;
                 }
                 recorder[0].ostreams[oi].st->id = recorder[0].format_ctx->nb_streams-1;
-
-                recorder[0].ostreams[oi].enc->width = (AVPixelFormat)av_buffersink_get_w(sink->ctx);
-                recorder[0].ostreams[oi].enc->height = (AVPixelFormat)av_buffersink_get_h(sink->ctx);
-                recorder[0].ostreams[oi].enc->pix_fmt = (AVPixelFormat)av_buffersink_get_format(sink->ctx);
-                recorder[0].ostreams[oi].enc->time_base = av_buffersink_get_time_base(sink->ctx);
                 recorder[0].ostreams[oi].st->time_base = recorder[0].ostreams[oi].enc->time_base;
-
-                if (recorder[0].oformat->flags & AVFMT_GLOBALHEADER)
-                    recorder[0].ostreams[oi].enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-
-                ret = avcodec_open2(recorder[0].ostreams[oi].enc, codec, NULL);
-                if (ret < 0) {
-                    av_log(NULL, AV_LOG_ERROR, "Error opening video encoder for stream %u\n", i);
-                    goto error;
-                }
 
                 ret = avcodec_parameters_from_context(recorder[0].ostreams[oi].st->codecpar, recorder[0].ostreams[oi].enc);
                 if (ret < 0) {
@@ -1254,8 +1234,6 @@ static int filters_setup()
     }
 
 error:
-
-    need_muxing = false;
 
     if (ret < 0) {
         if (recorder.size() > 0) {
@@ -4525,7 +4503,20 @@ static void set_style_colors(int style)
 
 static void select_muxer(const AVOutputFormat *ofmt)
 {
-    recorder[0].oformat = ofmt;
+    const AVOutputFormat *old_ofmt = recorder[0].oformat;
+
+    if (old_ofmt != ofmt || recorder[0].format_ctx == NULL) {
+        avformat_free_context(recorder[0].format_ctx);
+        recorder[0].format_ctx = NULL;
+
+        avformat_alloc_output_context2(&recorder[0].format_ctx, ofmt, NULL, recorder[0].filename);
+        if (!recorder[0].format_ctx) {
+            av_log(NULL, AV_LOG_ERROR, "Could not create output format context.\n");
+            return;
+        }
+
+        recorder[0].oformat = ofmt;
+    }
 }
 
 static void handle_muxeritem(const AVOutputFormat *ofmt)
@@ -4547,9 +4538,35 @@ static int is_device(const AVClass *avclass)
 static void select_encoder(const AVCodec *codec, const bool is_audio, const int n)
 {
     if (is_audio) {
-        recorder[0].audio_sink_codecs[n] = codec;
+        const AVCodec *old_codec = recorder[0].audio_sink_codecs[n];
+
+        if (codec != old_codec) {
+            avcodec_free_context(&recorder[0].ostreams[n].enc);
+
+            recorder[0].ostreams[n].enc = avcodec_alloc_context3(codec);
+            if (!recorder[0].ostreams[n].enc) {
+                av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u audio stream\n", n);
+                return;
+            }
+
+            recorder[0].audio_sink_codecs[n] = codec;
+        }
     } else {
-        recorder[0].video_sink_codecs[n] = codec;
+        const AVCodec *old_codec = recorder[0].video_sink_codecs[n];
+
+        if (codec != old_codec) {
+            const unsigned on = recorder[0].audio_sink_codecs.size() + n;
+
+            avcodec_free_context(&recorder[0].ostreams[on].enc);
+
+            recorder[0].ostreams[on].enc = avcodec_alloc_context3(codec);
+            if (!recorder[0].ostreams[on].enc) {
+                av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u video stream\n", n);
+                return;
+            }
+
+            recorder[0].video_sink_codecs[n] = codec;
+        }
     }
 }
 
@@ -5034,15 +5051,43 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::Text("File: %s", recorder[0].filename ? recorder[0].filename : "<none>");
                 ImGui::Text("Format: %s", recorder[0].oformat ? recorder[0].oformat->name : "<none>");
 
+                if (recorder[0].format_ctx != NULL) {
+                    if (ImGui::TreeNode("Format Options")) {
+                        void *av_class = (void *)(recorder[0].format_ctx->priv_data);
+
+                        draw_options(av_class, 1, NULL);
+                        ImGui::TreePop();
+                    }
+                }
+
                 recorder[0].audio_sink_codecs.resize(abuffer_sinks.size());
                 recorder[0].video_sink_codecs.resize(buffer_sinks.size());
+                recorder[0].ostreams.resize(recorder[0].audio_sink_codecs.size() + recorder[0].video_sink_codecs.size());
 
                 for (unsigned i = 0; i < recorder[0].audio_sink_codecs.size(); i++) {
                     ImGui::Text("Audio Encoder.%u: %s", i, recorder[0].audio_sink_codecs[i] ? recorder[0].audio_sink_codecs[i]->name : "<none>");
+                    if (recorder[0].ostreams[i].enc != NULL) {
+                        if (ImGui::TreeNode("Audio Encoder Options")) {
+                            void *av_class = (void *)(recorder[0].ostreams[i].enc->priv_data);
+
+                            draw_options(av_class, 1, NULL);
+                            ImGui::TreePop();
+                        }
+                    }
                 }
 
                 for (unsigned i = 0; i < recorder[0].video_sink_codecs.size(); i++) {
+                    const unsigned oi = recorder[0].audio_sink_codecs.size() + i;
+
                     ImGui::Text("Video Encoder.%u: %s", i, recorder[0].video_sink_codecs[i] ? recorder[0].video_sink_codecs[i]->name : "<none>");
+                    if (recorder[0].ostreams[oi].enc != NULL) {
+                        if (ImGui::TreeNode("Video Encoder Options")) {
+                            void *av_class = (void *)(recorder[0].ostreams[oi].enc->priv_data);
+
+                            draw_options(av_class, 1, NULL);
+                            ImGui::TreePop();
+                        }
+                    }
                 }
 
                 ImGui::Separator();
@@ -5051,7 +5096,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     char menu_name[1024] = { 0 };
 
                     snprintf(menu_name, sizeof(menu_name), "Audio Encoder.%u", i);
-                    if (ImGui::BeginMenu(menu_name)) {
+                    if (ImGui::BeginMenu(menu_name, recorder[0].oformat != NULL)) {
                         const AVCodec *ocodec;
                         void *iterator = NULL;
 
@@ -5071,7 +5116,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     char menu_name[1024] = { 0 };
 
                     snprintf(menu_name, sizeof(menu_name), "Video Encoder.%u", i);
-                    if (ImGui::BeginMenu(menu_name)) {
+                    if (ImGui::BeginMenu(menu_name, recorder[0].oformat != NULL)) {
                         const AVCodec *ocodec;
                         void *iterator = NULL;
 
@@ -5928,7 +5973,7 @@ restart_window:
         min_qpts = std::min(min_qpts, min_aqpts);
         min_aqpts = min_qpts;
 
-        if (filter_graph_is_valid && (recorder.size() == 0 || recorder[0].format_ctx == NULL)) {
+        if (filter_graph_is_valid && need_muxing == false) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
                 ring_item_t item = { NULL, 0 };
@@ -5957,7 +6002,7 @@ restart_window:
             }
         }
 
-        if (filter_graph_is_valid && (recorder.size() == 0 || recorder[0].format_ctx == NULL)) {
+        if (filter_graph_is_valid && need_muxing == false) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
                 ALint processed = 0;
@@ -5983,7 +6028,7 @@ restart_window:
             }
         }
 
-        if (filter_graph_is_valid && (recorder.size() == 0 || recorder[0].format_ctx == NULL)) {
+        if (filter_graph_is_valid && need_muxing == false) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
                 ring_item_t item = { NULL, 0 };
@@ -6007,7 +6052,7 @@ restart_window:
             last_buffersink_window = 0;
         }
 
-        if (filter_graph_is_valid && (recorder.size() == 0 || recorder[0].format_ctx == NULL)) {
+        if (filter_graph_is_valid && need_muxing == false) {
             for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
                 ALint queued = 0;
@@ -6043,7 +6088,7 @@ restart_window:
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        if (recorder.size() == 0 || recorder[0].format_ctx == NULL) {
+        if (need_muxing == false) {
             if (filter_graph_is_valid && show_buffersink_window == true) {
                 for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                     BufferSink *sink = &buffer_sinks[i];
