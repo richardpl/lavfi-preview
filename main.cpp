@@ -2883,7 +2883,7 @@ static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
         ImGui::SetTooltip("%s", filter->description);
 }
 
-static void draw_options(FilterNode *node, void *av_class)
+static void draw_options(void *av_class, bool is_selected, bool *have_exports)
 {
     const AVOption *opt = NULL;
     const void *obj = av_class;
@@ -2896,7 +2896,8 @@ static void draw_options(FilterNode *node, void *av_class)
             continue;
         last_offset = opt->offset;
 
-        node->have_exports |= !!(opt->flags & AV_OPT_FLAG_EXPORT);
+        if (have_exports)
+            have_exports[0] |= !!(opt->flags & AV_OPT_FLAG_EXPORT);
 
         if (opt->flags & AV_OPT_FLAG_READONLY)
             continue;
@@ -3083,7 +3084,7 @@ static void draw_options(FilterNode *node, void *av_class)
                 }
             }
 
-            if (ImNodes::IsNodeSelected(node->edge) && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
+            if (is_selected && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
                 ImGui::SetTooltip("%s", opt->help);
 
             if (opt->default_val.arr) {
@@ -3541,7 +3542,7 @@ static void draw_options(FilterNode *node, void *av_class)
                     break;
             }
 
-            if (ImNodes::IsNodeSelected(node->edge) && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
+            if (is_selected && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
                 ImGui::SetTooltip("%s", opt->help);
         }
     }
@@ -4468,9 +4469,9 @@ static void draw_node_options(FilterNode *node)
             }
         }
 
-        draw_options(node, av_class_priv);
+        draw_options(av_class_priv, ImNodes::IsNodeSelected(node->edge), &node->have_exports);
         ImGui::Spacing();
-        draw_options(node, av_class);
+        draw_options(av_class, ImNodes::IsNodeSelected(node->edge), &node->have_exports);
 
         ImGui::EndGroup();
     }
