@@ -258,6 +258,7 @@ int style_colors = 1;
 
 char *import_script_file_name = NULL;
 
+bool do_filters_reinit = false;
 bool need_filters_reinit = true;
 bool need_muxing = false;
 std::atomic<bool> framestep = false;
@@ -378,7 +379,7 @@ static void sound_thread(ALsizei nb_sources, std::vector<ALuint> *sources)
     if ((state == true) || (step == false))
         alSourceStopv(nb_sources, sources->data());
 
-    while (!need_filters_reinit && filter_graph_is_valid) {
+    while ((!need_filters_reinit && !do_filters_reinit) && filter_graph_is_valid) {
         bool new_step = framestep;
         bool new_state = paused;
 
@@ -469,22 +470,30 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
     while (recorder->format_ctx) {
         AVFormatContext *format_ctx = recorder->format_ctx;
         unsigned out_stream_eof = 0;
+        int ret;
 
         if (filter_graph_is_valid == false)
             break;
 
         for (unsigned i = 0; i < recorder->ostreams.size(); i++) {
             OutputStream *os = &recorder->ostreams[i];
-            int ret;
 
-            if (!os->flt)
+            if (filter_graph_is_valid == false) {
+                ret = AVERROR(EINVAL);
                 break;
+            }
 
+            if (!os->flt) {
+                ret = AVERROR(EINVAL);
+                break;
+            }
+
+            filtergraph_mutex.lock();
             os->start_flt_time = av_gettime_relative();
-
             ret = av_buffersink_get_frame_flags(os->flt, os->frame, 0);
-
             os->end_flt_time = av_gettime_relative();
+            filtergraph_mutex.unlock();
+
             os->elapsed_flt_time += os->end_flt_time - os->start_flt_time;
 
             if (ret == AVERROR_EOF)
@@ -493,8 +502,10 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
             if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
                 break;
 
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                av_frame_unref(os->frame);
                 continue;
+            }
 
             os->start_enc_time = av_gettime_relative();
 
@@ -509,6 +520,9 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
             if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
                 break;
         }
+
+        if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
+            break;
 
         if (out_stream_eof == recorder->ostreams.size())
             break;
@@ -539,7 +553,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
     int ret = 0;
 
     while (sink->ctx) {
-        if (need_filters_reinit == true)
+        if (need_filters_reinit == true || do_filters_reinit == true)
             break;
         if (filter_graph_is_valid == false)
             break;
@@ -554,7 +568,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
             ring_item_t item = { NULL, 0 };
             int64_t start, end;
 
-            if (need_filters_reinit == true)
+            if (need_filters_reinit == true || do_filters_reinit == true)
                 break;
             if (filter_graph_is_valid == false)
                 break;
@@ -680,10 +694,13 @@ static void source_worker_thread(BufferSource *source)
         if (filter_graph_is_valid == false)
             break;
 
+        filtergraph_mutex.lock();
         if (!av_buffersrc_get_nb_failed_requests(buffersrc_ctx)) {
+            filtergraph_mutex.unlock();
             av_usleep(1000);
             continue;
         }
+        filtergraph_mutex.unlock();
 
         if ((ret = av_read_frame(fmt_ctx, packet)) < 0)
             break;
@@ -711,7 +728,10 @@ static void source_worker_thread(BufferSource *source)
                 }
 
                 if (ret >= 0) {
-                    if (av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF) < 0) {
+                    filtergraph_mutex.lock();
+                    ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF|AV_BUFFERSRC_FLAG_PUSH);
+                    filtergraph_mutex.unlock();
+                    if (ret < 0) {
                         av_log(NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n");
                         break;
                     }
@@ -723,9 +743,11 @@ static void source_worker_thread(BufferSource *source)
 
     if (ret == AVERROR_EOF) {
         /* signal EOF to the filtergraph */
-        if (av_buffersrc_add_frame_flags(buffersrc_ctx, NULL, 0) < 0) {
+        filtergraph_mutex.lock();
+        ret = av_buffersrc_add_frame_flags(buffersrc_ctx, NULL, 0);
+        filtergraph_mutex.unlock();
+        if (ret < 0)
             av_log(NULL, AV_LOG_ERROR, "Error while closing the filter source\n");
-        }
     }
 
     av_packet_free(&packet);
@@ -5837,7 +5859,7 @@ restart_window:
 
         if (show_abuffersink_window == false) {
             if (audio_sink_threads.size() > 0) {
-                need_filters_reinit = true;
+                do_filters_reinit = true;
 
                 if (play_sound_thread.joinable())
                     play_sound_thread.join();
@@ -5847,19 +5869,19 @@ restart_window:
 
                 audio_sink_threads.clear();
 
-                need_filters_reinit = false;
+                do_filters_reinit = false;
             }
         }
 
         if (show_buffersink_window == false) {
             if (video_sink_threads.size() > 0) {
-                need_filters_reinit = true;
+                do_filters_reinit = true;
 
                 kill_video_sink_threads();
 
                 video_sink_threads.clear();
 
-                need_filters_reinit = false;
+                do_filters_reinit = false;
             }
         }
 
