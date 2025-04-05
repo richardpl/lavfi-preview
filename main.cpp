@@ -2210,10 +2210,10 @@ static void load_settings()
 
             ret = fread(key, 1, sizeof(key), settings_file);
             if (ret < sizeof(key))
-                return;
+                break;
             ret = fread(value, 1, sizeof(value), settings_file);
             if (ret < sizeof(value))
-                return;
+                break;
 
             switch (AV_RL32(key)) {
                 case VISUAL_COLOR_STYLE:
