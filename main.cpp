@@ -538,18 +538,6 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
 
         av_write_trailer(format_ctx);
         avio_closep(&format_ctx->pb);
-
-        for (unsigned i = 0; i < recorder->ostreams.size(); i++) {
-            OutputStream *os = &recorder->ostreams[i];
-
-            os->flt = NULL;
-            av_frame_free(&os->frame);
-            av_packet_free(&os->pkt);
-            avcodec_free_context(&os->enc);
-        }
-
-        avformat_free_context(format_ctx);
-        recorder->format_ctx = NULL;
     }
 
     need_muxing = false;
@@ -6203,6 +6191,18 @@ restart_window:
 
     kill_recorder_threads();
     for (unsigned i = 0; i < recorder.size(); i++) {
+        for (unsigned j = 0; j < recorder[i].ostreams.size(); j++) {
+            OutputStream *os = &recorder[i].ostreams[j];
+
+            os->flt = NULL;
+            av_frame_free(&os->frame);
+            av_packet_free(&os->pkt);
+            avcodec_free_context(&os->enc);
+        }
+
+        avformat_free_context(recorder[i].format_ctx);
+        recorder[i].format_ctx = NULL;
+
         recorder[i].audio_sink_codecs.clear();
         recorder[i].video_sink_codecs.clear();
         av_freep(&recorder[i].filename);
