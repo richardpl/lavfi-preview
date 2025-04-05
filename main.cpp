@@ -4547,7 +4547,7 @@ static void select_encoder(const AVCodec *codec, const bool is_audio, const int 
     if (is_audio) {
         const AVCodec *old_codec = recorder[0].audio_sink_codecs[n];
 
-        if (codec != old_codec) {
+        if (codec != old_codec || recorder[0].ostreams[n].enc == NULL) {
             avcodec_free_context(&recorder[0].ostreams[n].enc);
 
             recorder[0].ostreams[n].enc = avcodec_alloc_context3(codec);
@@ -4560,10 +4560,9 @@ static void select_encoder(const AVCodec *codec, const bool is_audio, const int 
         }
     } else {
         const AVCodec *old_codec = recorder[0].video_sink_codecs[n];
+        const unsigned on = recorder[0].audio_sink_codecs.size() + n;
 
-        if (codec != old_codec) {
-            const unsigned on = recorder[0].audio_sink_codecs.size() + n;
-
+        if (codec != old_codec || recorder[0].ostreams[on].enc == NULL) {
             avcodec_free_context(&recorder[0].ostreams[on].enc);
 
             recorder[0].ostreams[on].enc = avcodec_alloc_context3(codec);
