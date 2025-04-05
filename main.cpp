@@ -294,6 +294,9 @@ bool filter_graph_is_valid = false;
 AVFilterGraph *filter_graph = NULL;
 AVFilterGraph *probe_graph = NULL;
 char *graphdump_text = NULL;
+float grid_spacing = 24.f;
+float link_thickness = 3.f;
+float corner_rounding = 4.f;
 float audio_sample_range[2] = { 1.f, 1.f };
 float audio_window_size[2] = { 0, 100 };
 float osd_fullscreen_pos[2] = { 0.01f, 0.01f };
@@ -4601,6 +4604,11 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
     ImNodes::EditorContextSet(node_editor_context);
 
+    ImNodesStyle& style = ImNodes::GetStyle();
+    style.GridSpacing = grid_spacing;
+    style.NodeCornerRounding = corner_rounding;
+    style.LinkThickness = link_thickness;
+
     ImNodes::BeginNodeEditor();
 
     if (ImGui::IsKeyReleased(ImGuiKey_Enter) && ImGui::GetIO().KeyCtrl) {
@@ -5006,6 +5014,12 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     ImGui::DragFloat("Record", &record_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                     ImGui::DragFloat("Sink", &sink_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                     ImGui::DragFloat("Version", &version_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("Editor")) {
+                    ImGui::DragFloat("Grid Spacing", &grid_spacing, 1.f, 2.f, 300.f, "%f", ImGuiSliderFlags_AlwaysClamp);
+                    ImGui::DragFloat("Link Thickness", &link_thickness, 0.1f, 1.f, 20.f, "%f", ImGuiSliderFlags_AlwaysClamp);
+                    ImGui::DragFloat("Corner Rounding", &corner_rounding, 0.1f, 1.f, 20.f, "%f", ImGuiSliderFlags_AlwaysClamp);
                     ImGui::EndMenu();
                 }
                 ImGui::EndMenu();
