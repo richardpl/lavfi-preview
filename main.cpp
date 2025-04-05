@@ -61,6 +61,8 @@ static const AVSampleFormat all_sample_fmts[] = {
 
 #define AL_BUFFERS 16
 
+#define SETTINGS_FILE ".lavfi_preview.ini"
+
 typedef struct OutputStream {
     AVStream *st;
     AVFilterContext *flt;
@@ -2155,6 +2157,75 @@ static void exportfile_filter_graph(const char *file_name)
         }
         av_freep(&out);
         out_size = 0;
+    }
+}
+
+enum ExportItems {
+    VISUAL_COLOR_STYLE,
+};
+
+static void save_settings()
+{
+    const char *file_name = SETTINGS_FILE;
+    FILE *settings_file = fopen(file_name, "w");
+
+    if (settings_file) {
+        char value[4], key[4];
+        size_t out_size = 0;
+        char *out = NULL;
+        AVBPrint buf;
+
+        av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
+
+        AV_WL32(key, VISUAL_COLOR_STYLE);
+        AV_WL32(value, style_colors);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        av_bprint_finalize(&buf, &out);
+        if (av_bprint_is_complete(&buf))
+            out_size = buf.len;
+        else
+            out_size = buf.size;
+        av_bprint_finalize(&buf, NULL);
+
+        fwrite(out, 1, out_size, settings_file);
+        fclose(settings_file);
+    } else {
+        av_log(NULL, AV_LOG_ERROR, "Cannot open file to save settings.\n");
+    }
+}
+
+static void load_settings()
+{
+    const char *file_name = SETTINGS_FILE;
+    FILE *settings_file = fopen(file_name, "r");
+
+    if (settings_file) {
+        char value[4], key[4];
+
+        while (true) {
+            size_t ret;
+
+            ret = fread(key, 1, sizeof(key), settings_file);
+            if (ret < sizeof(key))
+                return;
+            ret = fread(value, 1, sizeof(value), settings_file);
+            if (ret < sizeof(value))
+                return;
+
+            switch (AV_RL32(key)) {
+                case VISUAL_COLOR_STYLE:
+                    style_colors = AV_RL32(value);
+                    break;
+                default:
+                    av_log(NULL, AV_LOG_WARNING, "unknown settings key: %d.\n", AV_RL32(key));
+                    break;
+            }
+        }
+
+        fclose(settings_file);
     }
 }
 
@@ -5021,6 +5092,9 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 }
                 ImGui::EndMenu();
             }
+            if (ImGui::MenuItem("Save Settings")) {
+                save_settings();
+            }
 
             ImGui::EndMenu();
         }
@@ -5851,6 +5925,8 @@ int main(int, char**)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
     //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
+
+    load_settings();
 
 restart_window:
     float highDPIscaleFactor = 1.f;
