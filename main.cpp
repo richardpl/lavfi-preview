@@ -4903,52 +4903,6 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("MiniMap")) {
-                const char *items[] = { "Off", "On" };
-                const bool values[] = { false, true };
-                const int positions[] = {
-                    ImNodesMiniMapLocation_BottomLeft,
-                    ImNodesMiniMapLocation_BottomRight,
-                    ImNodesMiniMapLocation_TopLeft,
-                    ImNodesMiniMapLocation_TopRight,
-                };
-                const char *positions_name[] = {
-                    "Bottom Left",
-                    "Bottom Right",
-                    "Top Left",
-                    "Top Right",
-                };
-                const int flags = 0;
-
-                if (ImGui::BeginCombo("Toggle Display", items[show_mini_map], flags)) {
-                    for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
-                        const bool is_selected = values[n] == show_mini_map;
-
-                        if (ImGui::Selectable(items[n], is_selected))
-                            show_mini_map = values[n];
-
-                        if (is_selected)
-                            ImGui::SetItemDefaultFocus();
-                    }
-                    ImGui::EndCombo();
-                }
-
-                if (ImGui::BeginCombo("Corner Position", positions_name[mini_map_location], flags)) {
-                    for (int n = 0; n < IM_ARRAYSIZE(positions); n++) {
-                        const bool is_selected = mini_map_location == positions[n];
-
-                        if (ImGui::Selectable(positions_name[n], is_selected))
-                            mini_map_location = positions[n];
-
-                        if (is_selected)
-                            ImGui::SetItemDefaultFocus();
-                    }
-                    ImGui::EndCombo();
-                }
-
-                ImGui::EndMenu();
-            }
-
             if (ImGui::BeginMenu("Display", filter_graph_is_valid == false)) {
                 const char *items[] = { "Windowed", "Fullscreen" };
                 const bool values[] = { false, true };
@@ -4987,20 +4941,6 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("Visual Color Style")) {
-                if (ImGui::MenuItem("Classic")) {
-                    style_colors = 0;
-                }
-                if (ImGui::MenuItem("Dark")) {
-                    style_colors = 1;
-                }
-                if (ImGui::MenuItem("Light")) {
-                    style_colors = 2;
-                }
-                set_style_colors(style_colors);
-                ImGui::EndMenu();
-            }
-
             if (ImGui::BeginMenu("Widgets")) {
                 if (ImGui::BeginMenu("Background Alpha")) {
                     ImGui::DragFloat("Commands", &commands_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
@@ -5019,6 +4959,64 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     ImGui::DragFloat("Grid Spacing", &grid_spacing, 1.f, 2.f, 300.f, "%f", ImGuiSliderFlags_AlwaysClamp);
                     ImGui::DragFloat("Link Thickness", &link_thickness, 0.1f, 1.f, 20.f, "%f", ImGuiSliderFlags_AlwaysClamp);
                     ImGui::DragFloat("Corner Rounding", &corner_rounding, 0.1f, 1.f, 20.f, "%f", ImGuiSliderFlags_AlwaysClamp);
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("MiniMap")) {
+                    const char *items[] = { "Off", "On" };
+                    const bool values[] = { false, true };
+                    const int positions[] = {
+                        ImNodesMiniMapLocation_BottomLeft,
+                        ImNodesMiniMapLocation_BottomRight,
+                        ImNodesMiniMapLocation_TopLeft,
+                        ImNodesMiniMapLocation_TopRight,
+                    };
+                    const char *positions_name[] = {
+                        "Bottom Left",
+                        "Bottom Right",
+                        "Top Left",
+                        "Top Right",
+                    };
+                    const int flags = 0;
+
+                    if (ImGui::BeginCombo("Toggle Display", items[show_mini_map], flags)) {
+                        for (int n = 0; n < IM_ARRAYSIZE(items); n++) {
+                            const bool is_selected = values[n] == show_mini_map;
+
+                            if (ImGui::Selectable(items[n], is_selected))
+                                show_mini_map = values[n];
+
+                            if (is_selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    if (ImGui::BeginCombo("Corner Position", positions_name[mini_map_location], flags)) {
+                        for (int n = 0; n < IM_ARRAYSIZE(positions); n++) {
+                            const bool is_selected = mini_map_location == positions[n];
+
+                            if (ImGui::Selectable(positions_name[n], is_selected))
+                                mini_map_location = positions[n];
+
+                            if (is_selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("Visual Color Style")) {
+                    if (ImGui::MenuItem("Classic")) {
+                        style_colors = 0;
+                    }
+                    if (ImGui::MenuItem("Dark")) {
+                        style_colors = 1;
+                    }
+                    if (ImGui::MenuItem("Light")) {
+                        style_colors = 2;
+                    }
+                    set_style_colors(style_colors);
                     ImGui::EndMenu();
                 }
                 ImGui::EndMenu();
