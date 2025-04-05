@@ -4591,7 +4591,6 @@ static void handle_encoderitem(const AVCodec *codec, const bool is_audio, const 
 static void show_filtergraph_editor(bool *p_open, bool focused)
 {
     bool erased = false;
-    int edge;
 
     if (focused)
         ImGui::SetNextWindowFocus();
@@ -5196,6 +5195,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     for (unsigned i = 0; i < filter_nodes.size(); i++) {
         FilterNode *filter_node = &filter_nodes[i];
         bool disabled = false;
+        int edge;
 
         edge = filter_node->edge;
         edge2pad[edge] = (Edge2Pad { i, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
