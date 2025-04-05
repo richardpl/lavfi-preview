@@ -535,6 +535,7 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
 
     if (recorder->format_ctx) {
         AVFormatContext *format_ctx = recorder->format_ctx;
+
         av_write_trailer(format_ctx);
         avio_closep(&format_ctx->pb);
 
@@ -552,6 +553,7 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
     }
 
     need_muxing = false;
+    filter_graph_is_valid = false;
 }
 
 static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_variable *cv)
@@ -1089,6 +1091,12 @@ static int filters_setup()
                 recorder[0].ostreams[i].sum_of_packets = 0;
                 recorder[0].ostreams[i].flt = sink->ctx;
 
+                if (recorder[0].ostreams[i].enc == NULL) {
+                    av_log(NULL, AV_LOG_ERROR, "No encoder context set for %u audio stream\n", i);
+                    ret = AVERROR(EINVAL);
+                    goto error;
+                }
+
                 recorder[0].ostreams[i].enc->sample_fmt = (AVSampleFormat)av_buffersink_get_format(sink->ctx);
                 recorder[0].ostreams[i].enc->time_base = av_buffersink_get_time_base(sink->ctx);
                 recorder[0].ostreams[i].enc->sample_rate = av_buffersink_get_sample_rate(sink->ctx);
@@ -1120,15 +1128,17 @@ static int filters_setup()
                 if (recorder[0].ostreams[i].enc->frame_size > 0)
                     av_buffersink_set_frame_size(sink->ctx, recorder[0].ostreams[i].enc->frame_size);
 
-                recorder[0].ostreams[i].pkt = av_packet_alloc();
-                if (!recorder[0].ostreams[i].pkt) {
+                if (recorder[0].ostreams[i].pkt == NULL)
+                    recorder[0].ostreams[i].pkt = av_packet_alloc();
+                if (recorder[0].ostreams[i].pkt == NULL) {
                     ret = AVERROR(ENOMEM);
                     av_log(NULL, AV_LOG_ERROR, "Error to allocate packet for audio stream %u\n", i);
                     goto error;
                 }
 
-                recorder[0].ostreams[i].frame = av_frame_alloc();
-                if (!recorder[0].ostreams[i].frame) {
+                if (recorder[0].ostreams[i].frame == NULL)
+                    recorder[0].ostreams[i].frame = av_frame_alloc();
+                if (recorder[0].ostreams[i].frame == NULL) {
                     ret = AVERROR(ENOMEM);
                     av_log(NULL, AV_LOG_ERROR, "Error to allocate frame for audio stream %u\n", i);
                     goto error;
@@ -1160,6 +1170,12 @@ static int filters_setup()
                 recorder[0].ostreams[oi].sum_of_packets = 0;
                 recorder[0].ostreams[oi].flt = sink->ctx;
 
+                if (recorder[0].ostreams[oi].enc == NULL) {
+                    av_log(NULL, AV_LOG_ERROR, "No encoder context set for %u video stream\n", i);
+                    ret = AVERROR(EINVAL);
+                    goto error;
+                }
+
                 recorder[0].ostreams[oi].enc->width = (AVPixelFormat)av_buffersink_get_w(sink->ctx);
                 recorder[0].ostreams[oi].enc->height = (AVPixelFormat)av_buffersink_get_h(sink->ctx);
                 recorder[0].ostreams[oi].enc->pix_fmt = (AVPixelFormat)av_buffersink_get_format(sink->ctx);
@@ -1187,15 +1203,17 @@ static int filters_setup()
                     goto error;
                 }
 
-                recorder[0].ostreams[oi].pkt = av_packet_alloc();
-                if (!recorder[0].ostreams[oi].pkt) {
+                if (recorder[0].ostreams[oi].pkt == NULL)
+                    recorder[0].ostreams[oi].pkt = av_packet_alloc();
+                if (recorder[0].ostreams[oi].pkt == NULL) {
                     ret = AVERROR(ENOMEM);
                     av_log(NULL, AV_LOG_ERROR, "Error to allocate packet for video stream %u\n", i);
                     goto error;
                 }
 
-                recorder[0].ostreams[oi].frame = av_frame_alloc();
-                if (!recorder[0].ostreams[oi].frame) {
+                if (recorder[0].ostreams[oi].frame == NULL)
+                    recorder[0].ostreams[oi].frame = av_frame_alloc();
+                if (recorder[0].ostreams[oi].frame == NULL) {
                     ret = AVERROR(ENOMEM);
                     av_log(NULL, AV_LOG_ERROR, "Error to allocate frame for video stream %u\n", i);
                     goto error;
