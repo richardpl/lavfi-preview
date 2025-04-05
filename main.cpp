@@ -936,6 +936,7 @@ static int filters_setup()
             buffer_sources.push_back(new_source);
         } else if (!strcmp(filter_ctx->filter->name, "buffersink")) {
             const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
+            const AVPixelFormat *encode_fmts = encoder_fmts ? encoder_fmts : depth ? hi_pix_fmts : pix_fmts;
             BufferSink new_sink = {0};
 
             new_sink.ctx = filter_ctx;
@@ -947,11 +948,11 @@ static int filters_setup()
             new_sink.frame_number = 0;
             new_sink.upscale_interpolator = global_upscale_interpolation;
             new_sink.downscale_interpolator = global_downscale_interpolation;
-            ret = av_opt_set_int_list(filter_ctx, "pix_fmts", need_muxing ? encoder_fmts : depth ? hi_pix_fmts : pix_fmts,
+            ret = av_opt_set_int_list(filter_ctx, "pix_fmts", need_muxing ? encode_fmts : depth ? hi_pix_fmts : pix_fmts,
                                       AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0) {
                 ret = av_opt_set_array(filter_ctx, "pixel_formats", AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE, 0, 1,
-                                       AV_OPT_TYPE_PIXEL_FMT, need_muxing ? encoder_fmts : depth ? hi_pix_fmts : pix_fmts);
+                                       AV_OPT_TYPE_PIXEL_FMT, need_muxing ? encode_fmts : depth ? hi_pix_fmts : pix_fmts);
                 if (ret < 0) {
                     av_log(NULL, AV_LOG_ERROR, "Cannot set buffersink output pixel format.\n");
                     goto error;
