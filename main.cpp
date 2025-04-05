@@ -5086,7 +5086,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 for (unsigned i = 0; i < recorder[0].audio_sink_codecs.size(); i++) {
                     ImGui::Text("Audio Encoder.%u: %s", i, recorder[0].audio_sink_codecs[i] ? recorder[0].audio_sink_codecs[i]->name : "<none>");
                     if (recorder[0].ostreams[i].enc != NULL) {
-                        if (ImGui::TreeNode("Audio Encoder Options")) {
+                        char tree_name[1024] = { 0 };
+
+                        snprintf(tree_name, sizeof(tree_name), "Audio Encoder.%u Options", i);
+                        if (ImGui::TreeNode(tree_name)) {
                             void *av_class = (void *)(recorder[0].ostreams[i].enc->priv_data);
 
                             draw_options(av_class, 1, NULL);
@@ -5100,7 +5103,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                     ImGui::Text("Video Encoder.%u: %s", i, recorder[0].video_sink_codecs[i] ? recorder[0].video_sink_codecs[i]->name : "<none>");
                     if (recorder[0].ostreams[oi].enc != NULL) {
-                        if (ImGui::TreeNode("Video Encoder Options")) {
+                        char tree_name[1024] = { 0 };
+
+                        snprintf(tree_name, sizeof(tree_name), "Video Encoder.%u Options", i);
+                        if (ImGui::TreeNode(tree_name)) {
                             void *av_class = (void *)(recorder[0].ostreams[oi].enc->priv_data);
 
                             draw_options(av_class, 1, NULL);
