@@ -4332,9 +4332,11 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                 if (ImGui::Button("Send")) {
                     node->seek_point = node->tmp_seek_point;
                 }
-                ImGui::SetNextItemWidth(200.f);
                 ImGui::SameLine();
+                ImGui::SetNextItemWidth(200.f);
                 ImGui::DragScalar("seek_point", ImGuiDataType_Double, &node->tmp_seek_point, 10.f, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", "Set the Seek Point");
             }
 
             tree ? ImGui::TreePop() : ImGui::EndGroup();
@@ -4576,16 +4578,20 @@ static void draw_node_options(FilterNode *node)
             double min = -DBL_MAX, max = DBL_MAX;
             char new_str[1024] = {0};
 
-            ImGui::SetNextItemWidth(200.f);
             if (!node->stream_url.empty())
                 memcpy(new_str, node->stream_url.c_str(), std::min(sizeof(new_str), node->stream_url.size()));
             else
                 node->stream_url = std::string("<empty>");
+            ImGui::SetNextItemWidth(200.f);
             if (ImGui::InputText("URL", new_str, IM_ARRAYSIZE(new_str))) {
                 node->stream_url.assign(new_str);
             }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", "Set the Source URL");
             ImGui::SetNextItemWidth(200.f);
             ImGui::DragScalar("seek_point", ImGuiDataType_Double, &node->seek_point, 10.f, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", "Set the Seek Point");
         }
 
         draw_options(av_class_priv, ImNodes::IsNodeSelected(node->edge), &node->have_exports);
