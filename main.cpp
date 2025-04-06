@@ -162,6 +162,8 @@ typedef struct OptStorage {
 
 typedef struct BufferSource {
     std::string *stream_url;
+    double *seek_point;
+    double *prev_seek_point;
     int stream_index;
     bool ready;
     enum AVMediaType type;
@@ -231,6 +233,9 @@ typedef struct FilterNode {
     AVFilterContext *probe;
     AVFilterContext *ctx;
     std::string stream_url;
+    double seek_point;
+    double tmp_seek_point;
+    double prev_seek_point;
 
     std::vector<int> inpad_edges;
     std::vector<int> outpad_edges;
@@ -704,6 +709,17 @@ static void source_worker_thread(BufferSource *source)
         }
         filtergraph_mutex.unlock();
 
+        if (source->seek_point && source->prev_seek_point) {
+            if (*source->seek_point != *source->prev_seek_point) {
+                int64_t ts = *source->seek_point * AV_TIME_BASE;
+
+                ret = avformat_seek_file(fmt_ctx, -1, INT64_MIN, ts, INT64_MAX, 0);
+                if (ret >= 0) {
+                    *source->prev_seek_point = *source->seek_point;
+                }
+            }
+        }
+
         if ((ret = av_read_frame(fmt_ctx, packet)) < 0)
             break;
 
@@ -788,8 +804,10 @@ static void find_source_params(BufferSource *source)
 
     /* create decoding context */
     source->dec_ctx = avcodec_alloc_context3(dec);
-    if (!source->dec_ctx)
+    if (source->dec_ctx == NULL) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot allocate codec context\n");
         return;
+    }
     avcodec_parameters_to_context(source->dec_ctx, source->fmt_ctx->streams[stream_index]->codecpar);
 
     if ((ret = avcodec_open2(source->dec_ctx, dec, NULL)) < 0) {
@@ -798,6 +816,10 @@ static void find_source_params(BufferSource *source)
     }
 
     AVBufferSrcParameters *params = av_buffersrc_parameters_alloc();
+    if (params == NULL) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot allocate buffersrc parameters\n");
+        return;
+    }
     params->time_base = source->fmt_ctx->streams[stream_index]->time_base;
     switch (source->type) {
     case AVMEDIA_TYPE_AUDIO:
@@ -916,6 +938,8 @@ static int filters_setup()
             if (!filter_nodes[i].stream_url.empty())
                 new_source.stream_url = &filter_nodes[i].stream_url;
             new_source.type = AVMEDIA_TYPE_VIDEO;
+            new_source.seek_point = &filter_nodes[i].seek_point;
+            new_source.prev_seek_point = &filter_nodes[i].prev_seek_point;
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
         } else if (!strcmp(filter_ctx->filter->name, "abuffer")) {
@@ -928,6 +952,8 @@ static int filters_setup()
             if (!filter_nodes[i].stream_url.empty())
                 new_source.stream_url = &filter_nodes[i].stream_url;
             new_source.type = AVMEDIA_TYPE_AUDIO;
+            new_source.seek_point = &filter_nodes[i].seek_point;
+            new_source.prev_seek_point = &filter_nodes[i].prev_seek_point;
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
         } else if (!strcmp(filter_ctx->filter->name, "buffersink")) {
@@ -4298,6 +4324,19 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
             filter_nodes[n].opt_storage = opt_storage;
 
+            if (!strcmp(ctx->filter->name, "buffer") ||
+                !strcmp(ctx->filter->name, "abuffer")) {
+                FilterNode *node = &filter_nodes[n];
+                double min = -DBL_MAX, max = DBL_MAX;
+
+                if (ImGui::Button("Send")) {
+                    node->seek_point = node->tmp_seek_point;
+                }
+                ImGui::SetNextItemWidth(200.f);
+                ImGui::SameLine();
+                ImGui::DragScalar("seek_point", ImGuiDataType_Double, &node->tmp_seek_point, 10.f, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp);
+            }
+
             tree ? ImGui::TreePop() : ImGui::EndGroup();
         }
     }
@@ -4534,6 +4573,7 @@ static void draw_node_options(FilterNode *node)
 
         if (!strcmp(node->filter->name, "buffer") ||
             !strcmp(node->filter->name, "abuffer")) {
+            double min = -DBL_MAX, max = DBL_MAX;
             char new_str[1024] = {0};
 
             ImGui::SetNextItemWidth(200.f);
@@ -4544,6 +4584,8 @@ static void draw_node_options(FilterNode *node)
             if (ImGui::InputText("URL", new_str, IM_ARRAYSIZE(new_str))) {
                 node->stream_url.assign(new_str);
             }
+            ImGui::SetNextItemWidth(200.f);
+            ImGui::DragScalar("seek_point", ImGuiDataType_Double, &node->seek_point, 10.f, &min, &max, "%f", ImGuiSliderFlags_AlwaysClamp);
         }
 
         draw_options(av_class_priv, ImNodes::IsNodeSelected(node->edge), &node->have_exports);
