@@ -3187,7 +3187,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                 }
             }
 
-            if (is_selected && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
+            if (is_selected && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST && opt->help)
                 ImGui::SetTooltip("%s", opt->help);
 
             if (opt->default_val.arr) {
@@ -3645,7 +3645,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                     break;
             }
 
-            if (is_selected && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST)
+            if (is_selected && ImGui::IsItemHovered() && opt->type != AV_OPT_TYPE_CONST && opt->help)
                 ImGui::SetTooltip("%s", opt->help);
         }
     }
@@ -4309,7 +4309,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                     }
                 }
 
-                if (ImGui::IsItemHovered())
+                if (ImGui::IsItemHovered() && opt->help)
                     ImGui::SetTooltip("%s", opt->help);
 
                 opt_index++;
@@ -4484,7 +4484,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                         break;
                 }
 
-                if (ImGui::IsItemHovered())
+                if (ImGui::IsItemHovered() && opt->help)
                     ImGui::SetTooltip("%s", opt->help);
 
                 opt_index++;
