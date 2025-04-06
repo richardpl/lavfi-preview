@@ -2202,7 +2202,10 @@ static void save_settings()
             out_size = buf.size;
         av_bprint_finalize(&buf, NULL);
 
-        fwrite(out, 1, out_size, settings_file);
+        if (out && out_size > 0)
+            fwrite(out, 1, out_size, settings_file);
+        av_freep(&out);
+
         fclose(settings_file);
     } else {
         av_log(NULL, AV_LOG_ERROR, "Cannot open file to save settings.\n");
