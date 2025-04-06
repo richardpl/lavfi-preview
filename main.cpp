@@ -1676,6 +1676,10 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::TextUnformatted("Ctrl + R");
     ImGui::Separator();
+    ImGui::TextUnformatted("Cancel Recording Configured Graph:");
+    ImGui::SameLine(align);
+    ImGui::TextUnformatted("Ctrl + C");
+    ImGui::Separator();
     ImGui::Separator();
     ImGui::Separator();
     ImGui::TextUnformatted("Video/Audio FilterGraph Outputs:");
@@ -4686,7 +4690,13 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         need_muxing = false;
     }
 
-    if (ImGui::IsKeyReleased(ImGuiKey_R) && ImGui::GetIO().KeyCtrl && need_muxing == false) {
+    if (ImGui::IsKeyReleased(ImGuiKey_C) && ImGui::GetIO().KeyCtrl && filter_graph_is_valid && need_muxing == true) {
+        filter_graph_is_valid = false;
+        need_filters_reinit = false;
+        need_muxing = false;
+    }
+
+    if (ImGui::IsKeyReleased(ImGuiKey_R) && ImGui::GetIO().KeyCtrl && filter_graph_is_valid && need_muxing == false) {
         need_filters_reinit = true;
         need_muxing = true;
     }
