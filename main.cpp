@@ -36,6 +36,7 @@ extern "C" {
 #include <libavutil/bprint.h>
 #include <libavutil/dict.h>
 #include <libavutil/opt.h>
+#include <libavutil/intfloat.h>
 #include <libavutil/intreadwrite.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/parseutils.h>
@@ -2166,6 +2167,7 @@ static void exportfile_filter_graph(const char *file_name)
 
 enum ExportItems {
     VISUAL_COLOR_STYLE,
+    GRID_SPACING,
 };
 
 static void save_settings()
@@ -2183,6 +2185,12 @@ static void save_settings()
 
         AV_WL32(key, VISUAL_COLOR_STYLE);
         AV_WL32(value, style_colors);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, GRID_SPACING);
+        AV_WL32(value, av_float2int(grid_spacing));
 
         av_bprint_append_data(&buf, key, sizeof(key));
         av_bprint_append_data(&buf, value, sizeof(value));
@@ -2222,6 +2230,9 @@ static void load_settings()
             switch (AV_RL32(key)) {
                 case VISUAL_COLOR_STYLE:
                     style_colors = AV_RL32(value);
+                    break;
+                case GRID_SPACING:
+                    grid_spacing = av_int2float(AV_RL32(value));
                     break;
                 default:
                     av_log(NULL, AV_LOG_WARNING, "unknown settings key: %d.\n", AV_RL32(key));
