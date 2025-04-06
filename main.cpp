@@ -2194,6 +2194,25 @@ static void exportfile_filter_graph(const char *file_name)
 enum ExportItems {
     VISUAL_COLOR_STYLE,
     GRID_SPACING,
+    LINK_THICKNESS,
+    CORNER_ROUNDING,
+    COMMANDS_ALPHA,
+    CONSOLE_ALPHA,
+    DUMP_ALPHA,
+    EDITOR_ALPHA,
+    HELP_ALPHA,
+    INFO_ALPHA,
+    LOG_ALPHA,
+    RECORD_ALPHA,
+    SINK_ALPHA,
+    VERSION_ALPHA,
+    SHOW_MINI_MAP,
+    MINI_MAP_LOCATION,
+    GLOBAL_U_INTERPOLATION,
+    GLOBAL_D_INTERPOLATION,
+    OSD_ALPHA,
+    OSD_F_POS_X,
+    OSD_F_POS_Y,
 };
 
 static void save_settings()
@@ -2217,6 +2236,120 @@ static void save_settings()
 
         AV_WL32(key, GRID_SPACING);
         AV_WL32(value, av_float2int(grid_spacing));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, LINK_THICKNESS);
+        AV_WL32(value, av_float2int(link_thickness));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, CORNER_ROUNDING);
+        AV_WL32(value, av_float2int(corner_rounding));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, COMMANDS_ALPHA);
+        AV_WL32(value, av_float2int(commands_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, CONSOLE_ALPHA);
+        AV_WL32(value, av_float2int(console_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, DUMP_ALPHA);
+        AV_WL32(value, av_float2int(dump_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, EDITOR_ALPHA);
+        AV_WL32(value, av_float2int(editor_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, HELP_ALPHA);
+        AV_WL32(value, av_float2int(help_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, INFO_ALPHA);
+        AV_WL32(value, av_float2int(info_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, LOG_ALPHA);
+        AV_WL32(value, av_float2int(log_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, RECORD_ALPHA);
+        AV_WL32(value, av_float2int(record_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, SINK_ALPHA);
+        AV_WL32(value, av_float2int(sink_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, VERSION_ALPHA);
+        AV_WL32(value, av_float2int(version_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, SHOW_MINI_MAP);
+        AV_WL32(value, show_mini_map);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, MINI_MAP_LOCATION);
+        AV_WL32(value, mini_map_location);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, GLOBAL_U_INTERPOLATION);
+        AV_WL32(value, global_upscale_interpolation);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, GLOBAL_D_INTERPOLATION);
+        AV_WL32(value, global_downscale_interpolation);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, OSD_ALPHA);
+        AV_WL32(value, av_float2int(osd_alpha));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, OSD_F_POS_X);
+        AV_WL32(value, av_float2int(osd_fullscreen_pos[0]));
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, OSD_F_POS_Y);
+        AV_WL32(value, av_float2int(osd_fullscreen_pos[1]));
 
         av_bprint_append_data(&buf, key, sizeof(key));
         av_bprint_append_data(&buf, value, sizeof(value));
@@ -2262,6 +2395,63 @@ static void load_settings()
                     break;
                 case GRID_SPACING:
                     grid_spacing = av_int2float(AV_RL32(value));
+                    break;
+                case LINK_THICKNESS:
+                    link_thickness = av_int2float(AV_RL32(value));
+                    break;
+                case CORNER_ROUNDING:
+                    corner_rounding = av_int2float(AV_RL32(value));
+                    break;
+                case COMMANDS_ALPHA:
+                    commands_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case CONSOLE_ALPHA:
+                    console_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case DUMP_ALPHA:
+                    dump_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case EDITOR_ALPHA:
+                    editor_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case HELP_ALPHA:
+                    help_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case INFO_ALPHA:
+                    info_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case LOG_ALPHA:
+                    log_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case RECORD_ALPHA:
+                    record_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case SINK_ALPHA:
+                    sink_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case VERSION_ALPHA:
+                    version_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case SHOW_MINI_MAP:
+                    show_mini_map = AV_RL32(value);
+                    break;
+                case MINI_MAP_LOCATION:
+                    mini_map_location = AV_RL32(value);
+                    break;
+                case GLOBAL_U_INTERPOLATION:
+                    global_upscale_interpolation = AV_RL32(value);
+                    break;
+                case GLOBAL_D_INTERPOLATION:
+                    global_downscale_interpolation = AV_RL32(value);
+                    break;
+                case OSD_ALPHA:
+                    osd_alpha = av_int2float(AV_RL32(value));
+                    break;
+                case OSD_F_POS_X:
+                    osd_fullscreen_pos[0] = av_int2float(AV_RL32(value));
+                    break;
+                case OSD_F_POS_Y:
+                    osd_fullscreen_pos[1] = av_int2float(AV_RL32(value));
                     break;
                 default:
                     av_log(NULL, AV_LOG_WARNING, "unknown settings key: %d.\n", AV_RL32(key));
@@ -4980,6 +5170,26 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 const GLint values[] = { GL_NEAREST, GL_LINEAR };
                 static int item_current_idx[2] = { 0, 0 };
                 const int flags = 0;
+
+                switch (global_downscale_interpolation) {
+                    default:
+                    case GL_NEAREST:
+                        item_current_idx[0] = 0;
+                        break;
+                    case GL_LINEAR:
+                        item_current_idx[0] = 1;
+                        break;
+                }
+
+                switch (global_downscale_interpolation) {
+                    default:
+                    case GL_NEAREST:
+                        item_current_idx[1] = 0;
+                        break;
+                    case GL_LINEAR:
+                        item_current_idx[1] = 1;
+                        break;
+                }
 
                 ImGui::DragFloat2("OSD Fullscreen Position", osd_fullscreen_pos, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
                 ImGui::DragFloat("OSD Fullscreen Alpha", &osd_alpha, 0.01f, 0.f, 1.f, "%f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
