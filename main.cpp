@@ -2212,6 +2212,11 @@ enum ExportItems {
     OSD_ALPHA,
     OSD_F_POS_X,
     OSD_F_POS_Y,
+    SHOW_EDITOR_WIN,
+    SHOW_DUMP_WIN,
+    SHOW_COMMANDS_WIN,
+    SHOW_LOG_WIN,
+    SHOW_RECORD_WIN,
 };
 
 static void save_settings()
@@ -2353,6 +2358,36 @@ static void save_settings()
         av_bprint_append_data(&buf, key, sizeof(key));
         av_bprint_append_data(&buf, value, sizeof(value));
 
+        AV_WL32(key, SHOW_EDITOR_WIN);
+        AV_WL32(value, show_filtergraph_editor_window);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, SHOW_DUMP_WIN);
+        AV_WL32(value, show_dumpgraph_window);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, SHOW_COMMANDS_WIN);
+        AV_WL32(value, show_commands_window);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, SHOW_LOG_WIN);
+        AV_WL32(value, show_log_window);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, SHOW_RECORD_WIN);
+        AV_WL32(value, show_record_window);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
         av_bprint_finalize(&buf, &out);
         if (av_bprint_is_complete(&buf))
             out_size = buf.len;
@@ -2451,6 +2486,21 @@ static void load_settings()
                     break;
                 case OSD_F_POS_Y:
                     osd_fullscreen_pos[1] = av_int2float(AV_RL32(value));
+                    break;
+                case SHOW_EDITOR_WIN:
+                    show_filtergraph_editor_window = AV_RL32(value);
+                    break;
+                case SHOW_DUMP_WIN:
+                    show_dumpgraph_window = AV_RL32(value);
+                    break;
+                case SHOW_COMMANDS_WIN:
+                    show_commands_window = AV_RL32(value);
+                    break;
+                case SHOW_LOG_WIN:
+                    show_log_window = AV_RL32(value);
+                    break;
+                case SHOW_RECORD_WIN:
+                    show_record_window = AV_RL32(value);
                     break;
                 default:
                     av_log(NULL, AV_LOG_WARNING, "unknown settings key: %d.\n", AV_RL32(key));
