@@ -958,7 +958,7 @@ static int filters_setup()
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
         } else if (!strcmp(filter_ctx->filter->name, "buffersink")) {
-            const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0 && recorder[0].video_sink_codecs[buffer_sinks.size()] != 0) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
+            const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0 && recorder[0].video_sink_codecs[buffer_sinks.size()] != NULL) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
             const AVPixelFormat *encode_fmts = encoder_fmts ? encoder_fmts : depth ? hi_pix_fmts : pix_fmts;
             BufferSink new_sink = {0};
 
@@ -984,8 +984,8 @@ static int filters_setup()
 
             buffer_sinks.push_back(new_sink);
         } else if (!strcmp(filter_ctx->filter->name, "abuffersink")) {
-            const AVSampleFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size() != 0]) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
-            const int *encoder_samplerates = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != 0) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
+            const AVSampleFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
+            const int *encoder_samplerates = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
             const int *encode_samplerates = encoder_samplerates ? encoder_samplerates : sample_rates;
             BufferSink new_sink = {0};
 
