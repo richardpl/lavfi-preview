@@ -881,8 +881,6 @@ static int filters_setup()
     mutexes.clear();
     amutexes.clear();
 
-    av_freep(&graphdump_text);
-
     avfilter_graph_free(&filter_graph);
     filter_graph = avfilter_graph_alloc();
     if (!filter_graph) {
@@ -1079,6 +1077,7 @@ static int filters_setup()
     framestep = false;
     paused = true;
 
+    av_freep(&graphdump_text);
     graphdump_text = avfilter_graph_dump(filter_graph, NULL);
 
     if (need_muxing) {
@@ -6019,17 +6018,20 @@ static void show_commands(bool *p_open, bool focused)
 
 static void show_dumpgraph(bool *p_open, bool focused)
 {
-    if (!graphdump_text || filter_graph_is_valid == false)
-        return;
-
     if (focused)
         ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowBgAlpha(dump_alpha);
-    if (!ImGui::Begin("FilterGraph Dump", p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (graphdump_text == NULL)
+        ImGui::SetNextWindowSize(ImVec2(300, 100), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("FilterGraph Dump", p_open, (graphdump_text != NULL) ? ImGuiWindowFlags_AlwaysAutoResize : 0)) {
         ImGui::End();
         return;
     }
-    ImGui::TextUnformatted(graphdump_text);
+
+    if (graphdump_text != NULL) {
+        ImGui::TextUnformatted(graphdump_text);
+    }
+
     ImGui::End();
 }
 
