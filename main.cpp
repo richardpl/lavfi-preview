@@ -170,6 +170,8 @@ typedef struct BufferSource {
     AVFilterContext *ctx;
     AVFormatContext *fmt_ctx;
     AVCodecContext *dec_ctx;
+    AVPacket *packet;
+    AVFrame *frame;
 } BufferSource;
 
 typedef struct BufferSink {
@@ -694,8 +696,8 @@ static void source_worker_thread(BufferSource *source)
     AVFilterContext *buffersrc_ctx = source->ctx;
     AVFormatContext *fmt_ctx = source->fmt_ctx;
     AVCodecContext *dec_ctx = source->dec_ctx;
-    AVPacket *packet = av_packet_alloc();
-    AVFrame *frame = av_frame_alloc();
+    AVPacket *packet = source->packet;
+    AVFrame *frame = source->frame;
     int ret;
 
     while (source->ready == true) {
@@ -771,8 +773,8 @@ static void source_worker_thread(BufferSource *source)
             av_log(NULL, AV_LOG_ERROR, "Error while closing the filter source\n");
     }
 
-    av_packet_free(&packet);
-    av_frame_free(&frame);
+    av_packet_free(&source->packet);
+    av_frame_free(&source->frame);
 
     avcodec_free_context(&source->dec_ctx);
     avformat_close_input(&source->fmt_ctx);
@@ -843,6 +845,19 @@ static void find_source_params(BufferSource *source)
     }
     av_buffersrc_parameters_set(buffersrc_ctx, params);
     av_free(params);
+
+    source->packet = av_packet_alloc();
+    if (source->packet == NULL) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot allocate source packet\n");
+        return;
+    }
+
+    source->frame = av_frame_alloc();
+    if (source->frame == NULL) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot allocate source frame\n");
+        return;
+    }
+
     source->ready = true;
 }
 
