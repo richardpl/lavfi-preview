@@ -127,6 +127,7 @@ typedef struct Edge2Pad {
     unsigned node;
     bool removed;
     bool is_output;
+    bool linked;
     unsigned pad_index;
     enum AVMediaType type;
 } Edge2Pad;
@@ -1084,6 +1085,9 @@ static int filters_setup()
                    filter_nodes[x].filter_label, x_pad, x_out, filter_nodes[y].filter_label, y_pad, y_out);
             goto error;
         }
+
+        edge2pad[p.first].linked  = true;
+        edge2pad[p.second].linked = true;
     }
 
     if ((ret = avfilter_graph_config(filter_graph, NULL)) < 0) {
@@ -1944,17 +1948,17 @@ static void importfile_filter_graph(const char *file_name)
         filter_opts.push_back(opts);
 
         filter2edge.push_back(editor_edge++);
-        edge2pad.push_back(Edge2Pad { i, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
+        edge2pad.push_back(Edge2Pad { i, false, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
         for (unsigned j = 0; j < pads[i].first; j++) {
             node.inpad_edges.push_back(editor_edge);
             label2edge.push_back(editor_edge++);
-            edge2pad.push_back(Edge2Pad { i, false, false, j, AVMEDIA_TYPE_UNKNOWN });
+            edge2pad.push_back(Edge2Pad { i, false, false, false, j, AVMEDIA_TYPE_UNKNOWN });
         }
 
         for (unsigned j = 0; j < pads[i].second; j++) {
             node.outpad_edges.push_back(editor_edge);
             label2edge.push_back(editor_edge++);
-            edge2pad.push_back(Edge2Pad { i, false, true, j, AVMEDIA_TYPE_UNKNOWN });
+            edge2pad.push_back(Edge2Pad { i, false, true, false, j, AVMEDIA_TYPE_UNKNOWN });
         }
 
         node.id = filter_nodes.size();
@@ -2006,6 +2010,12 @@ static void importfile_filter_graph(const char *file_name)
 
             if (edge2pad[label2edge[i]].is_output == edge2pad[label2edge[j]].is_output)
                 continue;
+
+            if (edge2pad[label2edge[i]].linked || edge2pad[label2edge[j]].linked)
+                continue;
+
+            edge2pad[label2edge[i]].linked = true;
+            edge2pad[label2edge[j]].linked = true;
 
             filter_links.push_back(std::make_pair(label2edge[i], label2edge[j]));
         }
@@ -5659,7 +5669,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         int edge;
 
         edge = filter_node->edge;
-        edge2pad[edge] = (Edge2Pad { i, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
+        edge2pad[edge] = (Edge2Pad { i, false, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
         if (!ImNodes::IsNodeSelected(edge))
             disabled = true;
         if (disabled)
@@ -5709,7 +5719,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (edge == 0) {
                 edge = editor_edge++;
                 filter_node->inpad_edges[j] = edge;
-                edge2pad.resize(editor_edge);
+                if (edge2pad.size() != (unsigned)editor_edge) {
+                    edge2pad.resize(editor_edge);
+                    edge2pad[edge].linked = false;
+                }
             }
             media_type = avfilter_pad_get_type(filter_ctx->input_pads, j);
             if (media_type == AVMEDIA_TYPE_VIDEO) {
@@ -5719,7 +5732,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             } else {
                 ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255,   0,   0, 255));
             }
-            edge2pad[edge] = (Edge2Pad { i, false, false, j, media_type });
+            const bool linked = edge2pad[edge].linked;
+            edge2pad[edge] = (Edge2Pad { i, false, false, linked, j, media_type });
             filter_node->inpad_edges[j] = edge;
             ImNodes::BeginInputAttribute(edge);
             ImGui::TextUnformatted(avfilter_pad_get_name(filter_ctx->input_pads, j));
@@ -5734,7 +5748,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (edge == 0) {
                 edge = editor_edge++;
                 filter_node->outpad_edges[j] = edge;
-                edge2pad.resize(editor_edge);
+                if (edge2pad.size() != (unsigned)editor_edge) {
+                    edge2pad.resize(editor_edge);
+                    edge2pad[edge].linked = false;
+                }
             }
             media_type = avfilter_pad_get_type(filter_ctx->output_pads, j);
             if (media_type == AVMEDIA_TYPE_VIDEO) {
@@ -5744,7 +5761,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             } else {
                 ImNodes::PushColorStyle(ImNodesCol_Pin, IM_COL32(255,   0,   0, 255));
             }
-            edge2pad[edge] = (Edge2Pad { i, false, true, j, media_type });
+            const bool linked = edge2pad[edge].linked;
+            edge2pad[edge] = (Edge2Pad { i, false, true, linked, j, media_type });
             filter_node->outpad_edges[j] = edge;
             ImNodes::BeginOutputAttribute(edge);
             ImGui::TextUnformatted(avfilter_pad_get_name(filter_ctx->output_pads, j));
@@ -5770,7 +5788,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
             filter_links.erase(filter_links.begin() + i);
         } else if (edge2pad[p.first].type  == AVMEDIA_TYPE_UNKNOWN ||
-            edge2pad[p.second].type == AVMEDIA_TYPE_UNKNOWN) {
+                   edge2pad[p.second].type == AVMEDIA_TYPE_UNKNOWN) {
             edge2pad[p.first].removed    = true;
             edge2pad[p.second].removed   = true;
             edge2pad[p.first].is_output  = false;
@@ -5828,6 +5846,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         edge2pad[p.second].removed   = true;
         edge2pad[p.first].is_output  = false;
         edge2pad[p.second].is_output = false;
+        edge2pad[p.first].linked     = false;
+        edge2pad[p.second].linked    = false;
 
         filter_links.erase(filter_links.begin() + link_id);
     }
@@ -5847,6 +5867,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             edge2pad[p.second].removed   = true;
             edge2pad[p.first].is_output  = false;
             edge2pad[p.second].is_output = false;
+            edge2pad[p.first].linked     = false;
+            edge2pad[p.second].linked    = false;
 
             filter_links.erase(filter_links.begin() + link_id);
         }
@@ -5867,6 +5889,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             std::vector<int> removed_edges;
 
             edge2pad[edge].removed = true;
+            edge2pad[edge].linked = false;
             edge2pad[edge].is_output = false;
             filter_nodes[node].filter = NULL;
             avfilter_free(filter_nodes[node].ctx);
@@ -5895,6 +5918,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     continue;
                 edge2pad[removed_edge].type = AVMEDIA_TYPE_UNKNOWN;
                 edge2pad[removed_edge].is_output = false;
+                edge2pad[removed_edge].linked = false;
                 edge2pad[removed_edge].removed = true;
 
                 if (filter_links.size() <= 0)
@@ -5915,6 +5939,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     edge2pad[p.second].removed   = true;
                     edge2pad[p.first].is_output  = false;
                     edge2pad[p.second].is_output = false;
+                    edge2pad[p.first].linked     = false;
+                    edge2pad[p.second].linked    = false;
 
                     filter_links.erase(filter_links.begin() + link_id);
                 }
@@ -5962,16 +5988,16 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             av_opt_copy(copy.probe, orig.probe);
             av_opt_copy(copy.probe->priv, orig.probe->priv);
 
-            edge2pad.push_back(Edge2Pad { copy.id, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
+            edge2pad.push_back(Edge2Pad { copy.id, false, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
 
             for (unsigned j = 0; j < orig.inpad_edges.size(); j++) {
                 copy.inpad_edges.push_back(editor_edge++);
-                edge2pad.push_back(Edge2Pad { copy.id, false, false, j, AVMEDIA_TYPE_UNKNOWN });
+                edge2pad.push_back(Edge2Pad { copy.id, false, false, false, j, AVMEDIA_TYPE_UNKNOWN });
             }
 
             for (unsigned j = 0; j < orig.outpad_edges.size(); j++) {
                 copy.outpad_edges.push_back(editor_edge++);
-                edge2pad.push_back(Edge2Pad { copy.id, false, true, j, AVMEDIA_TYPE_UNKNOWN });
+                edge2pad.push_back(Edge2Pad { copy.id, false, true, false, j, AVMEDIA_TYPE_UNKNOWN });
             }
 
             filter_nodes.push_back(copy);
@@ -6001,7 +6027,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (ee == connected_edges.size() &&
                 edge2pad[e].type != AVMEDIA_TYPE_UNKNOWN &&
                 edge2pad[e].is_output == true &&
-                edge2pad[e].removed == false) {
+                edge2pad[e].removed == false &&
+                edge2pad[e].linked == false) {
                 unconnected_edges.push_back(e);
             }
         }
@@ -6029,8 +6056,8 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             node.set_pos = true;
             node.edge = editor_edge++;
             node.inpad_edges.push_back(editor_edge);
-            edge2pad.push_back(Edge2Pad { node.id, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
-            edge2pad.push_back(Edge2Pad { node.id, false, false, 0, type });
+            edge2pad.push_back(Edge2Pad { node.id, false, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
+            edge2pad.push_back(Edge2Pad { node.id, false, false, true, 0, type });
 
             filter_nodes.push_back(node);
             filter_links.push_back(std::make_pair(e, editor_edge++));
@@ -6041,9 +6068,17 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     if (ImNodes::IsLinkCreated(&start_attr, &end_attr)) {
         const enum AVMediaType first  = edge2pad[start_attr].type;
         const enum AVMediaType second = edge2pad[end_attr].type;
+        const bool linked_a = edge2pad[start_attr].linked;
+        const bool linked_b = edge2pad[end_attr].linked;
 
-        if (first == second && first != AVMEDIA_TYPE_UNKNOWN)
+        if (first == second && first != AVMEDIA_TYPE_UNKNOWN &&
+            linked_a == false && linked_b == false) {
+
+            edge2pad[start_attr].linked = true;
+            edge2pad[end_attr].linked = true;
+
             filter_links.push_back(std::make_pair(start_attr, end_attr));
+        }
     }
 
     ImGui::End();
