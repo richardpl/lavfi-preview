@@ -1698,7 +1698,7 @@ static void draw_help(bool *p_open)
     ImGui::SameLine(align);
     ImGui::TextUnformatted("Ctrl + Enter");
     ImGui::Separator();
-    ImGui::TextUnformatted("Record Configured Graph:");
+    ImGui::TextUnformatted("Start Recording Configured Graph:");
     ImGui::SameLine(align);
     ImGui::TextUnformatted("Ctrl + R");
     ImGui::Separator();
