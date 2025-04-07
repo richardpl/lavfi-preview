@@ -5989,13 +5989,6 @@ static void show_commands(bool *p_open, bool focused)
 {
     static unsigned toggle_filter = UINT_MAX;
 
-    if (filter_graph_is_valid == false || (
-        ((buffer_sinks.size() != mutexes.size() ||
-          buffer_sinks.size() == 0)) &&
-        ((abuffer_sinks.size() != amutexes.size() ||
-          abuffer_sinks.size() == 0))))
-        return;
-
     if (focused)
         ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowBgAlpha(commands_alpha);
@@ -6005,7 +5998,13 @@ static void show_commands(bool *p_open, bool focused)
         return;
     }
 
-    draw_filters_commands(&toggle_filter);
+    if (filter_graph_is_valid == true && (
+        ((buffer_sinks.size() == mutexes.size() &&
+          buffer_sinks.size() != 0)) ||
+        ((abuffer_sinks.size() == amutexes.size() &&
+          abuffer_sinks.size() != 0)))) {
+        draw_filters_commands(&toggle_filter);
+    }
 
     ImGui::End();
 
