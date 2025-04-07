@@ -303,6 +303,9 @@ AVFilterGraph *filter_graph = NULL;
 AVFilterGraph *probe_graph = NULL;
 char *graphdump_text = NULL;
 float grid_spacing = 24.f;
+int node_outline = true;
+int grid_lines = true;
+int grid_snapping = false;
 float link_thickness = 3.f;
 float corner_rounding = 4.f;
 float audio_sample_range[2] = { 1.f, 1.f };
@@ -955,7 +958,7 @@ static int filters_setup()
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
         } else if (!strcmp(filter_ctx->filter->name, "buffersink")) {
-            const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0 && recorder[0].video_sink_codecs[buffer_sinks.size()] != NULL) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
+            const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0 && recorder[0].video_sink_codecs[buffer_sinks.size()] != 0) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
             const AVPixelFormat *encode_fmts = encoder_fmts ? encoder_fmts : depth ? hi_pix_fmts : pix_fmts;
             BufferSink new_sink = {0};
 
@@ -981,8 +984,8 @@ static int filters_setup()
 
             buffer_sinks.push_back(new_sink);
         } else if (!strcmp(filter_ctx->filter->name, "abuffersink")) {
-            const AVSampleFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size() != NULL]) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
-            const int *encoder_samplerates = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
+            const AVSampleFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size() != 0]) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
+            const int *encoder_samplerates = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != 0) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
             const int *encode_samplerates = encoder_samplerates ? encoder_samplerates : sample_rates;
             BufferSink new_sink = {0};
 
@@ -2217,6 +2220,9 @@ enum ExportItems {
     SHOW_COMMANDS_WIN,
     SHOW_LOG_WIN,
     SHOW_RECORD_WIN,
+    GRID_SNAPPING,
+    GRID_LINES,
+    NODE_OUTLINE,
 };
 
 static void save_settings()
@@ -2388,6 +2394,24 @@ static void save_settings()
         av_bprint_append_data(&buf, key, sizeof(key));
         av_bprint_append_data(&buf, value, sizeof(value));
 
+        AV_WL32(key, GRID_SNAPPING);
+        AV_WL32(value, grid_snapping);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, GRID_LINES);
+        AV_WL32(value, grid_lines);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, NODE_OUTLINE);
+        AV_WL32(value, node_outline);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
         av_bprint_finalize(&buf, &out);
         if (av_bprint_is_complete(&buf))
             out_size = buf.len;
@@ -2501,6 +2525,15 @@ static void load_settings()
                     break;
                 case SHOW_RECORD_WIN:
                     show_record_window = AV_RL32(value);
+                    break;
+                case GRID_SNAPPING:
+                    grid_snapping = AV_RL32(value);
+                    break;
+                case GRID_LINES:
+                    grid_lines = AV_RL32(value);
+                    break;
+                case NODE_OUTLINE:
+                    node_outline = AV_RL32(value);
                     break;
                 default:
                     av_log(NULL, AV_LOG_WARNING, "unknown settings key: %d.\n", AV_RL32(key));
@@ -4983,6 +5016,13 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     style.GridSpacing = grid_spacing;
     style.NodeCornerRounding = corner_rounding;
     style.LinkThickness = link_thickness;
+    style.Flags = ImNodesStyleFlags_None;
+    if (node_outline)
+        style.Flags |= ImNodesStyleFlags_NodeOutline;
+    if (grid_lines)
+        style.Flags |= ImNodesStyleFlags_GridLines;
+    if (grid_snapping)
+        style.Flags |= ImNodesStyleFlags_GridSnapping;
 
     ImNodes::BeginNodeEditor();
 
@@ -5358,7 +5398,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     ImGui::EndMenu();
                 }
                 if (ImGui::BeginMenu("Editor")) {
+                    ImGui::DragInt("Node Outline", &node_outline, 1, 0, 1, "%d", ImGuiSliderFlags_AlwaysClamp);
+                    ImGui::DragInt("Grid Lines", &grid_lines, 1, 0, 1, "%d", ImGuiSliderFlags_AlwaysClamp);
                     ImGui::DragFloat("Grid Spacing", &grid_spacing, 1.f, 2.f, 300.f, "%f", ImGuiSliderFlags_AlwaysClamp);
+                    ImGui::DragInt("Grid Snapping", &grid_snapping, 1, 0, 1, "%d", ImGuiSliderFlags_AlwaysClamp);
                     ImGui::DragFloat("Link Thickness", &link_thickness, 0.1f, 1.f, 20.f, "%f", ImGuiSliderFlags_AlwaysClamp);
                     ImGui::DragFloat("Corner Rounding", &corner_rounding, 0.1f, 1.f, 20.f, "%f", ImGuiSliderFlags_AlwaysClamp);
                     ImGui::EndMenu();
