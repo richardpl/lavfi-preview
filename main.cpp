@@ -5601,13 +5601,18 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                     snprintf(menu_name, sizeof(menu_name), "Audio Encoder.%u", i);
                     if (ImGui::BeginMenu(menu_name, recorder[0].oformat != NULL)) {
+                        static ImGuiTextFilter imgui_filter;
                         const AVCodec *ocodec;
                         void *iterator = NULL;
 
                         ImGui::SetTooltip("Audio Stream %d Encoder", i);
+                        imgui_filter.Draw();
                         while ((ocodec = av_codec_iterate(&iterator))) {
                             if (!av_codec_is_encoder(ocodec) ||
                                 ocodec->type != AVMEDIA_TYPE_AUDIO)
+                                continue;
+
+                            if (!imgui_filter.PassFilter(ocodec->name))
                                 continue;
 
                             handle_encoderitem(ocodec, true, i);
@@ -5621,13 +5626,18 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                     snprintf(menu_name, sizeof(menu_name), "Video Encoder.%u", i);
                     if (ImGui::BeginMenu(menu_name, recorder[0].oformat != NULL)) {
+                        static ImGuiTextFilter imgui_filter;
                         const AVCodec *ocodec;
                         void *iterator = NULL;
 
                         ImGui::SetTooltip("Video Stream %d Encoder", i);
+                        imgui_filter.Draw();
                         while ((ocodec = av_codec_iterate(&iterator))) {
                             if (!av_codec_is_encoder(ocodec) ||
                                 ocodec->type != AVMEDIA_TYPE_VIDEO)
+                                continue;
+
+                            if (!imgui_filter.PassFilter(ocodec->name))
                                 continue;
 
                             handle_encoderitem(ocodec, false, i);
@@ -5637,13 +5647,18 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 }
 
                 if (ImGui::BeginMenu("Format")) {
+                    static ImGuiTextFilter imgui_filter;
                     const char *last_name = NULL;
                     const AVOutputFormat *ofmt;
                     void *iterator = NULL;
 
                     ImGui::SetTooltip("%s", "Output Formats");
+                    imgui_filter.Draw();
                     while ((ofmt = av_muxer_iterate(&iterator))) {
                         if (is_device(ofmt->priv_class))
+                            continue;
+
+                        if (!imgui_filter.PassFilter(ofmt->name))
                             continue;
 
                         if (!last_name || strcmp(last_name, ofmt->name)) {
