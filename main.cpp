@@ -710,7 +710,9 @@ static void source_worker_thread(BufferSource *source)
         filtergraph_mutex.lock();
         if (!av_buffersrc_get_nb_failed_requests(buffersrc_ctx)) {
             filtergraph_mutex.unlock();
-            av_usleep(1000);
+            if (need_muxing == false) {
+                av_usleep(1000);
+            }
             continue;
         }
         filtergraph_mutex.unlock();
