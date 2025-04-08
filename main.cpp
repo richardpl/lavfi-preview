@@ -3917,16 +3917,16 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                         col[3] = icol[3] / 255.f;
                         ImGui::SetNextItemWidth(200.f);
                         ImGui::PushID(index++);
-                        ImGui::ColorEdit4(opt->name, col, ImGuiColorEditFlags_NoDragDrop);
+                        if (ImGui::ColorEdit4(opt->name, col, ImGuiColorEditFlags_NoDragDrop)) {
+                            icol[0] = av_clip_uint8(lrintf(col[0] * 255.f));
+                            icol[1] = av_clip_uint8(lrintf(col[1] * 255.f));
+                            icol[2] = av_clip_uint8(lrintf(col[2] * 255.f));
+                            icol[3] = av_clip_uint8(lrintf(col[3] * 255.f));
+
+                            snprintf(new_str, sizeof(new_str), "0x%02hhx%02hhx%02hhx%02hhx", icol[0], icol[1], icol[2], icol[3]);
+                            av_opt_set(av_class, opt->name, new_str, 0);
+                        }
                         ImGui::PopID();
-
-                        icol[0] = av_clip_uint8(lrintf(col[0] * 255.f));
-                        icol[1] = av_clip_uint8(lrintf(col[1] * 255.f));
-                        icol[2] = av_clip_uint8(lrintf(col[2] * 255.f));
-                        icol[3] = av_clip_uint8(lrintf(col[3] * 255.f));
-
-                        snprintf(new_str, sizeof(new_str), "0x%02hhx%02hhx%02hhx%02hhx", icol[0], icol[1], icol[2], icol[3]);
-                        av_opt_set(av_class, opt->name, new_str, 0);
                     }
                     break;
                 case AV_OPT_TYPE_CHLAYOUT:
