@@ -5646,7 +5646,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     }
                 }
 
-                if (ImGui::BeginMenu("Format")) {
+                if (ImGui::BeginMenu("Format", recorder[0].filename != NULL)) {
                     static ImGuiTextFilter imgui_filter;
                     const char *last_name = NULL;
                     const AVOutputFormat *ofmt;
