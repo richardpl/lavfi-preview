@@ -3483,6 +3483,55 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                             av_freep(&value);
                         }
                         break;
+                    case AV_OPT_TYPE_PIXEL_FMT:
+                        {
+                            int *formats = (int *)av_calloc(nb_elems, sizeof(*formats));
+                            bool new_value = false;
+
+                            if (!formats)
+                                break;
+
+                            if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, formats) < 0) {
+                                av_freep(&formats);
+                                break;
+                            }
+
+                            for (unsigned int i = 0; i < nb_elems; i++) {
+                                AVPixelFormat fmt = (AVPixelFormat)formats[i];
+                                const char *preview_name;
+                                char label[1024] = {0};
+
+                                snprintf(label, sizeof(label), "%s.%u", opt->name, i);
+
+                                ImGui::SetNextItemWidth(200.f);
+                                preview_name = av_get_pix_fmt_name(fmt);
+                                if (!preview_name)
+                                    preview_name = "none";
+
+                                if (ImGui::BeginCombo(label, preview_name, 0)) {
+                                    const AVPixFmtDescriptor *pix_desc = NULL;
+
+                                    while ((pix_desc = av_pix_fmt_desc_next(pix_desc))) {
+                                        enum AVPixelFormat pix_fmt = av_pix_fmt_desc_get_id(pix_desc);
+                                        const bool is_selected = pix_fmt == fmt;
+
+                                        if (ImGui::Selectable(pix_desc->name, is_selected)) {
+                                            formats[i] = pix_fmt;
+                                            new_value = true;
+                                        }
+
+                                        if (is_selected)
+                                            ImGui::SetItemDefaultFocus();
+                                    }
+                                    ImGui::EndCombo();
+                                }
+                            }
+                            if (new_value) {
+                                av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, formats);
+                            }
+                            av_freep(&formats);
+                        }
+                        break;
                     case AV_OPT_TYPE_STRING:
                         {
                             char **value = (char **)av_calloc(nb_elems, sizeof(*value));
@@ -3893,7 +3942,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
 
                             while ((pix_desc = av_pix_fmt_desc_next(pix_desc))) {
                                 enum AVPixelFormat pix_fmt = av_pix_fmt_desc_get_id(pix_desc);
-                                const bool is_selected = av_pix_fmt_desc_get_id(pix_desc) == fmt;
+                                const bool is_selected = pix_fmt == fmt;
 
                                 if (ImGui::Selectable(pix_desc->name, is_selected))
                                     av_opt_set_pixel_fmt(av_class, opt->name, pix_fmt, 0);
