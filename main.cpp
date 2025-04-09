@@ -6355,12 +6355,16 @@ int main(int, char**)
     avdevice_register_all();
 
     al_dev = alcOpenDevice(NULL);
-    if (!al_dev) {
+    if (al_dev == NULL) {
         av_log(NULL, AV_LOG_ERROR, "Cannot open AL device.\n");
         return -1;
     }
 
     al_ctx = alcCreateContext(al_dev, attribs);
+    if (al_ctx == NULL) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot create AL context.\n");
+        return -1;
+    }
     alcMakeContextCurrent(al_ctx);
     alListenerfv(AL_POSITION, listener_position);
     alListenerfv(AL_ORIENTATION, listener_direction);
