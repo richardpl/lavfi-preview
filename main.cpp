@@ -2250,6 +2250,8 @@ enum ExportItems {
     GRID_SNAPPING,
     GRID_LINES,
     NODE_OUTLINE,
+    GRAPH_NB_THREADS,
+    GRAPH_AC_FLAGS,
 };
 
 static void save_settings()
@@ -2439,6 +2441,18 @@ static void save_settings()
         av_bprint_append_data(&buf, key, sizeof(key));
         av_bprint_append_data(&buf, value, sizeof(value));
 
+        AV_WL32(key, GRAPH_NB_THREADS);
+        AV_WL32(value, filter_graph_nb_threads);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
+        AV_WL32(key, GRAPH_AC_FLAGS);
+        AV_WL32(value, filter_graph_auto_convert_flags);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
         av_bprint_finalize(&buf, &out);
         if (av_bprint_is_complete(&buf))
             out_size = buf.len;
@@ -2561,6 +2575,12 @@ static void load_settings()
                     break;
                 case NODE_OUTLINE:
                     node_outline = AV_RL32(value);
+                    break;
+                case GRAPH_NB_THREADS:
+                    filter_graph_nb_threads = AV_RL32(value);
+                    break;
+                case GRAPH_AC_FLAGS:
+                    filter_graph_auto_convert_flags = AV_RL32(value);
                     break;
                 default:
                     av_log(NULL, AV_LOG_WARNING, "unknown settings key: %d.\n", AV_RL32(key));
