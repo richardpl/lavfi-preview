@@ -2252,6 +2252,7 @@ enum ExportItems {
     NODE_OUTLINE,
     GRAPH_NB_THREADS,
     GRAPH_AC_FLAGS,
+    LOG_LEVEL,
 };
 
 static void save_settings()
@@ -2453,6 +2454,12 @@ static void save_settings()
         av_bprint_append_data(&buf, key, sizeof(key));
         av_bprint_append_data(&buf, value, sizeof(value));
 
+        AV_WL32(key, LOG_LEVEL);
+        AV_WL32(value, log_level);
+
+        av_bprint_append_data(&buf, key, sizeof(key));
+        av_bprint_append_data(&buf, value, sizeof(value));
+
         av_bprint_finalize(&buf, &out);
         if (av_bprint_is_complete(&buf))
             out_size = buf.len;
@@ -2581,6 +2588,9 @@ static void load_settings()
                     break;
                 case GRAPH_AC_FLAGS:
                     filter_graph_auto_convert_flags = AV_RL32(value);
+                    break;
+                case LOG_LEVEL:
+                    log_level = AV_RL32(value);
                     break;
                 default:
                     av_log(NULL, AV_LOG_WARNING, "unknown settings key: %d.\n", AV_RL32(key));
