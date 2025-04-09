@@ -3503,11 +3503,11 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
 
                                 snprintf(label, sizeof(label), "%s.%u", opt->name, i);
 
-                                ImGui::SetNextItemWidth(200.f);
                                 preview_name = av_get_pix_fmt_name(fmt);
                                 if (!preview_name)
                                     preview_name = "none";
 
+                                ImGui::SetNextItemWidth(200.f);
                                 if (ImGui::BeginCombo(label, preview_name, 0)) {
                                     const AVPixFmtDescriptor *pix_desc = NULL;
 
@@ -3517,6 +3517,57 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
 
                                         if (ImGui::Selectable(pix_desc->name, is_selected)) {
                                             formats[i] = pix_fmt;
+                                            new_value = true;
+                                        }
+
+                                        if (is_selected)
+                                            ImGui::SetItemDefaultFocus();
+                                    }
+                                    ImGui::EndCombo();
+                                }
+                            }
+                            if (new_value) {
+                                av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, formats);
+                            }
+                            av_freep(&formats);
+                        }
+                        break;
+                    case AV_OPT_TYPE_SAMPLE_FMT:
+                        {
+                            int *formats = (int *)av_calloc(nb_elems, sizeof(*formats));
+                            bool new_value = false;
+
+                            if (!formats)
+                                break;
+
+                            if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, formats) < 0) {
+                                av_freep(&formats);
+                                break;
+                            }
+
+                            for (unsigned int i = 0; i < nb_elems; i++) {
+                                AVSampleFormat fmt = (AVSampleFormat)formats[i];
+                                const char *preview_name;
+                                char label[1024] = {0};
+
+                                snprintf(label, sizeof(label), "%s.%u", opt->name, i);
+
+                                preview_name = av_get_sample_fmt_name(fmt);
+                                if (!preview_name)
+                                    preview_name = "none";
+
+                                ImGui::SetNextItemWidth(200.f);
+                                if (ImGui::BeginCombo(label, preview_name, 0)) {
+                                    const unsigned nb_sample_fmts = sizeof(all_sample_fmts)/sizeof(all_sample_fmts[0]);
+
+                                    for (unsigned j = 0; j < nb_sample_fmts; j++) {
+                                        const bool is_selected = all_sample_fmts[j] == fmt;
+                                        const char *name = av_get_sample_fmt_name(all_sample_fmts[j]);
+
+                                        if (name == NULL)
+                                            name = "none";
+                                        if (ImGui::Selectable(name, is_selected)) {
+                                            formats[i] = all_sample_fmts[j];
                                             new_value = true;
                                         }
 
