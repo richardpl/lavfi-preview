@@ -1843,15 +1843,18 @@ static void importfile_filter_graph(const char *file_name)
     AVBPrint buf;
     char c;
 
-    if (!file) {
+    if (file == NULL) {
         av_log(NULL, AV_LOG_ERROR, "Cannot open '%s' script.\n", file_name);
         return;
     }
 
-    if (!probe_graph)
+    if (probe_graph == NULL)
         probe_graph = avfilter_graph_alloc();
-    if (!probe_graph)
+    if (probe_graph == NULL) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot allocate probe graph.\n");
+        fclose(file);
         return;
+    }
 
     av_bprint_init(&buf, 512, AV_BPRINT_SIZE_UNLIMITED);
 
