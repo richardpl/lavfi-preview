@@ -2945,9 +2945,10 @@ static void load_aframe(BufferSink *sink, AVFrame *frame)
         const float *src = (const float *)frame->extended_data[0];
 
         if (src && frame->nb_samples > 0) {
+            const int nb_samples = frame->nb_samples;
             float min = FLT_MAX, max = -FLT_MAX;
 
-            for (int n = 0; n < frame->nb_samples; n++) {
+            for (int n = 0; n < nb_samples; n++) {
                 max = std::max(max, src[n]);
                 min = std::min(min, src[n]);
             }
@@ -2959,13 +2960,14 @@ static void load_aframe(BufferSink *sink, AVFrame *frame)
             if (sink->sample_index >= sink->nb_samples)
                 sink->sample_index = 0;
         }
-    } else {
+    } else if (frame->format == AV_SAMPLE_FMT_DBLP) {
         const double *src = (const double *)frame->extended_data[0];
 
         if (src && frame->nb_samples > 0) {
+            const int nb_samples = frame->nb_samples;
             double min = DBL_MAX, max = -DBL_MAX;
 
-            for (int n = 0; n < frame->nb_samples; n++) {
+            for (int n = 0; n < nb_samples; n++) {
                 max = std::max(max, src[n]);
                 min = std::min(min, src[n]);
             }
