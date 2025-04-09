@@ -2877,8 +2877,6 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
         ImGui::BeginTooltip();
         float my_tex_w = (float)width;
         float my_tex_h = (float)height;
-        ImVec4 tint_col   = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // No tint
-        ImVec4 border_col = ImVec4(1.0f, 1.0f, 1.0f, 0.5f); // 50% opaque white
         float region_sz = 32.0f;
         float region_x = (io.MousePos.x - pos.x - region_sz * 0.5f) * width  / size.x;
         float region_y = (io.MousePos.y - pos.y - region_sz * 0.5f) * height / size.y;
@@ -2890,7 +2888,7 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
         else if (region_y > my_tex_h - region_sz) { region_y = my_tex_h - region_sz; }
         ImVec2 uv0 = ImVec2((region_x) / my_tex_w, (region_y) / my_tex_h);
         ImVec2 uv1 = ImVec2((region_x + region_sz) / my_tex_w, (region_y + region_sz) / my_tex_h);
-        ImGui::Image(*texture, ImVec2(region_sz * zoom, region_sz * zoom), uv0, uv1, tint_col, border_col);
+        ImGui::Image(*texture, ImVec2(region_sz * zoom, region_sz * zoom), uv0, uv1);
         ImGui::EndTooltip();
     }
 
