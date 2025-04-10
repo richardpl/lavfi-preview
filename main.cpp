@@ -367,10 +367,10 @@ float listener_position[3] = { 0, 0, 0 };
 
 static void alloc_ring_buffer(ring_buffer_t *ring_buffer, Buffer *id)
 {
-    if (!id)
+    if (id == NULL)
         return;
 
-    while (!ring_buffer_is_full(ring_buffer)) {
+    while (ring_buffer_is_full(ring_buffer) == false) {
         AVFrame *empty_frame = av_frame_alloc();
 
         if (empty_frame) {
@@ -383,7 +383,7 @@ static void alloc_ring_buffer(ring_buffer_t *ring_buffer, Buffer *id)
 
 static void clear_ring_buffer(ring_buffer_t *ring_buffer)
 {
-    while (!ring_buffer_is_empty(ring_buffer)) {
+    while (ring_buffer_is_empty(ring_buffer) == false) {
         ring_item_t item = { NULL, 0 };
 
         ring_buffer_dequeue(ring_buffer, &item);
@@ -399,7 +399,7 @@ static void sound_thread(ALsizei nb_sources, std::vector<ALuint> *sources)
     if ((state == true) || (step == false))
         alSourceStopv(nb_sources, sources->data());
 
-    while ((!need_filters_reinit && !do_filters_reinit) && filter_graph_is_valid) {
+    while ((need_filters_reinit == false && do_filters_reinit == false) && filter_graph_is_valid) {
         bool new_step = framestep;
         bool new_state = paused;
 
@@ -505,7 +505,7 @@ static void recorder_thread(Recorder *recorder, std::mutex *mutex, std::conditio
                 break;
             }
 
-            if (!os->flt) {
+            if (os->flt == NULL) {
                 ret = AVERROR(EINVAL);
                 break;
             }
@@ -577,7 +577,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
             continue;
         sink->ready = false;
 
-        while (!ring_buffer_is_empty(&sink->empty_frames)) {
+        while (ring_buffer_is_empty(&sink->empty_frames) == false) {
             ring_item_t item = { NULL, 0 };
             int64_t start, end;
 
@@ -590,7 +590,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
                 break;
 
             ring_buffer_dequeue(&sink->empty_frames, &item);
-            if (!item.frame)
+            if (item.frame == NULL)
                 break;
 
             filtergraph_mutex.lock();
@@ -708,7 +708,7 @@ static void source_worker_thread(BufferSource *source)
             break;
 
         filtergraph_mutex.lock();
-        if (!av_buffersrc_get_nb_failed_requests(buffersrc_ctx)) {
+        if (av_buffersrc_get_nb_failed_requests(buffersrc_ctx) == 0) {
             filtergraph_mutex.unlock();
             if (need_muxing == false) {
                 av_usleep(1000);
@@ -904,7 +904,7 @@ static int filters_setup()
 
     avfilter_graph_free(&filter_graph);
     filter_graph = avfilter_graph_alloc();
-    if (!filter_graph) {
+    if (filter_graph == NULL) {
         av_log(NULL, AV_LOG_ERROR, "Cannot allocate filter graph.\n");
         ret = AVERROR(ENOMEM);
         goto error;
@@ -917,14 +917,14 @@ static int filters_setup()
         AVFilterContext *filter_ctx;
 
         new_filter = filter_nodes[i].filter;
-        if (!new_filter) {
+        if (new_filter == NULL) {
             av_log(NULL, AV_LOG_ERROR, "Cannot [%d] get filter by name: %s.\n", i, filter_nodes[i].filter_name);
             ret = AVERROR(ENOSYS);
             goto error;
         }
 
         filter_ctx = avfilter_graph_alloc_filter(filter_graph, new_filter, filter_nodes[i].filter_label);
-        if (!filter_ctx) {
+        if (filter_ctx == NULL) {
             av_log(NULL, AV_LOG_ERROR, "Cannot allocate filter context.\n");
             ret = AVERROR(ENOMEM);
             goto error;
@@ -947,35 +947,35 @@ static int filters_setup()
             goto error;
         }
 
-        if (!strcmp(filter_ctx->filter->name, "buffer")) {
+        if (strcmp(filter_ctx->filter->name, "buffer") == 0) {
             BufferSource new_source = {0};
 
             new_source.ready = false;
             new_source.fmt_ctx = NULL;
             new_source.dec_ctx = NULL;
             new_source.ctx = filter_ctx;
-            if (!filter_nodes[i].stream_url.empty())
+            if (filter_nodes[i].stream_url.empty() == false)
                 new_source.stream_url = &filter_nodes[i].stream_url;
             new_source.type = AVMEDIA_TYPE_VIDEO;
             new_source.seek_point = &filter_nodes[i].seek_point;
             new_source.prev_seek_point = &filter_nodes[i].prev_seek_point;
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
-        } else if (!strcmp(filter_ctx->filter->name, "abuffer")) {
+        } else if (strcmp(filter_ctx->filter->name, "abuffer") == 0) {
             BufferSource new_source = {0};
 
             new_source.ready = false;
             new_source.fmt_ctx = NULL;
             new_source.dec_ctx = NULL;
             new_source.ctx = filter_ctx;
-            if (!filter_nodes[i].stream_url.empty())
+            if (filter_nodes[i].stream_url.empty() == false)
                 new_source.stream_url = &filter_nodes[i].stream_url;
             new_source.type = AVMEDIA_TYPE_AUDIO;
             new_source.seek_point = &filter_nodes[i].seek_point;
             new_source.prev_seek_point = &filter_nodes[i].prev_seek_point;
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
-        } else if (!strcmp(filter_ctx->filter->name, "buffersink")) {
+        } else if (strcmp(filter_ctx->filter->name, "buffersink") == 0) {
             const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0 && recorder[0].video_sink_codecs[buffer_sinks.size()] != NULL) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
             const AVPixelFormat *encode_fmts = encoder_fmts ? encoder_fmts : depth ? hi_pix_fmts : pix_fmts;
             BufferSink new_sink = {0};
@@ -1001,7 +1001,7 @@ static int filters_setup()
             }
 
             buffer_sinks.push_back(new_sink);
-        } else if (!strcmp(filter_ctx->filter->name, "abuffersink")) {
+        } else if (strcmp(filter_ctx->filter->name, "abuffersink") == 0) {
             const AVSampleFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
             const int *encoder_samplerates = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
             const int *encode_samplerates = encoder_samplerates ? encoder_samplerates : sample_rates;
@@ -1115,7 +1115,7 @@ static int filters_setup()
                 const AVCodec *codec;
 
                 codec = recorder[0].audio_sink_codecs[i];
-                if (!codec) {
+                if (codec == NULL) {
                     av_log(NULL, AV_LOG_ERROR, "No encoder set for %u audio stream\n", i);
                     ret = AVERROR(EINVAL);
                     goto error;
@@ -1155,7 +1155,7 @@ static int filters_setup()
                 }
 
                 recorder[0].ostreams[i].st = avformat_new_stream(recorder[0].format_ctx, NULL);
-                if (!recorder[0].ostreams[i].st) {
+                if (recorder[0].ostreams[i].st == NULL) {
                     av_log(NULL, AV_LOG_ERROR, "Could not allocate audio stream %u\n", i);
                     goto error;
                 }
@@ -1194,7 +1194,7 @@ static int filters_setup()
                 const AVCodec *codec;
 
                 codec = recorder[0].video_sink_codecs[i];
-                if (!codec) {
+                if (codec == NULL) {
                     av_log(NULL, AV_LOG_ERROR, "No encoder set for %u video stream\n", i);
                     ret = AVERROR(EINVAL);
                     goto error;
@@ -1233,7 +1233,7 @@ static int filters_setup()
                 }
 
                 recorder[0].ostreams[oi].st = avformat_new_stream(recorder[0].format_ctx, NULL);
-                if (!recorder[0].ostreams[oi].st) {
+                if (recorder[0].ostreams[oi].st == NULL) {
                     av_log(NULL, AV_LOG_ERROR, "Could not allocate video stream %u\n", i);
                     goto error;
                 }
@@ -1466,7 +1466,7 @@ static void draw_info(bool *p_open, bool full)
             frame = &last_sink->frame_info;
         }
 
-        if (!frame)
+        if (frame == NULL)
             return;
     } else {
         if (!(last_buffersink_window >= 0 && last_buffersink_window < buffer_sinks.size()) &&
@@ -1478,7 +1478,7 @@ static void draw_info(bool *p_open, bool full)
     ImGui::SetNextWindowBgAlpha(info_alpha);
     ImGui::SetNextWindowFocus();
 
-    if (!ImGui::Begin("##Info", p_open, window_flags)) {
+    if (ImGui::Begin("##Info", p_open, window_flags) == false) {
         ImGui::End();
         return;
     }
@@ -1501,14 +1501,14 @@ static void draw_info(bool *p_open, bool full)
             if (i >= buffer_sinks.size() && abuffer_sinks.size() > 0) {
                 sink = &abuffer_sinks[i-buffer_sinks.size()];
                 frame = &sink->frame_info;
-                if (!sink->label)
+                if (sink->label == NULL)
                     continue;
                 ImGui::Spacing();
                 ImGui::TextUnformatted(sink->label);
             } else {
                 sink = &buffer_sinks[i];
                 frame = &sink->frame_info;
-                if (!sink->label)
+                if (sink->label == NULL)
                     continue;
                 ImGui::Spacing();
                 ImGui::TextUnformatted(sink->label);
@@ -1589,7 +1589,7 @@ static void draw_version(bool *p_open)
     ImGui::SetNextWindowBgAlpha(version_alpha);
     ImGui::SetNextWindowFocus();
 
-    if (!ImGui::Begin("##Version", p_open, window_flags)) {
+    if (ImGui::Begin("##Version", p_open, window_flags) == false) {
         ImGui::End();
         return;
     }
@@ -1653,7 +1653,7 @@ static void draw_help(bool *p_open)
     ImGui::SetNextWindowBgAlpha(help_alpha);
     ImGui::SetNextWindowFocus();
 
-    if (!ImGui::Begin("##Help", p_open, window_flags)) {
+    if (ImGui::Begin("##Help", p_open, window_flags) == false) {
         ImGui::End();
         return;
     }
@@ -1969,21 +1969,21 @@ static void importfile_filter_graph(const char *file_name)
         node.id = filter_nodes.size();
         node.edge = filter2edge[i];
         node.filter_name = av_asprintf("%.*s", p.second - p.first, buf.str + p.first);
-        if (!node.filter_name) {
+        if (node.filter_name == NULL) {
             av_log(NULL, AV_LOG_ERROR, "Could not get filter name.\n");
             goto error;
         }
         std::istringstream full_name(node.filter_name);
         std::getline(full_name, filter_name, '@');
         std::getline(full_name, instance_name, '@');
-        if (!filter_name.empty())
+        if (filter_name.empty() == false)
             node.filter = avfilter_get_by_name(filter_name.c_str());
-        if (!node.filter) {
+        if (node.filter == NULL) {
             av_log(NULL, AV_LOG_ERROR, "Could not get filter by name: %s.\n", node.filter_name);
             goto error;
         }
         node.imported_id = instance_name.length() > 0;
-        node.filter_label = node.imported_id && (!instance_name.empty()) ? av_asprintf("%s@%s", node.filter->name, instance_name.c_str()) : av_asprintf("%s@%d", node.filter->name, node.id);
+        node.filter_label = node.imported_id && (instance_name.empty() == false) ? av_asprintf("%s@%s", node.filter->name, instance_name.c_str()) : av_asprintf("%s@%d", node.filter->name, node.id);
         node.filter_options = opts;
         node.ctx_options = NULL;
         node.probe = avfilter_graph_alloc_filter(probe_graph, node.filter, "probe");
@@ -2045,14 +2045,14 @@ struct {
         const int pbb = pb.second;
         int pia = 0, pib = 0;
 
-        if (!edge2pad[paa].is_output)
+        if (edge2pad[paa].is_output == false)
             pia = edge2pad[paa].pad_index;
-        if (!edge2pad[pab].is_output)
+        if (edge2pad[pab].is_output == false)
             pia = edge2pad[pab].pad_index;
 
-        if (!edge2pad[pba].is_output)
+        if (edge2pad[pba].is_output == false)
             pib = edge2pad[pba].pad_index;
-        if (!edge2pad[pbb].is_output)
+        if (edge2pad[pbb].is_output == false)
             pib = edge2pad[pbb].pad_index;
 
         return pia > pib;
@@ -2613,7 +2613,7 @@ typedef struct ConsoleData {
 static int console_callback(ImGuiInputTextCallbackData *data)
 {
     if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion) {
-        if (!strncmp(data->Buf, "a ", 2)) {
+        if (strncmp(data->Buf, "a ", 2) == 0) {
             ConsoleData *console_data = (ConsoleData *)data->UserData;
 
             if (data->CursorPos > 3) {
@@ -2628,7 +2628,7 @@ static int console_callback(ImGuiInputTextCallbackData *data)
                     if (name_len <= console_data->pos-2)
                         continue;
 
-                    if (!strncmp(data->Buf+2, filter->name, console_data->pos-2)) {
+                    if (strncmp(data->Buf+2, filter->name, console_data->pos-2) == 0) {
                         int count = std::max(data->BufTextLen - console_data->pos, 0);
 
                         data->DeleteChars(console_data->pos, count);
@@ -2673,7 +2673,7 @@ static void draw_console(bool *p_open)
     ImGui::SetNextWindowBgAlpha(console_alpha);
     ImGui::SetNextWindowFocus();
 
-    if (!ImGui::Begin("##Console", p_open, window_flags)) {
+    if (ImGui::Begin("##Console", p_open, window_flags) == false) {
         ImGui::End();
         return;
     }
@@ -2686,21 +2686,21 @@ static void draw_console(bool *p_open)
     ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0,   0, 0, 200));
     ImGui::PushStyleColor(ImGuiCol_Text,    IM_COL32(0, 255, 0, 200));
     if (ImGui::InputText("##>", input_line, IM_ARRAYSIZE(input_line), input_text_flags, console_callback, &console_data)) {
-        if (!strncmp(input_line, "a ", 2) && filter_graph_is_valid == false) {
+        if (strncmp(input_line, "a ", 2) == 0 && filter_graph_is_valid == false) {
             const AVFilter *filter = avfilter_get_by_name(input_line + 2);
 
             if (filter)
                 add_filter_node(filter, ImVec2(0, 0));
         }
 
-        if (!strncmp(input_line, "i ", 2) && filter_graph_is_valid == false) {
+        if (strncmp(input_line, "i ", 2) == 0 && filter_graph_is_valid == false) {
             const char *file_name = input_line + 2;
 
             if (file_name)
                 importfile_filter_graph(file_name);
         }
 
-        if (!strncmp(input_line, "e ", 2) && filter_graph_is_valid == true) {
+        if (strncmp(input_line, "e ", 2) == 0 && filter_graph_is_valid == true) {
             const char *file_name = input_line + 2;
 
             if (file_name)
@@ -2740,7 +2740,7 @@ static void draw_osd(BufferSink *sink, int width, int height)
 
 static void update_frame_info(FrameInfo *frame_info, const AVFrame *frame)
 {
-    if (!ImGui::IsKeyDown(ImGuiKey_I))
+    if (ImGui::IsKeyDown(ImGuiKey_I) == false)
         return;
 
     frame_info->width = frame->width;
@@ -2778,7 +2778,7 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
     if (item.frame)
         update_frame_info(&sink->frame_info, item.frame);
 
-    if (!*p_open)
+    if (*p_open == false)
         return;
 
     if (item.frame) {
@@ -2825,7 +2825,7 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
         ImGui::SetNextWindowFocus();
 
     ImGui::SetNextWindowBgAlpha(sink_alpha);
-    if (!ImGui::Begin(sink->label, p_open, flags)) {
+    if (ImGui::Begin(sink->label, p_open, flags) == false) {
         ImGui::End();
         return;
     }
@@ -2990,7 +2990,7 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
     if (item.frame)
         update_frame_info(&sink->frame_info, item.frame);
 
-    if (!*p_open)
+    if (*p_open == false)
         return;
 
     if (item.frame && sink->pts != item.frame->pts) {
@@ -3028,7 +3028,7 @@ static void draw_aframe(bool *p_open, ring_item_t item, BufferSink *sink)
         ImGui::SetNextWindowFocus();
 
     ImGui::SetNextWindowBgAlpha(sink_alpha);
-    if (!ImGui::Begin(sink->label, p_open, flags)) {
+    if (ImGui::Begin(sink->label, p_open, flags) == false) {
         ImGui::End();
         return;
     }
@@ -3266,7 +3266,7 @@ static bool is_media_filter(const AVFilter *filter)
 
 static bool is_complex_filter(const AVFilter *filter)
 {
-    if (!is_sink_filter(filter) && !is_source_filter(filter) && !is_simple_filter(filter))
+    if (is_sink_filter(filter) == false && is_source_filter(filter) == false && is_simple_filter(filter) == false)
         return true;
     return false;
 }
@@ -3337,7 +3337,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
         if (opt->flags & AV_OPT_FLAG_READONLY)
             continue;
 
-        if (!query_ranges((void *)obj, opt, &min, &max))
+        if (query_ranges((void *)obj, opt, &min, &max) == false)
             continue;
 
         if ((AVOptionType)(opt->type & (~AV_OPT_TYPE_FLAG_ARRAY)) == AV_OPT_TYPE_CONST)
@@ -3354,7 +3354,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                         {
                             double *value = (double *)av_calloc(nb_elems, sizeof(*value));
 
-                            if (!value)
+                            if (value == NULL)
                                 break;
 
                             if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
@@ -3376,7 +3376,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                             float fmin = min;
                             float fmax = max;
 
-                            if (!value)
+                            if (value == NULL)
                                 break;
 
                             if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
@@ -3399,7 +3399,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                             int32_t imin = min;
                             int32_t imax = max;
 
-                            if (!value)
+                            if (value == NULL)
                                 break;
 
                             if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
@@ -3422,7 +3422,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                             uint32_t umin = min;
                             uint32_t umax = max;
 
-                            if (!value)
+                            if (value == NULL)
                                 break;
 
                             if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
@@ -3443,7 +3443,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                             uint32_t *value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
                             bool new_value = false;
 
-                            if (!value)
+                            if (value == NULL)
                                 break;
 
                             if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
@@ -3488,7 +3488,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                             int *formats = (int *)av_calloc(nb_elems, sizeof(*formats));
                             bool new_value = false;
 
-                            if (!formats)
+                            if (formats == NULL)
                                 break;
 
                             if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, formats) < 0) {
@@ -3504,7 +3504,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                                 snprintf(label, sizeof(label), "%s.%u", opt->name, i);
 
                                 preview_name = av_get_pix_fmt_name(fmt);
-                                if (!preview_name)
+                                if (preview_name == NULL)
                                     preview_name = "none";
 
                                 ImGui::SetNextItemWidth(200.f);
@@ -3537,7 +3537,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                             int *formats = (int *)av_calloc(nb_elems, sizeof(*formats));
                             bool new_value = false;
 
-                            if (!formats)
+                            if (formats == NULL)
                                 break;
 
                             if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, formats) < 0) {
@@ -3553,7 +3553,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                                 snprintf(label, sizeof(label), "%s.%u", opt->name, i);
 
                                 preview_name = av_get_sample_fmt_name(fmt);
-                                if (!preview_name)
+                                if (preview_name == NULL)
                                     preview_name = "none";
 
                                 ImGui::SetNextItemWidth(200.f);
@@ -3588,7 +3588,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                             char **value = (char **)av_calloc(nb_elems, sizeof(*value));
                             bool new_value = false;
 
-                            if (!value)
+                            if (value == NULL)
                                 break;
 
                             if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
@@ -3753,7 +3753,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                         }
                         if (opt->unit) {
                             while ((copt = av_opt_next(obj, copt))) {
-                                if (!copt->unit)
+                                if (copt->unit == NULL)
                                     continue;
                                 if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
                                     continue;
@@ -3808,7 +3808,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                                 while ((copt = av_opt_next(obj, copt))) {
                                     const bool is_selected = value == copt->default_val.i64;
 
-                                    if (!copt->unit)
+                                    if (copt->unit == NULL)
                                         continue;
                                     if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
                                         continue;
@@ -3862,7 +3862,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                                 while ((copt = av_opt_next(obj, copt))) {
                                     const bool is_selected = value == copt->default_val.i64;
 
-                                    if (!copt->unit)
+                                    if (copt->unit == NULL)
                                         continue;
                                     if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
                                         continue;
@@ -3985,7 +3985,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                         av_opt_get_pixel_fmt(av_class, opt->name, 0, &fmt);
                         ImGui::SetNextItemWidth(200.f);
                         preview_name = av_get_pix_fmt_name(fmt);
-                        if (!preview_name)
+                        if (preview_name == NULL)
                             preview_name = "none";
 
                         if (ImGui::BeginCombo(opt->name, preview_name, 0)) {
@@ -4013,7 +4013,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
 
                         av_opt_get_sample_fmt(av_class, opt->name, 0, &fmt);
                         preview_name = av_get_sample_fmt_name(fmt);
-                        if (!preview_name)
+                        if (preview_name == NULL)
                             preview_name = "none";
 
                         if (ImGui::BeginCombo(opt->name, preview_name, 0)) {
@@ -4127,7 +4127,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                 if (opt->flags & AV_OPT_FLAG_READONLY)
                     continue;
 
-                if (!query_ranges((void *)&ctx->filter->priv_class, opt, &min, &max))
+                if (query_ranges((void *)&ctx->filter->priv_class, opt, &min, &max) == false)
                     continue;
 
                 if (((AVOptionType)(opt->type & (~AV_OPT_TYPE_FLAG_ARRAY))) == AV_OPT_TYPE_CONST)
@@ -4208,7 +4208,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                 }
 
                                 auto x = arg.str();
-                                if (!x.empty()) {
+                                if (x.empty() == false) {
                                     x.pop_back();
                                     avfilter_graph_send_command(filter_graph, ctx->name, opt->name, x.c_str(), NULL, 0, 0);
                                 }
@@ -4295,7 +4295,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         OptStorage new_opt = { 0 };
 
                                         value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         new_opt.nb_items = nb_elems;
@@ -4308,7 +4308,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         opt_storage[opt_index].nb_items = 0;
 
                                         value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         opt_storage[opt_index].nb_items = nb_elems;
@@ -4335,7 +4335,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         OptStorage new_opt = { 0 };
 
                                         value = (int32_t *)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         new_opt.nb_items = nb_elems;
@@ -4348,7 +4348,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         opt_storage[opt_index].nb_items = 0;
 
                                         value = (int32_t *)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         opt_storage[opt_index].nb_items = nb_elems;
@@ -4374,7 +4374,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         OptStorage new_opt = { 0 };
 
                                         value = (float *)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         new_opt.nb_items = nb_elems;
@@ -4387,7 +4387,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         opt_storage[opt_index].nb_items = 0;
 
                                         value = (float *)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         opt_storage[opt_index].nb_items = nb_elems;
@@ -4411,7 +4411,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         OptStorage new_opt = { 0 };
 
                                         value = (double *)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         new_opt.nb_items = nb_elems;
@@ -4424,7 +4424,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         opt_storage[opt_index].nb_items = 0;
 
                                         value = (double *)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         opt_storage[opt_index].nb_items = nb_elems;
@@ -4448,7 +4448,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         OptStorage new_opt = { 0 };
 
                                         value = (char **)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         new_opt.nb_items = nb_elems;
@@ -4461,7 +4461,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                         opt_storage[opt_index].nb_items = 0;
 
                                         value = (char **)av_calloc(nb_elems, sizeof(*value));
-                                        if (!value)
+                                        if (value == NULL)
                                             break;
 
                                         opt_storage[opt_index].nb_items = nb_elems;
@@ -4521,7 +4521,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                                 }
                                 if (opt->unit) {
                                     while ((copt = av_opt_next(ctx->priv, copt))) {
-                                        if (!copt->unit)
+                                        if (copt->unit == NULL)
                                             continue;
                                         if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
                                             continue;
@@ -4764,8 +4764,8 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
             filter_nodes[n].opt_storage = opt_storage;
 
-            if (!strcmp(ctx->filter->name, "buffer") ||
-                !strcmp(ctx->filter->name, "abuffer")) {
+            if (strcmp(ctx->filter->name, "buffer") == 0 ||
+                strcmp(ctx->filter->name, "abuffer") == 0) {
                 FilterNode *node = &filter_nodes[n];
                 double min = -DBL_MAX, max = DBL_MAX;
 
@@ -4817,7 +4817,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                             if (nb_elems > 0) {
                                 array = (int *)av_calloc(nb_elems, sizeof(*array));
-                                if (!array)
+                                if (array == NULL)
                                     break;
 
                                 av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, array);
@@ -4863,7 +4863,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                             if (nb_elems > 0) {
                                 array = (double *)av_calloc(nb_elems, sizeof(*array));
-                                if (!array)
+                                if (array == NULL)
                                     break;
 
                                 av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, array);
@@ -4890,7 +4890,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
                             if (nb_elems > 0) {
                                 array = (float *)av_calloc(nb_elems, sizeof(*array));
-                                if (!array)
+                                if (array == NULL)
                                     break;
 
                                 av_opt_get_array(ctx->priv, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, array);
@@ -4958,16 +4958,16 @@ static void draw_node_options(FilterNode *node)
     void *av_class_priv;
     void *av_class;
 
-    if (!probe_graph)
+    if (probe_graph == NULL)
         probe_graph = avfilter_graph_alloc();
-    if (!probe_graph)
+    if (probe_graph == NULL)
         return;
     probe_graph->nb_threads = 1;
 
-    if (!node->probe)
+    if (node->probe == NULL)
         node->probe = avfilter_graph_alloc_filter(probe_graph, node->filter, "probe");
     probe_ctx = node->probe;
-    if (!probe_ctx)
+    if (probe_ctx == NULL)
         return;
 
     if (filter_graph_is_valid) {
@@ -5013,12 +5013,12 @@ static void draw_node_options(FilterNode *node)
 
         ImGui::BeginGroup();
 
-        if (!strcmp(node->filter->name, "buffer") ||
-            !strcmp(node->filter->name, "abuffer")) {
+        if (strcmp(node->filter->name, "buffer") == 0 ||
+            strcmp(node->filter->name, "abuffer") == 0) {
             double min = -DBL_MAX, max = DBL_MAX;
             char new_str[1024] = {0};
 
-            if (!node->stream_url.empty())
+            if (node->stream_url.empty() == false)
                 memcpy(new_str, node->stream_url.c_str(), std::min(sizeof(new_str), node->stream_url.size()));
             else
                 node->stream_url = std::string("<empty>");
@@ -5097,7 +5097,7 @@ static void select_muxer(const AVOutputFormat *ofmt)
         recorder[0].format_ctx = NULL;
 
         avformat_alloc_output_context2(&recorder[0].format_ctx, ofmt, NULL, recorder[0].filename);
-        if (!recorder[0].format_ctx) {
+        if (recorder[0].format_ctx == NULL) {
             av_log(NULL, AV_LOG_ERROR, "Could not create output format context.\n");
             return;
         }
@@ -5117,7 +5117,7 @@ static void handle_muxeritem(const AVOutputFormat *ofmt)
 
 static int is_device(const AVClass *avclass)
 {
-    if (!avclass)
+    if (avclass == NULL)
         return 0;
     return AV_IS_INPUT_DEVICE(avclass->category) || AV_IS_OUTPUT_DEVICE(avclass->category);
 }
@@ -5131,7 +5131,7 @@ static void select_encoder(const AVCodec *codec, const bool is_audio, const int 
             avcodec_free_context(&recorder[0].ostreams[n].enc);
 
             recorder[0].ostreams[n].enc = avcodec_alloc_context3(codec);
-            if (!recorder[0].ostreams[n].enc) {
+            if (recorder[0].ostreams[n].enc == NULL) {
                 av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u audio stream\n", n);
                 return;
             }
@@ -5146,7 +5146,7 @@ static void select_encoder(const AVCodec *codec, const bool is_audio, const int 
             avcodec_free_context(&recorder[0].ostreams[on].enc);
 
             recorder[0].ostreams[on].enc = avcodec_alloc_context3(codec);
-            if (!recorder[0].ostreams[on].enc) {
+            if (recorder[0].ostreams[on].enc == NULL) {
                 av_log(NULL, AV_LOG_ERROR, "Could not allocate context for %u video stream\n", n);
                 return;
             }
@@ -5173,7 +5173,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowBgAlpha(editor_alpha);
     ImGui::SetNextWindowSize(ImVec2(600, 500), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("FilterGraph Editor", p_open, 0)) {
+    if (ImGui::Begin("FilterGraph Editor", p_open, 0) == false) {
         ImGui::End();
         return;
     }
@@ -5216,7 +5216,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
     static ImVec2 click_pos;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 8.f));
-    if (!ImGui::IsAnyItemHovered() && open_popup) {
+    if (ImGui::IsAnyItemHovered() == false && open_popup) {
         ImGui::OpenPopup("Add Filter");
 
         click_pos = ImGui::GetMousePosOnOpeningCurrentPopup();
@@ -5233,7 +5233,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                 ImGui::SetTooltip("%s", "Video Source Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
-                    if (!is_source_video_filter(filter))
+                    if (is_source_video_filter(filter) == false)
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -5246,7 +5246,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                 ImGui::SetTooltip("%s", "Audio Source Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
-                    if (!is_source_audio_filter(filter))
+                    if (is_source_audio_filter(filter) == false)
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -5259,7 +5259,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                 ImGui::SetTooltip("%s", "Media Source Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
-                    if (!is_source_media_filter(filter))
+                    if (is_source_media_filter(filter) == false)
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -5278,10 +5278,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::SetTooltip("%s", "Simple Video Filters");
                 imgui_filter.Draw();
                 while ((filter = av_filter_iterate(&iterator))) {
-                    if (!is_simple_video_filter(filter))
+                    if (is_simple_video_filter(filter) == false)
                         continue;
 
-                    if (!imgui_filter.PassFilter(filter->name))
+                    if (imgui_filter.PassFilter(filter->name) == false)
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -5296,10 +5296,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::SetTooltip("%s", "Simple Audio Filters");
                 imgui_filter.Draw();
                 while ((filter = av_filter_iterate(&iterator))) {
-                    if (!is_simple_audio_filter(filter))
+                    if (is_simple_audio_filter(filter) == false)
                         continue;
 
-                    if (!imgui_filter.PassFilter(filter->name))
+                    if (imgui_filter.PassFilter(filter->name) == false)
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -5319,10 +5319,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::SetTooltip("%s", "Complex Video Filters");
                 imgui_filter.Draw();
                 while ((filter = av_filter_iterate(&iterator))) {
-                    if (!is_complex_video_filter(filter))
+                    if (is_complex_video_filter(filter) == false)
                         continue;
 
-                    if (!imgui_filter.PassFilter(filter->name))
+                    if (imgui_filter.PassFilter(filter->name) == false)
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -5337,10 +5337,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::SetTooltip("%s", "Complex Audio Filters");
                 imgui_filter.Draw();
                 while ((filter = av_filter_iterate(&iterator))) {
-                    if (!is_complex_audio_filter(filter))
+                    if (is_complex_audio_filter(filter) == false)
                         continue;
 
-                    if (!imgui_filter.PassFilter(filter->name))
+                    if (imgui_filter.PassFilter(filter->name) == false)
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -5356,7 +5356,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
             ImGui::SetTooltip("%s", "Insert Media Filter");
             while ((filter = av_filter_iterate(&iterator))) {
-                if (!is_media_filter(filter))
+                if (is_media_filter(filter) == false)
                     continue;
 
                 handle_nodeitem(filter, click_pos);
@@ -5372,7 +5372,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                 ImGui::SetTooltip("%s", "Sink Video Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
-                    if (!is_sink_video_filter(filter))
+                    if (is_sink_video_filter(filter) == false)
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -5385,7 +5385,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                 ImGui::SetTooltip("%s", "Sink Audio Filters");
                 while ((filter = av_filter_iterate(&iterator))) {
-                    if (!is_sink_audio_filter(filter))
+                    if (is_sink_audio_filter(filter) == false)
                         continue;
 
                     handle_nodeitem(filter, click_pos);
@@ -5743,11 +5743,11 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                         ImGui::SetTooltip("Audio Stream %d Encoder", i);
                         imgui_filter.Draw();
                         while ((ocodec = av_codec_iterate(&iterator))) {
-                            if (!av_codec_is_encoder(ocodec) ||
+                            if (av_codec_is_encoder(ocodec) == false ||
                                 ocodec->type != AVMEDIA_TYPE_AUDIO)
                                 continue;
 
-                            if (!imgui_filter.PassFilter(ocodec->name))
+                            if (imgui_filter.PassFilter(ocodec->name) == false)
                                 continue;
 
                             handle_encoderitem(ocodec, true, i);
@@ -5768,11 +5768,11 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                         ImGui::SetTooltip("Video Stream %d Encoder", i);
                         imgui_filter.Draw();
                         while ((ocodec = av_codec_iterate(&iterator))) {
-                            if (!av_codec_is_encoder(ocodec) ||
+                            if (av_codec_is_encoder(ocodec) == false ||
                                 ocodec->type != AVMEDIA_TYPE_VIDEO)
                                 continue;
 
-                            if (!imgui_filter.PassFilter(ocodec->name))
+                            if (imgui_filter.PassFilter(ocodec->name) == false)
                                 continue;
 
                             handle_encoderitem(ocodec, false, i);
@@ -5793,10 +5793,10 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                         if (is_device(ofmt->priv_class))
                             continue;
 
-                        if (!imgui_filter.PassFilter(ofmt->name))
+                        if (imgui_filter.PassFilter(ofmt->name) == false)
                             continue;
 
-                        if (!last_name || strcmp(last_name, ofmt->name)) {
+                        if (last_name == NULL || strcmp(last_name, ofmt->name)) {
                             handle_muxeritem(ofmt);
                             last_name = ofmt->name;
                         }
@@ -5828,7 +5828,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
         edge = filter_node->edge;
         edge2pad[edge] = (Edge2Pad { i, false, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
-        if (!ImNodes::IsNodeSelected(edge))
+        if (ImNodes::IsNodeSelected(edge) == false)
             disabled = true;
         if (disabled)
             ImGui::BeginDisabled();
@@ -5847,7 +5847,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         ImNodes::BeginStaticAttribute(edge);
         draw_node_options(filter_node);
         ImNodes::EndStaticAttribute();
-        if (!filter_node->probe) {
+        if (filter_node->probe == NULL) {
             ImNodes::EndNode();
             if (disabled)
                 ImGui::EndDisabled();
@@ -6011,7 +6011,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     }
 
     const int links_selected = ImNodes::NumSelectedLinks();
-    if (!ImGui::IsItemHovered() && links_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X) && filter_links.size() > 0) {
+    if (ImGui::IsItemHovered() == false && links_selected > 0 && ImGui::IsKeyReleased(ImGuiKey_X) && filter_links.size() > 0) {
         std::vector<int> selected_links;
 
         selected_links.resize(static_cast<size_t>(links_selected));
@@ -6109,7 +6109,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
     if (erased && filter_nodes.size() > 0) {
         unsigned i = filter_nodes.size() - 1;
         do {
-            if (!filter_nodes[i].filter)
+            if (filter_nodes[i].filter == NULL)
                 filter_nodes.erase(filter_nodes.begin() + i);
             else
                 filter_nodes[i].set_pos = true;
@@ -6162,7 +6162,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
         }
     }
 
-    if (!ImGui::IsItemHovered() && ImGui::IsKeyReleased(ImGuiKey_A) && ImGui::GetIO().KeyShift) {
+    if (ImGui::IsItemHovered() == false && ImGui::IsKeyReleased(ImGuiKey_A) && ImGui::GetIO().KeyShift) {
         const AVFilter *buffersink  = avfilter_get_by_name("buffersink");
         const AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
         std::vector<int> unconnected_edges;
@@ -6256,13 +6256,13 @@ static void draw_filters_commands(unsigned *toggle_filter)
         static bool is_opened = false;
         static bool clean_storage = true;
 
-        if (!ctx)
+        if (ctx == NULL)
             continue;
 
-        if (!ctx->filter)
+        if (ctx->filter == NULL)
             continue;
 
-        if (!imgui_filter.PassFilter(ctx->name))
+        if (imgui_filter.PassFilter(ctx->name) == false)
             continue;
 
         if (ImGui::Selectable(ctx->name, is_selected)) {
@@ -6293,7 +6293,7 @@ static void show_commands(bool *p_open, bool focused)
         ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowBgAlpha(commands_alpha);
     ImGui::SetNextWindowSize(ImVec2(500, 200), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Filter Commands", p_open, 0)) {
+    if (ImGui::Begin("Filter Commands", p_open, 0) == false) {
         ImGui::End();
         return;
     }
@@ -6324,7 +6324,7 @@ static void show_dumpgraph(bool *p_open, bool focused)
     ImGui::SetNextWindowBgAlpha(dump_alpha);
     if (graphdump_text == NULL)
         ImGui::SetNextWindowSize(ImVec2(300, 100), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("FilterGraph Dump", p_open, (graphdump_text != NULL) ? ImGuiWindowFlags_AlwaysAutoResize : 0)) {
+    if (ImGui::Begin("FilterGraph Dump", p_open, (graphdump_text != NULL) ? ImGuiWindowFlags_AlwaysAutoResize : 0) == false) {
         ImGui::End();
         return;
     }
@@ -6388,7 +6388,7 @@ static void show_log(bool *p_open, bool focused)
         ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(log_alpha);
-    if (!ImGui::Begin("FilterGraph Log", p_open, 0)) {
+    if (ImGui::Begin("FilterGraph Log", p_open, 0) == false) {
         ImGui::End();
         return;
     }
@@ -6399,7 +6399,7 @@ static void show_log(bool *p_open, bool focused)
         const char *line_end = log_buffer.begin() + log_lines_offsets[line_no];
         ImVec4 color;
 
-        if (!filter.IsActive() || filter.PassFilter(line_start, line_end)) {
+        if (filter.IsActive() == false || filter.PassFilter(line_start, line_end)) {
             const int line_length = line_end - line_start;
             const int level = log_lines_levels[line_no];
 
@@ -6446,7 +6446,7 @@ static void show_record(bool *p_open, bool focused)
         ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowBgAlpha(record_alpha);
     ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("FilterGraph Record", p_open, 0)) {
+    if (ImGui::Begin("FilterGraph Record", p_open, 0) == false) {
         ImGui::End();
         return;
     }
@@ -6504,7 +6504,7 @@ int main(int, char**)
 
     // Setup window
     glfwSetErrorCallback(glfw_error_callback);
-    if (!glfwInit())
+    if (glfwInit() == false)
         return -1;
 
 #if defined(__APPLE__)
@@ -6592,7 +6592,7 @@ restart_window:
     // Our state
 
     // Main loop
-    while (!glfwWindowShouldClose(window)) {
+    while (glfwWindowShouldClose(window) == false) {
         int64_t min_aqpts = INT64_MAX;
         int64_t min_qpts = INT64_MAX;
 
@@ -6680,7 +6680,7 @@ restart_window:
                     continue;
 
                 if (ring_buffer_is_empty(&sink->render_frames)) {
-                    if (!ring_buffer_is_empty(&sink->empty_frames))
+                    if (ring_buffer_is_empty(&sink->empty_frames) == false)
                         notify_worker(sink, &mutexes[i], &cv[i]);
                     continue;
                 }
@@ -6689,7 +6689,7 @@ restart_window:
                     continue;
 
                 ring_buffer_dequeue(&sink->render_frames, &item);
-                if (!item.frame)
+                if (item.frame == NULL)
                     continue;
                 av_frame_unref(item.frame);
                 ring_buffer_enqueue(&sink->empty_frames, item);
@@ -6713,7 +6713,7 @@ restart_window:
                     ring_item_t item = { NULL, 0 };
 
                     ring_buffer_dequeue(&sink->render_frames, &item);
-                    if (!item.frame)
+                    if (item.frame == NULL)
                         break;
                     alSourceUnqueueBuffers(sink->source, 1, &item.id.u.a);
                     av_frame_unref(item.frame);
@@ -6729,16 +6729,16 @@ restart_window:
                 ring_item_t item = { NULL, 0 };
 
                 if (ring_buffer_is_empty(&sink->consume_frames)) {
-                    if (!ring_buffer_is_empty(&sink->empty_frames))
+                    if (ring_buffer_is_empty(&sink->empty_frames) == false)
                         notify_worker(sink, &mutexes[i], &cv[i]);
                     continue;
                 }
 
-                if (!ring_buffer_is_empty(&sink->render_frames))
+                if (ring_buffer_is_empty(&sink->render_frames) == false)
                     continue;
 
                 ring_buffer_dequeue(&sink->consume_frames, &item);
-                if (!item.frame)
+                if (item.frame == NULL)
                     continue;
                 ring_buffer_enqueue(&sink->render_frames, item);
             }
@@ -6757,7 +6757,7 @@ restart_window:
                     ring_item_t item = { NULL, 0 };
 
                     if (ring_buffer_is_empty(&sink->consume_frames)) {
-                        if (!ring_buffer_is_empty(&sink->empty_frames))
+                        if (ring_buffer_is_empty(&sink->empty_frames) == false)
                             notify_worker(sink, &amutexes[i], &acv[i]);
                         break;
                     }
@@ -6766,7 +6766,7 @@ restart_window:
                         break;
 
                     ring_buffer_dequeue(&sink->consume_frames, &item);
-                    if (!item.frame)
+                    if (item.frame == NULL)
                         break;
                     ring_buffer_enqueue(&sink->render_frames, item);
                     queue_sound(sink, item);
