@@ -4940,8 +4940,11 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
 
     if (ctx->filter->flags & AVFILTER_FLAG_SUPPORT_TIMELINE) {
         if (tree ? ImGui::TreeNode("Timeline") : begin_group()) {
+            int64_t disabled = 0;
+
             ImGui::PushID(0);
-            if (ImGui::Button(ctx->is_disabled ? "Enable" : "Disable"))
+            av_opt_get_int((void*)ctx, "disabled", 0, &disabled);
+            if (ImGui::Button(disabled ? "Enable" : "Disable"))
                 *toggle_filter = n;
             ImGui::PopID();
             tree ? ImGui::TreePop() : ImGui::EndGroup();
@@ -4978,9 +4981,10 @@ static void draw_node_options(FilterNode *node)
 
         if (toggle_filter < UINT_MAX) {
             const AVFilterContext *filter_ctx = node->ctx;
-            const int flag = !filter_ctx->is_disabled;
+            int64_t disabled = 0;
 
-            avfilter_graph_send_command(filter_graph, filter_ctx->name, "enable", flag ? "0" : "1", NULL, 0, 0);
+            av_opt_get_int((void*)filter_ctx, "disabled", 0, &disabled);
+            avfilter_graph_send_command(filter_graph, filter_ctx->name, "enable", disabled ? "1" : "0", NULL, 0, 0);
             toggle_filter = UINT_MAX;
         }
 
@@ -6310,9 +6314,10 @@ static void show_commands(bool *p_open, bool focused)
 
     if (toggle_filter < UINT_MAX) {
         const AVFilterContext *filter_ctx = filter_graph->filters[toggle_filter];
-        const int flag = !filter_ctx->is_disabled;
+        int64_t disabled = 0;
 
-        avfilter_graph_send_command(filter_graph, filter_ctx->name, "enable", flag ? "0" : "1", NULL, 0, 0);
+        av_opt_get_int((void*)filter_ctx, "disabled", 0, &disabled);
+        avfilter_graph_send_command(filter_graph, filter_ctx->name, "enable", disabled ? "1" : "0", NULL, 0, 0);
         toggle_filter = UINT_MAX;
     }
 }
