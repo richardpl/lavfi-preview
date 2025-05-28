@@ -4114,6 +4114,12 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
             unsigned opt_index = 0;
 
             if (is_opened && *clean_storage) {
+                for (unsigned j = 0; j < opt_storage.size(); j++) {
+                    if (opt_storage[j].nb_items > 0) {
+                        av_freep(&opt_storage[j].u.i32_array);
+                        opt_storage[j].nb_items = 0;
+                    }
+                }
                 opt_storage.clear();
                 *clean_storage = false;
             }
@@ -6054,6 +6060,13 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             edge2pad[edge].linked = false;
             edge2pad[edge].is_output = false;
             filter_nodes[node].filter = NULL;
+            for (unsigned j = 0; j < filter_nodes[node].opt_storage.size(); j++) {
+                if (filter_nodes[node].opt_storage[j].nb_items > 0) {
+                    av_freep(&filter_nodes[node].opt_storage[j].u.i32_array);
+                    filter_nodes[node].opt_storage[j].nb_items = 0;
+                }
+            }
+            filter_nodes[node].opt_storage.clear();
             avfilter_free(filter_nodes[node].ctx);
             filter_nodes[node].ctx = NULL;
             av_freep(&filter_nodes[node].filter_name);
@@ -6918,6 +6931,13 @@ restart_window:
         avfilter_free(node->probe);
         node->probe = NULL;
         node->ctx = NULL;
+        for (unsigned j = 0; j < node->opt_storage.size(); j++) {
+            if (node->opt_storage[j].nb_items > 0) {
+                av_freep(&node->opt_storage[j].u.i32_array);
+                node->opt_storage[j].nb_items = 0;
+            }
+        }
+        node->opt_storage.clear();
     }
 
     filter_nodes.clear();
