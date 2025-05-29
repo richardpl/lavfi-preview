@@ -1108,7 +1108,7 @@ static int filters_setup()
         show_abuffersink_window = false;
         show_buffersink_window = false;
 
-        if (recorder.size() > 0 && recorder[0].format_ctx != NULL) {
+        if (recorder.size() > 0 && recorder[0].format_ctx != NULL && recorder[0].filename != NULL) {
             for (unsigned i = 0; i < recorder[0].audio_sink_codecs.size(); i++) {
                 BufferSink *sink = &abuffer_sinks[i];
                 AVChannelLayout ch_layout;
