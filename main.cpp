@@ -902,6 +902,10 @@ static int filters_setup()
     mutexes.clear();
     amutexes.clear();
 
+    for (unsigned i = 0; i < filter_nodes.size(); i++) {
+        filter_nodes[i].ctx = NULL;
+    }
+
     avfilter_graph_free(&filter_graph);
     filter_graph = avfilter_graph_alloc();
     if (filter_graph == NULL) {
