@@ -1302,6 +1302,7 @@ static int filters_setup()
 error:
 
     if (ret < 0) {
+        filter_graph_is_valid = false;
         if (recorder.size() > 0) {
             avformat_free_context(recorder[0].format_ctx);
             recorder[0].format_ctx = NULL;
