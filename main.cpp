@@ -4102,19 +4102,21 @@ static int begin_group()
     return 1;
 }
 
-static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigned *toggle_filter,
+static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                  bool is_opened, bool *clean_storage, bool tree)
 {
+    AVFilterContext *ctx = node->ctx;
+
     if (1) {
         if (tree == false) {
-            if (filter_nodes[n].colapsed == false && ImGui::Button("Commands"))
-                filter_nodes[n].colapsed = true;
-            if (filter_nodes[n].colapsed == true && ImGui::Button("Close"))
-                filter_nodes[n].colapsed = false;
+            if (node->colapsed == false && ImGui::Button("Commands"))
+                node->colapsed = true;
+            if (node->colapsed == true && ImGui::Button("Close"))
+                node->colapsed = false;
         }
 
-        if ((tree == true && ImGui::TreeNode("Commands")) || ((tree == false) && filter_nodes[n].colapsed && begin_group())) {
-            std::vector<OptStorage> opt_storage = filter_nodes[n].opt_storage;
+        if ((tree == true && ImGui::TreeNode("Commands")) || ((tree == false) && node->colapsed && begin_group())) {
+            std::vector<OptStorage> opt_storage = node->opt_storage;
             const AVOption *opt = NULL;
             unsigned opt_index = 0;
 
@@ -4773,11 +4775,10 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
                 ImGui::PopID();
             }
 
-            filter_nodes[n].opt_storage = opt_storage;
+            node->opt_storage = opt_storage;
 
             if (strcmp(ctx->filter->name, "buffer") == 0 ||
                 strcmp(ctx->filter->name, "abuffer") == 0) {
-                FilterNode *node = &filter_nodes[n];
                 double min = -DBL_MAX, max = DBL_MAX;
 
                 if (ImGui::Button("Send")) {
@@ -4794,15 +4795,15 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
         }
     }
 
-    if (filter_nodes[n].have_exports) {
+    if (node->have_exports) {
         if (tree == false) {
-            if (filter_nodes[n].show_exports == false && ImGui::Button("Exports"))
-                filter_nodes[n].show_exports = true;
-            if (filter_nodes[n].show_exports == true && ImGui::Button("Hide"))
-                filter_nodes[n].show_exports = false;
+            if (node->show_exports == false && ImGui::Button("Exports"))
+                node->show_exports = true;
+            if (node->show_exports == true && ImGui::Button("Hide"))
+                node->show_exports = false;
         }
 
-        if ((tree == true && ImGui::TreeNode("Exports")) || ((tree == false) && filter_nodes[n].show_exports && begin_group())) {
+        if ((tree == true && ImGui::TreeNode("Exports")) || ((tree == false) && node->show_exports && begin_group())) {
             const AVOption *opt = NULL;
             unsigned opt_index = 0;
 
@@ -4956,7 +4957,7 @@ static void draw_filter_commands(const AVFilterContext *ctx, unsigned n, unsigne
             ImGui::PushID(0);
             av_opt_get_int((void*)ctx, "disabled", 0, &disabled);
             if (ImGui::Button(disabled ? "Enable" : "Disable"))
-                *toggle_filter = n;
+                *toggle_filter = node->id;
             ImGui::PopID();
             tree ? ImGui::TreePop() : ImGui::EndGroup();
         }
@@ -4988,7 +4989,7 @@ static void draw_node_options(FilterNode *node)
         static unsigned toggle_filter = UINT_MAX;
         static bool clean_storage = true;
 
-        draw_filter_commands(node->ctx, node->id, &toggle_filter, true, &clean_storage, false);
+        draw_filter_commands(node, &toggle_filter, true, &clean_storage, false);
 
         if (toggle_filter < UINT_MAX) {
             const AVFilterContext *filter_ctx = node->ctx;
@@ -6301,7 +6302,7 @@ static void draw_filters_commands(unsigned *toggle_filter)
         }
 
         if (is_opened && selected_filter == n)
-            draw_filter_commands(ctx, n, toggle_filter, is_opened, &clean_storage, true);
+            draw_filter_commands(&filter_nodes[n], toggle_filter, is_opened, &clean_storage, true);
     }
 
     ImGui::EndGroup();
