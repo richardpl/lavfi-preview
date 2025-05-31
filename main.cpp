@@ -3764,11 +3764,13 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                                     continue;
 
                                 ImGui::SetNextItemWidth(200.f);
+                                ImGui::PushID(index++);
                                 ImGui::CheckboxFlags(copt->name, &uvalue, copt->default_val.i64);
                                 if (copt->help) {
                                     ImGui::SameLine();
                                     ImGui::Text("\t\t%s", copt->help);
                                 }
+                                ImGui::PopID();
                             }
                         }
 
