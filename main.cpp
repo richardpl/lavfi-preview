@@ -3837,8 +3837,10 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
 
                                     if (ImGui::Selectable(copt->name, is_selected))
                                         av_opt_set_int(av_class, opt->name, copt->default_val.i64, 0);
-                                    ImGui::SameLine();
-                                    ImGui::Text("\t\t%s", copt->help);
+                                    if (copt->help) {
+                                        ImGui::SameLine();
+                                        ImGui::Text("\t\t%s", copt->help);
+                                    }
 
                                     if (is_selected)
                                         ImGui::SetItemDefaultFocus();
@@ -3891,8 +3893,10 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
 
                                     if (ImGui::Selectable(copt->name, is_selected))
                                         av_opt_set_int(av_class, opt->name, copt->default_val.i64, 0);
-                                    ImGui::SameLine();
-                                    ImGui::Text("\t\t%s", copt->help);
+                                    if (copt->help) {
+                                        ImGui::SameLine();
+                                        ImGui::Text("\t\t%s", copt->help);
+                                    }
 
                                     if (is_selected)
                                         ImGui::SetItemDefaultFocus();
