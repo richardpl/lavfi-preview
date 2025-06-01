@@ -3858,9 +3858,9 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
 
                         if (opt->unit) {
                             char preview_value[20];
-                            char combo_name[20];
+                            char combo_name[32];
 
-                            snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                            snprintf(combo_name, sizeof(combo_name), "%s##%s", opt->name, opt->unit);
                             snprintf(preview_value, sizeof(preview_value), "%ld", value);
                             ImGui::SetNextItemWidth(200.f);
                             if (ImGui::BeginCombo(combo_name, preview_value, 0)) {
