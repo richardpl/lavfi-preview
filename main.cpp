@@ -3782,10 +3782,12 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                     break;
                 case AV_OPT_TYPE_BOOL:
                     {
+                        bool have_combos = false;
                         int64_t value;
                         int ivalue;
                         int imin = min;
                         int imax = max;
+
                         if (av_opt_get_int(av_class, opt->name, 0, &value))
                             break;
                         ivalue = value;
@@ -3803,10 +3805,23 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                         }
 
                         if (opt->unit) {
-                            char preview_value[20];
-                            char combo_name[20];
+                            const AVOption *copt = NULL;
 
-                            snprintf(combo_name, sizeof(combo_name), "##%s", opt->unit);
+                            while ((copt = av_opt_next(obj, copt))) {
+                                if (copt->unit == NULL)
+                                    continue;
+                                if (strcmp(copt->unit, opt->unit) || copt->type != AV_OPT_TYPE_CONST)
+                                    continue;
+                                have_combos = true;
+                                break;
+                            }
+                        }
+
+                        if (opt->unit && have_combos) {
+                            char preview_value[20];
+                            char combo_name[32];
+
+                            snprintf(combo_name, sizeof(combo_name), "%s##%s", opt->name, opt->unit);
                             snprintf(preview_value, sizeof(preview_value), "%ld", value);
                             ImGui::SetNextItemWidth(200.f);
                             if (ImGui::BeginCombo(combo_name, preview_value, 0)) {
