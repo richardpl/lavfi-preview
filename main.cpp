@@ -5073,7 +5073,7 @@ static void draw_node_options(FilterNode *node)
 
         draw_options(av_class_priv, ImNodes::IsNodeSelected(node->edge), &node->have_exports);
         ImGui::Spacing();
-        draw_options(av_class, ImNodes::IsNodeSelected(node->edge), &node->have_exports);
+        draw_options(av_class, ImNodes::IsNodeSelected(node->edge), NULL);
 
         ImGui::EndGroup();
     }
