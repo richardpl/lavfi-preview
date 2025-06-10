@@ -28,9 +28,11 @@ SOURCES += $(GLAD_DIR)/src/glad.c
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
 UNAME_S := $(shell uname -s)
 
-CXXFLAGS ?= -g -Wall -Wformat
-CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR) -I$(GLAD_DIR)/include
-LIBS ?= -L/usr/local/lib
+CXXFLAGS ?= -g -Wall -Wformat -std=c++17
+CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR) -I$(GLAD_DIR)/include -I/opt/homebrew/include -I/opt/homebrew/Cellar/glfw/3.4/include -I/opt/homebrew/opt/openal-soft/include
+CFLAGS ?= -g -Wall -Wformat
+CFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR) -I$(GLAD_DIR)/include -I/opt/homebrew/include -I/opt/homebrew/Cellar/glfw/3.4/include -I/opt/homebrew/opt/openal-soft/include
+LIBS ?= -L/usr/local/lib -L/opt/homebrew/lib -L/opt/homebrew/Cellar/glfw/3.4/lib -lglfw -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo -framework OpenAL -lavutil -lavcodec -lavformat -lswresample -lswscale -lavfilter -lavdevice
 
 ##---------------------------------------------------------------------
 ## BUILD FLAGS PER PLATFORM
@@ -40,8 +42,6 @@ ifeq ($(UNAME_S), Linux) #LINUX
 	LIBS += `pkg-config --with-path=$(PKG_CONFIG_PATH) $(PKG_CONFIG_FLAGS) --libs glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter libavdevice openal`
 	CXXFLAGS += `pkg-config --with-path=$(PKG_CONFIG_PATH) $(PKG_CONFIG_FLAGS) --cflags glfw3 libavutil libavcodec libavformat libswresample libswscale libavfilter libavdevice openal`
 endif
-
-CFLAGS = $(CXXFLAGS)
 
 ##---------------------------------------------------------------------
 ## BUILD RULES

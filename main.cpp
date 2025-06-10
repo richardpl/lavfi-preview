@@ -161,6 +161,10 @@ typedef struct OptStorage {
     unsigned nb_items;
 } OptStorage;
 
+// Fix struct initialization for ring_item_t and OptStorage
+#define RING_ITEM_NULL ((ring_item_t){NULL, {0}})
+#define OPTSTORAGE_ZERO ((OptStorage){{0}, 0})
+
 typedef struct BufferSource {
     std::string *stream_url;
     double *seek_point;
@@ -275,8 +279,8 @@ char *import_script_file_name = NULL;
 bool do_filters_reinit = false;
 bool need_filters_reinit = true;
 bool need_muxing = false;
-std::atomic<bool> framestep = false;
-std::atomic<bool> paused = true;
+std::atomic<bool> framestep{false};
+std::atomic<bool> paused{true};
 bool show_info = false;
 bool show_help = false;
 bool show_version = false;
@@ -384,7 +388,7 @@ static void alloc_ring_buffer(ring_buffer_t *ring_buffer, Buffer *id)
 static void clear_ring_buffer(ring_buffer_t *ring_buffer)
 {
     while (ring_buffer_is_empty(ring_buffer) == false) {
-        ring_item_t item = { NULL, 0 };
+        ring_item_t item = RING_ITEM_NULL;
 
         ring_buffer_dequeue(ring_buffer, &item);
         av_frame_free(&item.frame);
@@ -578,7 +582,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
         sink->ready = false;
 
         while (ring_buffer_is_empty(&sink->empty_frames) == false) {
-            ring_item_t item = { NULL, 0 };
+            ring_item_t item = RING_ITEM_NULL;
             int64_t start, end;
 
             if (need_filters_reinit == true || do_filters_reinit == true)
@@ -4326,7 +4330,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     uint32_t umin = min;
 
                                     if (opt_storage.size() <= opt_index) {
-                                        OptStorage new_opt = { 0 };
+                                        OptStorage new_opt = OPTSTORAGE_ZERO;
 
                                         value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
                                         if (value == NULL)

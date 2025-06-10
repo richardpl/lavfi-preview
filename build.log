@@ -1,0 +1,193 @@
+c++ -g -Wall -Wformat -std=c++17 -Iimgui -Iimgui/backends -Iimnodes -Iglad/include -I/opt/homebrew/include -I/opt/homebrew/Cellar/glfw/3.4/include -I/opt/homebrew/opt/openal-soft/include -c -o main.o main.cpp
+In file included from main.cpp:51:
+./ringbuffer/ringbuffer.c:61:59: error: excess elements in scalar initializer
+   61 |         buffer->items[buffer->tail_index] = (ring_item_t){{NULL, 0}};
+      |                                                           ^    ~~~~
+main.cpp:387:29: error: excess elements in scalar initializer
+  387 |         ring_item_t item = {{NULL, 0}};
+      |                             ^    ~~~~
+main.cpp:581:40: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+  581 |             ring_item_t item = { NULL, 0 };
+      |                                        ^
+      |                                        {}
+main.cpp:983:246: warning: 'pix_fmts' is deprecated [-Wdeprecated-declarations]
+  983 |             const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0 && recorder[0].video_sink_codecs[buffer_sinks.size()] != NULL) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
+      |                                                                                                                                                                                                                                                      ^
+/opt/homebrew/include/libavcodec/codec.h:214:5: note: 'pix_fmts' has been explicitly marked deprecated here
+  214 |     attribute_deprecated
+      |     ^
+/opt/homebrew/include/libavutil/attributes.h:100:49: note: expanded from macro 'attribute_deprecated'
+  100 | #    define attribute_deprecated __attribute__((deprecated))
+      |                                                 ^
+main.cpp:1009:249: warning: 'sample_fmts' is deprecated [-Wdeprecated-declarations]
+ 1009 |             const AVSampleFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
+      |                                                                                                                                                                                                                                                         ^
+/opt/homebrew/include/libavcodec/codec.h:218:5: note: 'sample_fmts' has been explicitly marked deprecated here
+  218 |     attribute_deprecated
+      |     ^
+/opt/homebrew/include/libavutil/attributes.h:100:49: note: expanded from macro 'attribute_deprecated'
+  100 | #    define attribute_deprecated __attribute__((deprecated))
+      |                                                 ^
+main.cpp:1010:245: warning: 'supported_samplerates' is deprecated [-Wdeprecated-declarations]
+ 1010 |             const int *encoder_samplerates = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
+      |                                                                                                                                                                                                                                                     ^
+/opt/homebrew/include/libavcodec/codec.h:216:5: note: 'supported_samplerates' has been explicitly marked deprecated here
+  216 |     attribute_deprecated
+      |     ^
+/opt/homebrew/include/libavutil/attributes.h:100:49: note: expanded from macro 'attribute_deprecated'
+  100 | #    define attribute_deprecated __attribute__((deprecated))
+      |                                                 ^
+main.cpp:1560:33: warning: format specifies type 'long' but the argument has type 'int64_t' (aka 'long long') [-Wformat]
+ 1560 |         ImGui::Text("PTS: %ld", frame->pts);
+      |                           ~~~   ^~~~~~~~~~
+      |                           %lld
+main.cpp:1562:38: warning: format specifies type 'long' but the argument has type 'int64_t' (aka 'long long') [-Wformat]
+ 1562 |         ImGui::Text("DURATION: %ld", frame->duration);
+      |                                ~~~   ^~~~~~~~~~~~~~~
+      |                                %lld
+main.cpp:2726:14: warning: format specifies type 'long' but the argument has type 'int64_t' (aka 'long long') [-Wformat]
+ 2725 |     snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %dx%d | TIME: %.5f | SPEED: %011.5f | FPS: %d/%d (%.5f)",
+      |                                                  ~~~
+      |                                                  %lld
+ 2726 |              sink->frame_number - 1,
+      |              ^~~~~~~~~~~~~~~~~~~~~~
+main.cpp:2923:18: warning: format specifies type 'long' but the argument has type 'int64_t' (aka 'long long') [-Wformat]
+ 2922 |         snprintf(osd_text, sizeof(osd_text), "FRAME: %ld | SIZE: %d | TIME: %.5f | SPEED: %011.5f | RATE: %d | QUEUE: %d",
+      |                                                      ~~~
+      |                                                      %lld
+ 2923 |                  sink->frame_number - 1, sink->frame_nb_samples,
+      |                  ^~~~~~~~~~~~~~~~~~~~~~
+main.cpp:2938:35: warning: format specifies type 'long' but the argument has type 'int64_t' (aka 'long long') [-Wformat]
+ 2938 |         ImGui::Text("FRAME: %ld", sink->frame_number - 1);
+      |                             ~~~   ^~~~~~~~~~~~~~~~~~~~~~
+      |                             %lld
+main.cpp:3643:48: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 3643 |                     OptStorage new_element = { 0 };
+      |                                                ^
+      |                                                {}
+main.cpp:3825:83: warning: format specifies type 'long' but the argument has type 'int64_t' (aka 'long long') [-Wformat]
+ 3825 |                             snprintf(preview_value, sizeof(preview_value), "%ld", value);
+      |                                                                             ~~~   ^~~~~
+      |                                                                             %lld
+main.cpp:3881:83: warning: format specifies type 'long' but the argument has type 'int64_t' (aka 'long long') [-Wformat]
+ 3881 |                             snprintf(preview_value, sizeof(preview_value), "%ld", value);
+      |                                                                             ~~~   ^~~~~
+      |                                                                             %lld
+main.cpp:4280:79: warning: format specifies type 'long' but the argument has type 'int64_t' (aka 'long long') [-Wformat]
+ 4280 |                                         snprintf(arg, sizeof(arg) - 1, "%ld", opt_storage[opt_index].u.i64);
+      |                                                                         ~~~   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                                                         %lld
+main.cpp:4283:79: warning: format specifies type 'unsigned long' but the argument has type 'uint64_t' (aka 'unsigned long long') [-Wformat]
+ 4283 |                                         snprintf(arg, sizeof(arg) - 1, "%lu", opt_storage[opt_index].u.u64);
+      |                                                                         ~~~   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                                                         %llu
+main.cpp:4329:64: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4329 |                                         OptStorage new_opt = { 0 };
+      |                                                                ^
+      |                                                                {}
+main.cpp:4369:64: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4369 |                                         OptStorage new_opt = { 0 };
+      |                                                                ^
+      |                                                                {}
+main.cpp:4408:64: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4408 |                                         OptStorage new_opt = { 0 };
+      |                                                                ^
+      |                                                                {}
+main.cpp:4445:64: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4445 |                                         OptStorage new_opt = { 0 };
+      |                                                                ^
+      |                                                                {}
+main.cpp:4482:64: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4482 |                                         OptStorage new_opt = { 0 };
+      |                                                                ^
+      |                                                                {}
+main.cpp:4543:60: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4543 |                                     OptStorage new_opt = { 0 };
+      |                                                            ^
+      |                                                            {}
+main.cpp:4589:60: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4589 |                                     OptStorage new_opt = { 0 };
+      |                                                            ^
+      |                                                            {}
+main.cpp:4614:60: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4614 |                                     OptStorage new_opt = { 0 };
+      |                                                            ^
+      |                                                            {}
+main.cpp:4644:60: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4644 |                                     OptStorage new_opt = { 0 };
+      |                                                            ^
+      |                                                            {}
+main.cpp:4668:60: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4668 |                                     OptStorage new_opt = { 0 };
+      |                                                            ^
+      |                                                            {}
+main.cpp:4689:60: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4689 |                                     OptStorage new_opt = { 0 };
+      |                                                            ^
+      |                                                            {}
+main.cpp:4713:60: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4713 |                                     OptStorage new_opt = { 0 };
+      |                                                            ^
+      |                                                            {}
+main.cpp:4731:60: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4731 |                                     OptStorage new_opt = { 0 };
+      |                                                            ^
+      |                                                            {}
+main.cpp:4759:60: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4759 |                                     OptStorage new_opt = { 0 };
+      |                                                            ^
+      |                                                            {}
+main.cpp:4791:44: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 4791 |                     OptStorage new_opt = { 0 };
+      |                                            ^
+      |                                            {}
+main.cpp:4880:80: warning: format specifies type 'long' but the argument has type 'int64_t' (aka 'long long') [-Wformat]
+ 4880 |                             ImGui::LabelText("##export", "%s: %ld", opt->name, value);
+      |                                                               ~~~              ^~~~~
+      |                                                               %lld
+main.cpp:4890:80: warning: format specifies type 'unsigned long' but the argument has type 'uint64_t' (aka 'unsigned long long') [-Wformat]
+ 4890 |                             ImGui::LabelText("##export", "%s: %lu", opt->name, (uint64_t)value);
+      |                                                               ~~~              ^~~~~~~~~~~~~~~
+      |                                                               %llu
+main.cpp:6512:49: warning: format specifies type 'unsigned long' but the argument has type 'uint64_t' (aka 'unsigned long long') [-Wformat]
+ 6512 |             ImGui::Text("Last Frame Size: %lu", os->last_frame_size);
+      |                                           ~~~   ^~~~~~~~~~~~~~~~~~~
+      |                                           %llu
+main.cpp:6513:50: warning: format specifies type 'unsigned long' but the argument has type 'uint64_t' (aka 'unsigned long long') [-Wformat]
+ 6513 |             ImGui::Text("Last Packet Size: %lu", os->last_packet_size);
+      |                                            ~~~   ^~~~~~~~~~~~~~~~~~~~
+      |                                            %llu
+main.cpp:6516:48: warning: format specifies type 'unsigned long' but the argument has type 'uint64_t' (aka 'unsigned long long') [-Wformat]
+ 6516 |             ImGui::Text("Frame Size Sum: %lu", os->sum_of_frames);
+      |                                          ~~~   ^~~~~~~~~~~~~~~~~
+      |                                          %llu
+main.cpp:6517:49: warning: format specifies type 'unsigned long' but the argument has type 'uint64_t' (aka 'unsigned long long') [-Wformat]
+ 6517 |             ImGui::Text("Packet Size Sum: %lu", os->sum_of_packets);
+      |                                           ~~~   ^~~~~~~~~~~~~~~~~~
+      |                                           %llu
+main.cpp:6719:44: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 6719 |                 ring_item_t item = { NULL, 0 };
+      |                                            ^
+      |                                            {}
+main.cpp:6758:48: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 6758 |                     ring_item_t item = { NULL, 0 };
+      |                                                ^
+      |                                                {}
+main.cpp:6774:44: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 6774 |                 ring_item_t item = { NULL, 0 };
+      |                                            ^
+      |                                            {}
+main.cpp:6802:48: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 6802 |                     ring_item_t item = { NULL, 0 };
+      |                                                ^
+      |                                                {}
+main.cpp:6835:48: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 6835 |                     ring_item_t item = { NULL, 0 };
+      |                                                ^
+      |                                                {}
+main.cpp:6845:48: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+ 6845 |                     ring_item_t item = { NULL, 0 };
+      |                                                ^
+      |                                                {}
+41 warnings and 2 errors generated.
+make: *** [main.o] Error 1
