@@ -58,7 +58,7 @@ static void ring_buffer_dequeue(ring_buffer_t *buffer, ring_item_t *data)
 {
     if (!ring_buffer_is_empty(buffer)) {
         data[0] = buffer->items[buffer->tail_index];
-        buffer->items[buffer->tail_index] = { NULL, 0 };
+        buffer->items[buffer->tail_index] = (ring_item_t){NULL, {0}};
         buffer->tail_index = ((buffer->tail_index + 1U) & buffer->mask);
     }
 }

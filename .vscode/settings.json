@@ -1,0 +1,11 @@
+{
+    "githubPullRequests.ignoredPullRequestBranches": [
+        "master"
+    ],
+    "files.associations": {
+        "thread": "cpp",
+        "mutex": "cpp",
+        "condition_variable": "cpp",
+        "vector": "cpp"
+    }
+}
