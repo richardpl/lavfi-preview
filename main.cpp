@@ -227,6 +227,7 @@ typedef struct FilterNode {
     int edge;
     bool colapsed;
     bool have_exports;
+    bool have_commands;
     bool show_exports;
     const AVFilter *filter;
     char *filter_name;
@@ -1820,6 +1821,7 @@ static void add_filter_node(const AVFilter *filter, ImVec2 pos)
     node.set_pos = true;
     node.imported_id = false;
     node.have_exports = false;
+    node.have_commands = false;
     node.show_exports = false;
 
     filter_nodes.push_back(node);
@@ -1996,6 +1998,7 @@ static void importfile_filter_graph(const char *file_name)
         node.pos = find_node_spot(ImVec2(300, 300));
         node.colapsed = false;
         node.have_exports = false;
+        node.have_commands = false;
         node.show_exports = false;
         node.set_pos = true;
 
@@ -3323,7 +3326,7 @@ static void handle_nodeitem(const AVFilter *filter, ImVec2 click_pos)
         ImGui::SetTooltip("%s", filter->description);
 }
 
-static void draw_options(void *av_class, bool is_selected, bool *have_exports)
+static void draw_options(void *av_class, bool is_selected)
 {
     const AVOption *opt = NULL;
     const void *obj = av_class;
@@ -3335,9 +3338,6 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
         if (last_offset == opt->offset)
             continue;
         last_offset = opt->offset;
-
-        if (have_exports)
-            have_exports[0] |= !!(opt->flags & AV_OPT_FLAG_EXPORT);
 
         if (opt->flags & AV_OPT_FLAG_READONLY)
             continue;
@@ -4128,7 +4128,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
 {
     AVFilterContext *ctx = node->ctx;
 
-    if (1) {
+    if (node->have_commands) {
         if (tree == false) {
             if (node->colapsed == false && ImGui::Button("Commands"))
                 node->colapsed = true;
@@ -5026,6 +5026,19 @@ static void draw_node_options(FilterNode *node)
 
     av_class_priv = probe_ctx->priv;
     av_class = probe_ctx;
+
+    if (node->have_exports == false && node->have_commands == false) {
+        const AVOption *opt = NULL;
+
+        while ((opt = av_opt_next(av_class_priv, opt))) {
+            node->have_exports |= !!(opt->flags & AV_OPT_FLAG_EXPORT);
+            node->have_commands |= !!(opt->flags & AV_OPT_FLAG_RUNTIME_PARAM);
+
+            if (node->have_exports && node->have_commands)
+                break;
+        }
+    }
+
     if (node->colapsed == false && ImGui::Button("Options"))
         node->colapsed = true;
 
@@ -5071,9 +5084,9 @@ static void draw_node_options(FilterNode *node)
                 ImGui::SetTooltip("%s", "Set the Seek Point");
         }
 
-        draw_options(av_class_priv, ImNodes::IsNodeSelected(node->edge), &node->have_exports);
+        draw_options(av_class_priv, ImNodes::IsNodeSelected(node->edge));
         ImGui::Spacing();
-        draw_options(av_class, ImNodes::IsNodeSelected(node->edge), NULL);
+        draw_options(av_class, ImNodes::IsNodeSelected(node->edge));
 
         ImGui::EndGroup();
     }
@@ -5725,7 +5738,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                     if (ImGui::TreeNode("Format Options")) {
                         void *av_class = (void *)(recorder[0].format_ctx->priv_data);
 
-                        draw_options(av_class, 1, NULL);
+                        draw_options(av_class, 1);
                         ImGui::TreePop();
                     }
                 }
@@ -5743,7 +5756,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                         if (ImGui::TreeNode(tree_name)) {
                             void *av_class = (void *)(recorder[0].ostreams[i].enc->priv_data);
 
-                            draw_options(av_class, 1, NULL);
+                            draw_options(av_class, 1);
                             ImGui::TreePop();
                         }
                     }
@@ -5760,7 +5773,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                         if (ImGui::TreeNode(tree_name)) {
                             void *av_class = (void *)(recorder[0].ostreams[oi].enc->priv_data);
 
-                            draw_options(av_class, 1, NULL);
+                            draw_options(av_class, 1);
                             ImGui::TreePop();
                         }
                     }
