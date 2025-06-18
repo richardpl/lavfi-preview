@@ -384,7 +384,7 @@ static void alloc_ring_buffer(ring_buffer_t *ring_buffer, Buffer *id)
 static void clear_ring_buffer(ring_buffer_t *ring_buffer)
 {
     while (ring_buffer_is_empty(ring_buffer) == false) {
-        ring_item_t item = { NULL, 0 };
+        ring_item_t item = { NULL, {0} };
 
         ring_buffer_dequeue(ring_buffer, &item);
         av_frame_free(&item.frame);
@@ -578,7 +578,7 @@ static void worker_thread(BufferSink *sink, std::mutex *mutex, std::condition_va
         sink->ready = false;
 
         while (ring_buffer_is_empty(&sink->empty_frames) == false) {
-            ring_item_t item = { NULL, 0 };
+            ring_item_t item = { NULL, {0} };
             int64_t start, end;
 
             if (need_filters_reinit == true || do_filters_reinit == true)
@@ -6716,7 +6716,7 @@ restart_window:
         if (filter_graph_is_valid && need_muxing == false) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
-                ring_item_t item = { NULL, 0 };
+                ring_item_t item = { NULL, {0} };
 
                 if (paused && !framestep)
                     continue;
@@ -6755,7 +6755,7 @@ restart_window:
                     continue;
 
                 while (processed-- > 0) {
-                    ring_item_t item = { NULL, 0 };
+                    ring_item_t item = { NULL, {0} };
 
                     ring_buffer_dequeue(&sink->render_frames, &item);
                     if (item.frame == NULL)
@@ -6771,7 +6771,7 @@ restart_window:
         if (filter_graph_is_valid && need_muxing == false) {
             for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                 BufferSink *sink = &buffer_sinks[i];
-                ring_item_t item = { NULL, 0 };
+                ring_item_t item = { NULL, {0} };
 
                 if (ring_buffer_is_empty(&sink->consume_frames)) {
                     if (ring_buffer_is_empty(&sink->empty_frames) == false)
@@ -6799,7 +6799,7 @@ restart_window:
 
                 alGetSourcei(sink->source, AL_BUFFERS_QUEUED, &queued);
                 while (queued < sink->audio_queue_size) {
-                    ring_item_t item = { NULL, 0 };
+                    ring_item_t item = { NULL, {0} };
 
                     if (ring_buffer_is_empty(&sink->consume_frames)) {
                         if (ring_buffer_is_empty(&sink->empty_frames) == false)
@@ -6832,7 +6832,7 @@ restart_window:
             if (filter_graph_is_valid && show_buffersink_window == true) {
                 for (unsigned i = 0; i < buffer_sinks.size(); i++) {
                     BufferSink *sink = &buffer_sinks[i];
-                    ring_item_t item = { NULL, 0 };
+                    ring_item_t item = { NULL, {0} };
 
                     ring_buffer_peek(&sink->render_frames, &item, 0);
                     draw_frame(&show_buffersink_window, item, sink);
@@ -6842,7 +6842,7 @@ restart_window:
             if (filter_graph_is_valid && show_abuffersink_window == true) {
                 for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
                     BufferSink *sink = &abuffer_sinks[i];
-                    ring_item_t item = { NULL, 0 };
+                    ring_item_t item = { NULL, {0} };
 
                     ring_buffer_peek(&sink->render_frames, &item, 0);
                     draw_aframe(&show_abuffersink_window, item, sink);
