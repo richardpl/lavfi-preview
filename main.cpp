@@ -952,7 +952,7 @@ static int filters_setup()
         }
 
         if (strcmp(filter_ctx->filter->name, "buffer") == 0) {
-            BufferSource new_source = {0};
+            BufferSource new_source = {};
 
             new_source.ready = false;
             new_source.fmt_ctx = NULL;
@@ -966,7 +966,7 @@ static int filters_setup()
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
         } else if (strcmp(filter_ctx->filter->name, "abuffer") == 0) {
-            BufferSource new_source = {0};
+            BufferSource new_source = {};
 
             new_source.ready = false;
             new_source.fmt_ctx = NULL;
@@ -982,7 +982,7 @@ static int filters_setup()
         } else if (strcmp(filter_ctx->filter->name, "buffersink") == 0) {
             const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0 && recorder[0].video_sink_codecs[buffer_sinks.size()] != NULL) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
             const AVPixelFormat *encode_fmts = encoder_fmts ? encoder_fmts : depth ? hi_pix_fmts : pix_fmts;
-            BufferSink new_sink = {0};
+            BufferSink new_sink = {};
 
             new_sink.ctx = filter_ctx;
             new_sink.ready = false;
@@ -1009,7 +1009,7 @@ static int filters_setup()
             const AVSampleFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
             const int *encoder_samplerates = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
             const int *encode_samplerates = encoder_samplerates ? encoder_samplerates : sample_rates;
-            BufferSink new_sink = {0};
+            BufferSink new_sink = {};
 
             alcGetIntegerv(al_dev, ALC_FREQUENCY, 1, &new_sink.sample_rate);
             sample_rates[0] = new_sink.sample_rate;
@@ -1361,7 +1361,7 @@ error:
     audio_sink_threads.swap(athread_list);
 
     for (unsigned i = 0; i < abuffer_sinks.size(); i++) {
-        char layout_name[512] = { 0 };
+        char layout_name[512] = {0};
         BufferSink *sink = &abuffer_sinks[i];
         AVChannelLayout layout;
 
@@ -1461,12 +1461,12 @@ static void draw_info(bool *p_open, bool full)
                                           ImGuiWindowFlags_NoMove;
 
     if (full == false) {
-        if (last_buffersink_window >= 0 && last_buffersink_window < buffer_sinks.size()) {
+        if (last_buffersink_window < buffer_sinks.size()) {
             last_sink = &buffer_sinks[last_buffersink_window];
             frame = &last_sink->frame_info;
         }
 
-        if (last_abuffersink_window >= 0 && last_abuffersink_window < abuffer_sinks.size()) {
+        if (last_abuffersink_window < abuffer_sinks.size()) {
             last_sink = &abuffer_sinks[last_abuffersink_window];
             frame = &last_sink->frame_info;
         }
@@ -1474,8 +1474,8 @@ static void draw_info(bool *p_open, bool full)
         if (frame == NULL)
             return;
     } else {
-        if (!(last_buffersink_window >= 0 && last_buffersink_window < buffer_sinks.size()) &&
-            !(last_abuffersink_window >= 0 && last_abuffersink_window < abuffer_sinks.size()))
+        if (!(last_buffersink_window < buffer_sinks.size()) &&
+            !(last_abuffersink_window < abuffer_sinks.size()))
             return;
     }
 
@@ -1804,7 +1804,7 @@ static void draw_help(bool *p_open)
 
 static void add_filter_node(const AVFilter *filter, ImVec2 pos)
 {
-    FilterNode node = {0};
+    FilterNode node = {};
 
     node.edge = editor_edge++;
     node.filter = filter;
@@ -1940,7 +1940,7 @@ static void importfile_filter_graph(const char *file_name)
     filter_nodes.clear();
 
     for (unsigned i = 0; i < filters.size(); i++) {
-        FilterNode node = {0};
+        FilterNode node = {};
         std::pair <int, int> p = filters[i];
         std::string filter_name;
         std::string instance_name;
@@ -2663,11 +2663,11 @@ static int console_callback(ImGuiInputTextCallbackData *data)
     return 0;
 }
 
-ConsoleData console_data = { 0 };
+ConsoleData console_data = {};
 
 static void draw_console(bool *p_open)
 {
-    char input_line[4096] = { 0 };
+    char input_line[4096] = {0};
     const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
                                           ImGuiWindowFlags_NoSavedSettings |
                                           ImGuiWindowFlags_NoNav |
@@ -3640,7 +3640,7 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                     opt->default_val.arr->size_max > 0)
                     ImGui::BeginDisabled();
                 if (ImGui::SmallButton("+")) {
-                    OptStorage new_element = { 0 };
+                    OptStorage new_element = {};
 
                     switch (type) {
                     case AV_OPT_TYPE_FLOAT:
@@ -4064,8 +4064,8 @@ static void draw_options(void *av_class, bool is_selected, bool *have_exports)
                 case AV_OPT_TYPE_COLOR:
                     {
                         float col[4] = { 0.4f, 0.7f, 0.0f, 0.5f };
-                        uint8_t icol[4] = { 0 };
-                        char new_str[16] = { 0 };
+                        uint8_t icol[4] = {0};
+                        char new_str[16] = {0};
                         uint8_t *old_str = NULL;
 
                         if (av_opt_get(av_class, opt->name, 0, &old_str))
@@ -4265,7 +4265,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                         case AV_OPT_TYPE_STRING:
                         case AV_OPT_TYPE_COLOR:
                             if (ImGui::Button("Send")) {
-                                char arg[1024] = { 0 };
+                                char arg[1024] = {0};
 
                                 switch (opt->type) {
                                     case AV_OPT_TYPE_FLAGS:
@@ -4326,7 +4326,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     uint32_t umin = min;
 
                                     if (opt_storage.size() <= opt_index) {
-                                        OptStorage new_opt = { 0 };
+                                        OptStorage new_opt = {};
 
                                         value = (uint32_t *)av_calloc(nb_elems, sizeof(*value));
                                         if (value == NULL)
@@ -4366,7 +4366,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     int32_t imin = min;
 
                                     if (opt_storage.size() <= opt_index) {
-                                        OptStorage new_opt = { 0 };
+                                        OptStorage new_opt = {};
 
                                         value = (int32_t *)av_calloc(nb_elems, sizeof(*value));
                                         if (value == NULL)
@@ -4405,7 +4405,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     float fmin = min;
 
                                     if (opt_storage.size() <= opt_index) {
-                                        OptStorage new_opt = { 0 };
+                                        OptStorage new_opt = {};
 
                                         value = (float *)av_calloc(nb_elems, sizeof(*value));
                                         if (value == NULL)
@@ -4442,7 +4442,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     double *value = NULL;
 
                                     if (opt_storage.size() <= opt_index) {
-                                        OptStorage new_opt = { 0 };
+                                        OptStorage new_opt = {};
 
                                         value = (double *)av_calloc(nb_elems, sizeof(*value));
                                         if (value == NULL)
@@ -4479,7 +4479,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     char **value = NULL;
 
                                     if (opt_storage.size() <= opt_index) {
-                                        OptStorage new_opt = { 0 };
+                                        OptStorage new_opt = {};
 
                                         value = (char **)av_calloc(nb_elems, sizeof(*value));
                                         if (value == NULL)
@@ -4505,7 +4505,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
 
                                     for (unsigned int i = 0; i < nb_elems; i++) {
                                         char label[1024] = {0};
-                                        char string[1024] = { 0 };
+                                        char string[1024] = {};
 
                                         if (tree == false)
                                             ImGui::SetNextItemWidth(200.f);
@@ -4540,7 +4540,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     break;
 
                                 if (opt_storage.size() <= opt_index) {
-                                    OptStorage new_opt = { 0 };
+                                    OptStorage new_opt = {};
 
                                     new_opt.u.u32 = (uint64_t)value;
                                     opt_storage.push_back(new_opt);
@@ -4586,7 +4586,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     break;
 
                                 if (opt_storage.size() <= opt_index) {
-                                    OptStorage new_opt = { 0 };
+                                    OptStorage new_opt = {};
 
                                     new_opt.u.i32 = value;
                                     opt_storage.push_back(new_opt);
@@ -4611,7 +4611,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     break;
 
                                 if (opt_storage.size() <= opt_index) {
-                                    OptStorage new_opt = { 0 };
+                                    OptStorage new_opt = {};
 
                                     new_opt.u.i32 = value;
                                     opt_storage.push_back(new_opt);
@@ -4641,7 +4641,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     break;
 
                                 if (opt_storage.size() <= opt_index) {
-                                    OptStorage new_opt = { 0 };
+                                    OptStorage new_opt = {};
 
                                     new_opt.u.i64 = value;
                                     opt_storage.push_back(new_opt);
@@ -4665,7 +4665,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     break;
 
                                 if (opt_storage.size() <= opt_index) {
-                                    OptStorage new_opt = { 0 };
+                                    OptStorage new_opt = {};
 
                                     new_opt.u.u64 = (uint64_t)value;
                                     opt_storage.push_back(new_opt);
@@ -4686,7 +4686,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     break;
 
                                 if (opt_storage.size() <= opt_index) {
-                                    OptStorage new_opt = { 0 };
+                                    OptStorage new_opt = {};
 
                                     new_opt.u.dbl = value;
                                     opt_storage.push_back(new_opt);
@@ -4710,7 +4710,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                                     break;
 
                                 if (opt_storage.size() <= opt_index) {
-                                    OptStorage new_opt = { 0 };
+                                    OptStorage new_opt = {};
 
                                     new_opt.u.flt = value;
                                     opt_storage.push_back(new_opt);
@@ -4724,11 +4724,11 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
                             break;
                         case AV_OPT_TYPE_STRING:
                             {
-                                char string[1024] = { 0 };
+                                char string[1024] = {0};
                                 uint8_t *str = NULL;
 
                                 if (opt_storage.size() <= opt_index) {
-                                    OptStorage new_opt = { 0 };
+                                    OptStorage new_opt = {};
 
                                     av_opt_get(ctx->priv, opt->name, 0, &str);
                                     new_opt.u.str = (char *)str;
@@ -4756,7 +4756,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
 
                                 sscanf((char *)value, "0x%02hhX%02hhX%02hhX%02hhX", &icol[0], &icol[1], &icol[2], &icol[3]);
                                 if (opt_storage.size() <= opt_index) {
-                                    OptStorage new_opt = { 0 };
+                                    OptStorage new_opt = {};
 
                                     new_opt.u.col.c[0] = icol[0] / 255.f;
                                     new_opt.u.col.c[1] = icol[1] / 255.f;
@@ -4788,7 +4788,7 @@ static void draw_filter_commands(FilterNode *node, unsigned *toggle_filter,
 
                 opt_index++;
                 if (opt_index > opt_storage.size()) {
-                    OptStorage new_opt = { 0 };
+                    OptStorage new_opt = {};
 
                     opt_storage.push_back(new_opt);
                 }
@@ -5682,7 +5682,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (ImGui::BeginMenu("Export", filter_graph_is_valid == true)) {
                 ImGui::SetTooltip("%s", "Export FilterGraph");
                 if (ImGui::BeginMenu("Save as Script")) {
-                    static char file_name[1024] = { 0 };
+                    static char file_name[1024] = {0};
 
                     ImGui::InputText("File name:", file_name, IM_ARRAYSIZE(file_name));
                     if (strlen(file_name) > 0 && ImGui::Button("Save")) {
@@ -5699,7 +5699,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                                  filter_nodes.size() == 0)) {
                 ImGui::SetTooltip("%s", "Import FilterGraph");
                 if (ImGui::BeginMenu("Load Script")) {
-                    static char file_name[1024] = { 0 };
+                    static char file_name[1024] = {0};
 
                     ImGui::InputText("File name:", file_name, IM_ARRAYSIZE(file_name));
                     if (strlen(file_name) > 0 && ImGui::Button("Load")) {
@@ -5713,7 +5713,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             }
 
             if (ImGui::BeginMenu("Record", filter_graph_is_valid == true)) {
-                static char file_name[1024] = { 0 };
+                static char file_name[1024] = {0};
 
                 recorder.resize(1);
 
@@ -5737,7 +5737,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 for (unsigned i = 0; i < recorder[0].audio_sink_codecs.size(); i++) {
                     ImGui::Text("Audio Encoder.%u: %s", i, recorder[0].audio_sink_codecs[i] ? recorder[0].audio_sink_codecs[i]->name : "<none>");
                     if (recorder[0].ostreams[i].enc != NULL) {
-                        char tree_name[1024] = { 0 };
+                        char tree_name[1024] = {0};
 
                         snprintf(tree_name, sizeof(tree_name), "Audio Encoder.%u Options", i);
                         if (ImGui::TreeNode(tree_name)) {
@@ -5754,7 +5754,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
 
                     ImGui::Text("Video Encoder.%u: %s", i, recorder[0].video_sink_codecs[i] ? recorder[0].video_sink_codecs[i]->name : "<none>");
                     if (recorder[0].ostreams[oi].enc != NULL) {
-                        char tree_name[1024] = { 0 };
+                        char tree_name[1024] = {0};
 
                         snprintf(tree_name, sizeof(tree_name), "Video Encoder.%u Options", i);
                         if (ImGui::TreeNode(tree_name)) {
@@ -5769,7 +5769,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 ImGui::Separator();
 
                 for (unsigned i = 0; i < recorder[0].audio_sink_codecs.size(); i++) {
-                    char menu_name[1024] = { 0 };
+                    char menu_name[1024] = {0};
 
                     snprintf(menu_name, sizeof(menu_name), "Audio Encoder.%u", i);
                     if (ImGui::BeginMenu(menu_name, recorder[0].oformat != NULL)) {
@@ -5794,7 +5794,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 }
 
                 for (unsigned i = 0; i < recorder[0].video_sink_codecs.size(); i++) {
-                    char menu_name[1024] = { 0 };
+                    char menu_name[1024] = {0};
 
                     snprintf(menu_name, sizeof(menu_name), "Video Encoder.%u", i);
                     if (ImGui::BeginMenu(menu_name, recorder[0].oformat != NULL)) {
@@ -6172,7 +6172,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             if (e < 0)
                 continue;
             FilterNode orig = filter_nodes[edge2pad[e].node];
-            FilterNode copy = {0};
+            FilterNode copy = {};
 
             copy.filter = orig.filter;
             copy.id = filter_nodes.size();
@@ -6241,7 +6241,7 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
                 continue;
             enum AVMediaType type = edge2pad[e].type;
             FilterNode src = filter_nodes[edge2pad[e].node];
-            FilterNode node = {0};
+            FilterNode node = {};
 
             node.filter = type == AVMEDIA_TYPE_AUDIO ? abuffersink : buffersink;
             node.id = filter_nodes.size();

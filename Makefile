@@ -28,7 +28,7 @@ SOURCES += $(GLAD_DIR)/src/glad.c
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
 UNAME_S := $(shell uname -s)
 
-CXXFLAGS ?= -g -Wall -Wformat
+CXXFLAGS ?= -g -Wall -Wformat -Wextra
 CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(IMNODES_DIR) -I$(GLAD_DIR)/include
 LIBS ?= -L/usr/local/lib
 
