@@ -6652,11 +6652,14 @@ restart_window:
     // Our state
 
     // Main loop
-    while (glfwWindowShouldClose(window) == false) {
+    while (true) {
         int64_t min_aqpts = INT64_MAX;
         int64_t min_qpts = INT64_MAX;
 
         glfwPollEvents();
+
+        if (glfwWindowShouldClose(window) == true)
+            break;
 
         if (filter_graph_is_valid == false) {
             kill_recorder_threads();
