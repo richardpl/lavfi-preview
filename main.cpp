@@ -700,7 +700,7 @@ static void source_worker_thread(BufferSource *source)
     AVCodecContext *dec_ctx = source->dec_ctx;
     AVPacket *packet = source->packet;
     AVFrame *frame = source->frame;
-    int ret;
+    int ret = AVERROR(EINVAL);
 
     while (source->ready == true) {
         if (need_filters_reinit == true)
