@@ -6656,11 +6656,6 @@ restart_window:
         int64_t min_aqpts = INT64_MAX;
         int64_t min_qpts = INT64_MAX;
 
-        glfwPollEvents();
-
-        if (glfwWindowShouldClose(window) == true)
-            break;
-
         if (filter_graph_is_valid == false) {
             kill_recorder_threads();
             kill_source_threads();
@@ -6840,6 +6835,11 @@ restart_window:
             focus_abuffersink_window = UINT_MAX;
             last_abuffersink_window = 0;
         }
+
+        glfwPollEvents();
+
+        if (glfwWindowShouldClose(window) == true)
+            break;
 
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
