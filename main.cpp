@@ -6267,10 +6267,12 @@ static void show_filtergraph_editor(bool *p_open, bool focused)
             node.pos = find_node_spot(src.pos);
             node.colapsed = false;
             node.have_exports = false;
+            node.have_commands = false;
             node.show_exports = false;
             node.set_pos = true;
             node.edge = editor_edge++;
             node.inpad_edges.push_back(editor_edge);
+            node.outpad_edges.clear();
             edge2pad.push_back(Edge2Pad { node.id, false, false, false, 0, AVMEDIA_TYPE_UNKNOWN });
             edge2pad.push_back(Edge2Pad { node.id, false, false, true, 0, type });
 
