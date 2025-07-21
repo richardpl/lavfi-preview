@@ -2875,7 +2875,7 @@ static void draw_frame(bool *p_open, ring_item_t item, BufferSink *sink)
                                              ImGui::GetWindowSize(),
                                              ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), IM_COL32_WHITE);
     } else if (texture) {
-        ImGui::Image(*texture, ImVec2(width, height));
+        ImGui::Image((ImTextureID)(intptr_t)(*texture), ImVec2(width, height));
     }
 
     if ((ImGui::IsItemHovered() || sink->fullscreen) && ImGui::IsKeyDown(ImGuiKey_Z)) {
