@@ -11,8 +11,8 @@ typedef struct ring_buffer_t {
     unsigned size;
     unsigned mask;
     ring_item_t *items;
-    unsigned tail_index;
-    unsigned head_index;
+    int tail_index;
+    int head_index;
 } ring_buffer_t;
 
 static int ring_buffer_init(ring_buffer_t *buffer, unsigned size)
@@ -45,7 +45,7 @@ static inline int ring_buffer_is_empty(ring_buffer_t *buffer)
 
 static inline int ring_buffer_is_full(ring_buffer_t *buffer)
 {
-    return ((buffer->head_index + buffer->tail_index) & buffer->mask) == buffer->mask;
+    return ((buffer->head_index - buffer->tail_index) & buffer->mask) == buffer->mask;
 }
 
 static void ring_buffer_enqueue(ring_buffer_t *buffer, ring_item_t data)
@@ -65,7 +65,7 @@ static void ring_buffer_dequeue(ring_buffer_t *buffer, ring_item_t *data)
 
 static void ring_buffer_peek(ring_buffer_t *buffer, ring_item_t *data, unsigned index)
 {
-    unsigned max = (buffer->head_index + buffer->tail_index) & buffer->mask;
+    unsigned max = (buffer->head_index - buffer->tail_index) & buffer->mask;
     if (max > 0) {
         unsigned data_index = (buffer->tail_index + std::min(index, max - 1)) & buffer->mask;
         data[0] = buffer->items[data_index];
