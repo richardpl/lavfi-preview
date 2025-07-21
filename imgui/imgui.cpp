@@ -1,4 +1,4 @@
-// dear imgui, v1.92.1
+// dear imgui, v1.92.2 WIP
 // (main code and documentation)
 
 // Help:
@@ -78,7 +78,7 @@ CODE
 // [SECTION] RENDER HELPERS
 // [SECTION] INITIALIZATION, SHUTDOWN
 // [SECTION] MAIN CODE (most of the code! lots of stuff, needs tidying up!)
-// [SECTION] FONTS
+// [SECTION] FONTS, TEXTURES
 // [SECTION] ID STACK
 // [SECTION] INPUTS
 // [SECTION] ERROR CHECKING, STATE RECOVERY
@@ -5261,46 +5261,6 @@ void ImGui::UpdateHoveredWindowAndCaptureFlags(const ImVec2& mouse_pos)
     io.WantTextInput = (g.WantTextInputNextFrame != -1) ? (g.WantTextInputNextFrame != 0) : false;
 }
 
-static void ImGui::UpdateTexturesNewFrame()
-{
-    // Cannot update every atlases based on atlas's FrameCount < g.FrameCount, because an atlas may be shared by multiple contexts with different frame count.
-    ImGuiContext& g = *GImGui;
-    const bool has_textures = (g.IO.BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
-    for (ImFontAtlas* atlas : g.FontAtlases)
-    {
-        if (atlas->OwnerContext == &g)
-        {
-            ImFontAtlasUpdateNewFrame(atlas, g.FrameCount, has_textures);
-        }
-        else
-        {
-            // (1) If you manage font atlases yourself, e.g. create a ImFontAtlas yourself you need to call ImFontAtlasUpdateNewFrame() on it.
-            // Otherwise, calling ImGui::CreateContext() without parameter will create an atlas owned by the context.
-            // (2) If you have multiple font atlases, make sure the 'atlas->RendererHasTextures' as specified in the ImFontAtlasUpdateNewFrame() call matches for that.
-            // (3) If you have multiple imgui contexts, they also need to have a matching value for ImGuiBackendFlags_RendererHasTextures.
-            IM_ASSERT(atlas->Builder != NULL && atlas->Builder->FrameCount != -1);
-            IM_ASSERT(atlas->RendererHasTextures == has_textures);
-        }
-    }
-}
-
-// Build a single texture list
-static void ImGui::UpdateTexturesEndFrame()
-{
-    ImGuiContext& g = *GImGui;
-    g.PlatformIO.Textures.resize(0);
-    for (ImFontAtlas* atlas : g.FontAtlases)
-        for (ImTextureData* tex : atlas->TexList)
-        {
-            // We provide this information so backends can decide whether to destroy textures.
-            // This means in practice that if N imgui contexts are created with a shared atlas, we assume all of them have a backend initialized.
-            tex->RefCount = (unsigned short)atlas->RefCount;
-            g.PlatformIO.Textures.push_back(tex);
-        }
-    for (ImTextureData* tex : g.UserTextures)
-        g.PlatformIO.Textures.push_back(tex);
-}
-
 // Called once a frame. Followed by SetCurrentFont() which sets up the remaining data.
 // FIXME-VIEWPORT: the concept of a single ClipRectFullscreen is not ideal!
 static void SetupDrawListSharedData()
@@ -8671,11 +8631,13 @@ bool ImGui::IsRectVisible(const ImVec2& rect_min, const ImVec2& rect_max)
 }
 
 //-----------------------------------------------------------------------------
-// [SECTION] FONTS
+// [SECTION] FONTS, TEXTURES
 //-----------------------------------------------------------------------------
 // Most of the relevant font logic is in imgui_draw.cpp.
 // Those are high-level support functions.
 //-----------------------------------------------------------------------------
+// - UpdateTexturesNewFrame() [Internal]
+// - UpdateTexturesEndFrame() [Internal]
 // - UpdateFontsNewFrame() [Internal]
 // - UpdateFontsEndFrame() [Internal]
 // - GetDefaultFont() [Internal]
@@ -8689,6 +8651,46 @@ bool ImGui::IsRectVisible(const ImVec2& rect_min, const ImVec2& rect_max)
 // - PushFont()
 // - PopFont()
 //-----------------------------------------------------------------------------
+
+static void ImGui::UpdateTexturesNewFrame()
+{
+    // Cannot update every atlases based on atlas's FrameCount < g.FrameCount, because an atlas may be shared by multiple contexts with different frame count.
+    ImGuiContext& g = *GImGui;
+    const bool has_textures = (g.IO.BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
+    for (ImFontAtlas* atlas : g.FontAtlases)
+    {
+        if (atlas->OwnerContext == &g)
+        {
+            ImFontAtlasUpdateNewFrame(atlas, g.FrameCount, has_textures);
+        }
+        else
+        {
+            // (1) If you manage font atlases yourself, e.g. create a ImFontAtlas yourself you need to call ImFontAtlasUpdateNewFrame() on it.
+            // Otherwise, calling ImGui::CreateContext() without parameter will create an atlas owned by the context.
+            // (2) If you have multiple font atlases, make sure the 'atlas->RendererHasTextures' as specified in the ImFontAtlasUpdateNewFrame() call matches for that.
+            // (3) If you have multiple imgui contexts, they also need to have a matching value for ImGuiBackendFlags_RendererHasTextures.
+            IM_ASSERT(atlas->Builder != NULL && atlas->Builder->FrameCount != -1);
+            IM_ASSERT(atlas->RendererHasTextures == has_textures);
+        }
+    }
+}
+
+// Build a single texture list
+static void ImGui::UpdateTexturesEndFrame()
+{
+    ImGuiContext& g = *GImGui;
+    g.PlatformIO.Textures.resize(0);
+    for (ImFontAtlas* atlas : g.FontAtlases)
+        for (ImTextureData* tex : atlas->TexList)
+        {
+            // We provide this information so backends can decide whether to destroy textures.
+            // This means in practice that if N imgui contexts are created with a shared atlas, we assume all of them have a backend initialized.
+            tex->RefCount = (unsigned short)atlas->RefCount;
+            g.PlatformIO.Textures.push_back(tex);
+        }
+    for (ImTextureData* tex : g.UserTextures)
+        g.PlatformIO.Textures.push_back(tex);
+}
 
 void ImGui::UpdateFontsNewFrame()
 {
@@ -8732,16 +8734,19 @@ ImFont* ImGui::GetDefaultFont()
     return g.IO.FontDefault ? g.IO.FontDefault : atlas->Fonts[0];
 }
 
+// EXPERIMENTAL: DO NOT USE YET.
 void ImGui::RegisterUserTexture(ImTextureData* tex)
 {
     ImGuiContext& g = *GImGui;
-    IM_ASSERT(tex->RefCount > 0);
+    tex->RefCount++;
     g.UserTextures.push_back(tex);
 }
 
 void ImGui::UnregisterUserTexture(ImTextureData* tex)
 {
     ImGuiContext& g = *GImGui;
+    IM_ASSERT(tex->RefCount > 0);
+    tex->RefCount--;
     g.UserTextures.find_erase(tex);
 }
 
@@ -12501,10 +12506,10 @@ bool ImGui::IsWindowFocused(ImGuiFocusedFlags flags)
 
     IM_ASSERT(cur_window); // Not inside a Begin()/End()
     const bool popup_hierarchy = (flags & ImGuiFocusedFlags_NoPopupHierarchy) == 0;
-    if (flags & ImGuiHoveredFlags_RootWindow)
+    if (flags & ImGuiFocusedFlags_RootWindow)
         cur_window = GetCombinedRootWindow(cur_window, popup_hierarchy);
 
-    if (flags & ImGuiHoveredFlags_ChildWindows)
+    if (flags & ImGuiFocusedFlags_ChildWindows)
         return IsWindowChildOf(ref_window, cur_window, popup_hierarchy);
     else
         return (ref_window == cur_window);
