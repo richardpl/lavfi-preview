@@ -981,7 +981,18 @@ static int filters_setup()
             find_source_params(&new_source);
             buffer_sources.push_back(new_source);
         } else if (strcmp(filter_ctx->filter->name, "buffersink") == 0) {
-            const AVPixelFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].video_sink_codecs.size() > 0 && recorder[0].video_sink_codecs[buffer_sinks.size()] != NULL) ? recorder[0].video_sink_codecs[buffer_sinks.size()]->pix_fmts : NULL;
+            const AVPixelFormat *encoder_fmts = NULL;
+
+            if (need_muxing) {
+                ret = avcodec_get_supported_config(recorder[0].ostreams[0].enc, NULL,
+                                                   AV_CODEC_CONFIG_PIX_FORMAT, 0,
+                                                   (const void**)&encoder_fmts, NULL);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Cannot get encoder supported pixel formats.\n");
+                    goto error;
+                }
+            }
+
             const AVPixelFormat *encode_fmts = encoder_fmts ? encoder_fmts : depth ? hi_pix_fmts : pix_fmts;
             BufferSink new_sink = {};
 
@@ -994,21 +1005,36 @@ static int filters_setup()
             new_sink.frame_number = 0;
             new_sink.upscale_interpolator = global_upscale_interpolation;
             new_sink.downscale_interpolator = global_downscale_interpolation;
-            ret = av_opt_set_int_list(filter_ctx, "pix_fmts", need_muxing ? encode_fmts : depth ? hi_pix_fmts : pix_fmts,
-                                      AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+            ret = av_opt_set_array(filter_ctx, "pixel_formats", AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE, 0, 1,
+                                   AV_OPT_TYPE_PIXEL_FMT, need_muxing ? encode_fmts : depth ? hi_pix_fmts : pix_fmts);
             if (ret < 0) {
-                ret = av_opt_set_array(filter_ctx, "pixel_formats", AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE, 0, 1,
-                                       AV_OPT_TYPE_PIXEL_FMT, need_muxing ? encode_fmts : depth ? hi_pix_fmts : pix_fmts);
-                if (ret < 0) {
-                    av_log(NULL, AV_LOG_ERROR, "Cannot set buffersink output pixel format.\n");
-                    goto error;
-                }
+                av_log(NULL, AV_LOG_ERROR, "Cannot set buffersink output pixel format.\n");
+                goto error;
             }
 
             buffer_sinks.push_back(new_sink);
         } else if (strcmp(filter_ctx->filter->name, "abuffersink") == 0) {
-            const AVSampleFormat *encoder_fmts = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->sample_fmts : NULL;
-            const int *encoder_samplerates = (need_muxing && recorder.size() > 0 && recorder[0].audio_sink_codecs.size() > 0 && recorder[0].audio_sink_codecs[abuffer_sinks.size()] != NULL) ? recorder[0].audio_sink_codecs[abuffer_sinks.size()]->supported_samplerates : NULL;
+            const AVSampleFormat *encoder_fmts = NULL;
+            const int *encoder_samplerates = NULL;
+
+            if (need_muxing) {
+                ret = avcodec_get_supported_config(recorder[0].ostreams[0].enc, NULL,
+                                                   AV_CODEC_CONFIG_SAMPLE_FORMAT, 0,
+                                                   (const void**)&encoder_fmts, NULL);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Cannot get encoder supported sample formats.\n");
+                    goto error;
+                }
+
+                ret = avcodec_get_supported_config(recorder[0].ostreams[0].enc, NULL,
+                                                   AV_CODEC_CONFIG_SAMPLE_RATE, 0,
+                                                   (const void**)&encoder_samplerates, NULL);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_ERROR, "Cannot get encoder supported sample rates.\n");
+                    goto error;
+                }
+            }
+
             const int *encode_samplerates = encoder_samplerates ? encoder_samplerates : sample_rates;
             BufferSink new_sink = {};
 
@@ -1025,26 +1051,18 @@ static int filters_setup()
             new_sink.downscale_interpolator = 0;
             new_sink.frame_number = 0;
 
-            ret = av_opt_set_int_list(filter_ctx, "sample_fmts", need_muxing ? encoder_fmts : audio_format ? hi_sample_fmts : sample_fmts,
-                                      AV_SAMPLE_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+            ret = av_opt_set_array(filter_ctx, "sample_formats", AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE, 0, 1,
+                                   AV_OPT_TYPE_SAMPLE_FMT, need_muxing ? encoder_fmts : audio_format ? hi_sample_fmts : sample_fmts);
             if (ret < 0) {
-                ret = av_opt_set_array(filter_ctx, "sample_formats", AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE, 0, 1,
-                                       AV_OPT_TYPE_SAMPLE_FMT, need_muxing ? encoder_fmts : audio_format ? hi_sample_fmts : sample_fmts);
-                if (ret < 0) {
-                    av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample formats.\n");
-                    goto error;
-                }
+                av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample formats.\n");
+                goto error;
             }
 
-            ret = av_opt_set_int_list(filter_ctx, "sample_rates", need_muxing ? encode_samplerates : sample_rates,
-                                      0, AV_OPT_SEARCH_CHILDREN);
+            ret = av_opt_set_array(filter_ctx, "sample_rates", AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE, 0, 1,
+                                   AV_OPT_TYPE_INT, need_muxing ? encode_samplerates : sample_rates);
             if (ret < 0) {
-                ret = av_opt_set_array(filter_ctx, "sample_rates", AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE, 0, 1,
-                                       AV_OPT_TYPE_INT, need_muxing ? encode_samplerates : sample_rates);
-                if (ret < 0) {
-                    av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample rates.\n");
-                    goto error;
-                }
+                av_log(NULL, AV_LOG_ERROR, "Cannot set abuffersink output sample rates.\n");
+                goto error;
             }
 
             abuffer_sinks.push_back(new_sink);
