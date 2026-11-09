@@ -350,7 +350,11 @@ void ImDrawListGrowChannels(ImDrawList* draw_list, const int num_channels)
         {
             ImDrawCmd draw_cmd;
             draw_cmd.ClipRect = draw_list->_ClipRectStack.back();
+#if IMGUI_VERSION_NUM < 19200
+            draw_cmd.TextureId = draw_list->_TextureIdStack.back();
+#else
             draw_cmd.TexRef = draw_list->_TextureStack.back();
+#endif
             channel._CmdBuffer.push_back(draw_cmd);
         }
     }
@@ -720,7 +724,7 @@ void BeginCanvasInteraction(ImNodesEditorContext& editor)
     const bool mouse_not_in_canvas = !MouseInCanvas();
 
     if (editor.ClickInteraction.Type != ImNodesClickInteractionType_None ||
-        any_ui_element_hovered || mouse_not_in_canvas)
+        any_ui_element_hovered || mouse_not_in_canvas || !ImGui::IsWindowHovered())
     {
         return;
     }
@@ -1531,14 +1535,20 @@ void DrawNode(ImNodesEditorContext& editor, const int node_idx)
                 titlebar_background,
                 node.LayoutStyle.CornerRounding,
                 ImDrawCornerFlags_Top);
-#else
+#elif IMGUI_VERSION_NUM < 19300
             GImNodes->CanvasDrawList->AddRectFilled(
                 title_bar_rect.Min,
                 title_bar_rect.Max,
                 titlebar_background,
                 node.LayoutStyle.CornerRounding,
                 ImDrawFlags_RoundCornersTop);
-
+#else
+            GImNodes->CanvasDrawList->AddRectFilled(
+                title_bar_rect.Min,
+                title_bar_rect.Max,
+                titlebar_background,
+                node.LayoutStyle.CornerRounding,
+                ImDrawFlags_RoundTop);
 #endif
         }
 
@@ -1552,7 +1562,7 @@ void DrawNode(ImNodesEditorContext& editor, const int node_idx)
                 node.LayoutStyle.CornerRounding,
                 ImDrawCornerFlags_All,
                 node.LayoutStyle.BorderThickness);
-#else
+#elif IMGUI_VERSION_NUM < 19276
             GImNodes->CanvasDrawList->AddRect(
                 node.Rect.Min,
                 node.Rect.Max,
@@ -1560,6 +1570,22 @@ void DrawNode(ImNodesEditorContext& editor, const int node_idx)
                 node.LayoutStyle.CornerRounding,
                 ImDrawFlags_RoundCornersAll,
                 node.LayoutStyle.BorderThickness);
+#elif IMGUI_VERSION_NUM < 19300
+            GImNodes->CanvasDrawList->AddRect(
+                node.Rect.Min,
+                node.Rect.Max,
+                node.ColorStyle.Outline,
+                node.LayoutStyle.CornerRounding,
+                node.LayoutStyle.BorderThickness,
+                ImDrawFlags_RoundCornersAll);
+#else
+            GImNodes->CanvasDrawList->AddRect(
+                node.Rect.Min,
+                node.Rect.Max,
+                node.ColorStyle.Outline,
+                node.LayoutStyle.CornerRounding,
+                node.LayoutStyle.BorderThickness,
+                ImDrawFlags_RoundAll);
 #endif
         }
     }
@@ -2193,6 +2219,45 @@ void StyleColorsLight(ImNodesStyle* dest)
     dest->Colors[ImNodesCol_MiniMapLinkSelected] = dest->Colors[ImNodesCol_LinkSelected];
     dest->Colors[ImNodesCol_MiniMapCanvas] = IM_COL32(200, 200, 200, 25);
     dest->Colors[ImNodesCol_MiniMapCanvasOutline] = IM_COL32(200, 200, 200, 200);
+}
+
+const char* GetStyleColorName(ImNodesCol idx)
+{
+    // Create switch-case from enum with regexp: ImNodesCol_(.*), --> case ImNodesCol_\1: return "\1";
+    switch (idx)
+    {
+    case ImNodesCol_NodeBackground: return "NodeBackground";
+    case ImNodesCol_NodeBackgroundHovered: return "NodeBackgroundHovered";
+    case ImNodesCol_NodeBackgroundSelected: return "NodeBackgroundSelected";
+    case ImNodesCol_NodeOutline: return "NodeOutline";
+    case ImNodesCol_TitleBar: return "TitleBar";
+    case ImNodesCol_TitleBarHovered: return "TitleBarHovered";
+    case ImNodesCol_TitleBarSelected: return "TitleBarSelected";
+    case ImNodesCol_Link: return "Link";
+    case ImNodesCol_LinkHovered: return "LinkHovered";
+    case ImNodesCol_LinkSelected: return "LinkSelected";
+    case ImNodesCol_Pin: return "Pin";
+    case ImNodesCol_PinHovered: return "PinHovered";
+    case ImNodesCol_BoxSelector: return "BoxSelector";
+    case ImNodesCol_BoxSelectorOutline: return "BoxSelectorOutline";
+    case ImNodesCol_GridBackground: return "GridBackground";
+    case ImNodesCol_GridLine: return "GridLine";
+    case ImNodesCol_GridLinePrimary: return "GridLinePrimary";
+    case ImNodesCol_MiniMapBackground: return "MiniMapBackground";
+    case ImNodesCol_MiniMapBackgroundHovered: return "MiniMapBackgroundHovered";
+    case ImNodesCol_MiniMapOutline: return "MiniMapOutline";
+    case ImNodesCol_MiniMapOutlineHovered: return "MiniMapOutlineHovered";
+    case ImNodesCol_MiniMapNodeBackground: return "MiniMapNodeBackground";
+    case ImNodesCol_MiniMapNodeBackgroundHovered: return "MiniMapNodeBackgroundHovered";
+    case ImNodesCol_MiniMapNodeBackgroundSelected: return "MiniMapNodeBackgroundSelected";
+    case ImNodesCol_MiniMapNodeOutline: return "MiniMapNodeOutline";
+    case ImNodesCol_MiniMapLink: return "MiniMapLink";
+    case ImNodesCol_MiniMapLinkSelected: return "MiniMapLinkSelected";
+    case ImNodesCol_MiniMapCanvas: return "MiniMapCanvas";
+    case ImNodesCol_MiniMapCanvasOutline: return "MiniMapCanvasOutline";
+    }
+    IM_ASSERT(0);
+    return "Unknown";
 }
 
 void BeginNodeEditor()
