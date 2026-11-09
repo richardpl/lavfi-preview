@@ -3643,6 +3643,38 @@ static void draw_options(void *av_class, bool is_selected)
                             av_freep(&value);
                         }
                         break;
+                    case AV_OPT_TYPE_CHLAYOUT:
+                        {
+                            AVChannelLayout *value = (AVChannelLayout *)av_calloc(nb_elems, sizeof(*value));
+                            bool new_value = false;
+
+                            if (value == NULL)
+                                break;
+
+                            if (av_opt_get_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value) < 0) {
+                                av_freep(&value);
+                                break;
+                            }
+
+                            for (unsigned int i = 0; i < nb_elems; i++) {
+                                char label[1024] = {0};
+                                char new_layout[1024] = {0};
+
+                                snprintf(label, sizeof(label), "%s.%u", opt->name, i);
+
+                                ImGui::SetNextItemWidth(200.f);
+                                av_channel_layout_describe(&value[i], new_layout, sizeof(new_layout));
+                                if (ImGui::InputText(label, new_layout, IM_ARRAYSIZE(new_layout))) {
+                                    av_channel_layout_from_string(&value[i], new_layout);
+                                    new_value = true;
+                                }
+                            }
+
+                            if (new_value == true)
+                                av_opt_set_array(av_class, opt->name, AV_OPT_ARRAY_REPLACE, 0, nb_elems, type, value);
+                            av_freep(&value);
+                        }
+                        break;
                     default:
                         break;
                 }
