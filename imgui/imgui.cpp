@@ -1,4 +1,4 @@
-// dear imgui, v1.93.0 WIP
+// dear imgui, v1.93.1 WIP
 // (main code and documentation)
 
 // Help:
@@ -395,6 +395,19 @@ IMPLEMENTING SUPPORT for ImGuiBackendFlags_RendererHasTextures:
  When you are not sure about an old symbol or function name, try using the Search/Find function of your IDE to look for comments or references in all imgui files.
  You can read releases logs https://github.com/ocornut/imgui/releases for more details.
 
+   2026/10/15 (1.93.1) - commented out legacy names/functions which were obsoleted from 1.90.7 (May 2024) to 1.91.1 (Sept 2024):
+                          - `ImGuiMod_Shortcut`                  --> `ImGuiMod_Ctrl` (since 1.90.7 it maps to Cmd on macOS)
+                          - `ImGuiCol_TabActive`                 --> `ImGuiCol_TabSelected`
+                          - `ImGuiCol_TabUnfocused`              --> `ImGuiCol_TabDimmed`
+                          - `ImGuiCol_TabUnfocusedActive`        --> `ImGuiCol_TabDimmedSelected`
+                          - `ImGuiSelectableFlags_DontClosePopups`-> `ImGuiSelectableFlags_NoAutoClosePopups`
+                          - `PushButtonRepeat(bool repeat)`      --> `PushItemFlag(ImGuiItemFlags_ButtonRepeat, repeat)`
+                          - `PopButtonRepeat()`                  --> `PopItemFlag()`
+                          - `PushTabStop(bool tab_stop)`         --> `PushItemFlag(ImGuiItemFlags_NoTabStop, !tab_stop);`
+                          - `PopTabStop()`                       --> `PopItemFlag()`
+                          - `io.GetClipboardTextFn`              --> `platform_io.Platform_GetClipboardTextFn`
+                          - `io.SetClipboardTextFn`              --> `platform_io.Platform_SetClipboardTextFn`
+                          - `io.ClipboardUserData`               --> `platform_io.Platform_ClipboardUserData`
    2026/10/07 (1.93.0) - large cleanup/refactor of ImDrawList. many issues and inconsistencies fixed! (#9504)
                          BELOW IS A SIMPLIFIED/SHORTENED RECAP OF CHANGES. READ CHANGELOG AND LINKS ABOVE FOR MORE DETAILS!
                          useful links:
@@ -1615,6 +1628,10 @@ ImGuiStyle::ImGuiStyle()
     DisplaySafeAreaPadding      = ImVec2(3,3);      // If you cannot see the edge of your screen (e.g. on a TV) increase the safe area padding. Covers popups/tooltips as well regular windows.
     MouseCursorScale            = 1.0f;             // Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). May be removed later.
 
+    // Symbols
+    SymbolArrowSizeFactor       = ImVec2(0.72f,0.40f); // Width/height factor of arrows (0.0f..1.0f). Legacy arrows use (0.60f,0.70f)
+    SymbolArrowThicknessFactor  = 0.30f;            // Thickness factor of arrows (0.0f..0.5f). 0.0f=Fill. >0.0f=Stroke. Legacy arrows use 0.0f.
+
     // Rendering & Tessellation
     AntiAliasedLines            = true;             // Enable anti-aliased lines/borders. Used at the beginning of the frame to set ImDrawFlags_AALines in all draw-lists.
     AntiAliasedLineEnds         = false;            // Enable anti-aliased lines/borders ends. Nicer for thick lines but more expensive. Used at the beginning of the frame to set ImDrawFlags_AALineEnds in all draw-lists.
@@ -2252,14 +2269,14 @@ ImVec2 ImTriangleClosestPoint(const ImVec2& a, const ImVec2& b, const ImVec2& c,
 int ImStricmp(const char* str1, const char* str2)
 {
     int d;
-    while ((d = ImToUpper(*str2) - ImToUpper(*str1)) == 0 && *str1) { str1++; str2++; }
+    while ((d = ImToUpper(*str1) - ImToUpper(*str2)) == 0 && *str1) { str1++; str2++; }
     return d;
 }
 
 int ImStrnicmp(const char* str1, const char* str2, size_t count)
 {
     int d = 0;
-    while (count > 0 && (d = ImToUpper(*str2) - ImToUpper(*str1)) == 0 && *str1) { str1++; str2++; count--; }
+    while (count > 0 && (d = ImToUpper(*str1) - ImToUpper(*str2)) == 0 && *str1) { str1++; str2++; count--; }
     return d;
 }
 
@@ -4727,12 +4744,13 @@ void ImGui::RemoveContextHook(ImGuiContext* ctx, ImGuiID hook_id)
 
 // Call context hooks (used by e.g. test engine)
 // We assume a small number of hooks so all stored in same array
+// Iterate by index: a callback may add a hook, which reallocates the array. Hooks added here are called from the next call.
 void ImGui::CallContextHooks(ImGuiContext* ctx, ImGuiContextHookType hook_type)
 {
     ImGuiContext& g = *ctx;
-    for (ImGuiContextHook& hook : g.Hooks)
-        if (hook.Type == hook_type)
-            hook.Callback(&g, &hook);
+    for (int n = 0, hooks_count = g.Hooks.Size; n < hooks_count; n++)
+        if (g.Hooks[n].Type == hook_type)
+            g.Hooks[n].Callback(&g, &g.Hooks[n]);
 }
 
 //-----------------------------------------------------------------------------
@@ -6104,7 +6122,8 @@ static void ImGui::RenderDimmedBackgroundBehindWindow(ImGuiWindow* window, ImU32
         if (draw_list->CmdBuffer.Size == 0)
             draw_list->AddDrawCmd();
         draw_list->PushClipRect(viewport_rect.Min - ImVec2(1, 1), viewport_rect.Max + ImVec2(1, 1), false); // FIXME: Need to strictly ensure ImDrawCmd are not merged (ElemCount==6 checks below will verify that)
-        draw_list->AddRectFilled(viewport_rect.Min, viewport_rect.Max, col);
+        draw_list->PrimReserve(6, 4);
+        draw_list->PrimRect(viewport_rect.Min, viewport_rect.Max, col);
         ImDrawCmd cmd = draw_list->CmdBuffer.back();
         IM_ASSERT(cmd.ElemCount == 6);
         draw_list->CmdBuffer.pop_back();
@@ -7975,9 +7994,13 @@ bool ImGui::Begin(const char* name, bool* p_open, ImGuiWindowFlags flags)
                 window->Pos = parent_window->DC.CursorPos;
         }
 
-        const bool window_pos_with_pivot = (window->SetWindowPosVal.x != FLT_MAX && window->HiddenFramesCannotSkipItems == 0);
-        if (window_pos_with_pivot)
+        if (window->SetWindowPosVal.x != FLT_MAX)
+        {
+            const ImVec2 backup_pos_val = window->SetWindowPosVal;
             SetWindowPos(window, window->SetWindowPosVal - window->Size * window->SetWindowPosPivot, 0); // Position given a pivot (e.g. for centering)
+            if (window->HiddenFramesCannotSkipItems != 0)
+                window->SetWindowPosVal = backup_pos_val; // Restore set request while hidden, so an updated size will be accounted for. (#9568)
+        }
         else if ((flags & ImGuiWindowFlags_ChildMenu) != 0)
             window->Pos = FindBestWindowPosForPopup(window);
         else if ((flags & ImGuiWindowFlags_Popup) != 0 && !window_pos_set_by_api && window_just_appearing_after_hidden_for_resize)
@@ -11195,6 +11218,15 @@ static void ImGui::ErrorCheckNewFrameSanityChecks()
     // #define IM_ASSERT(EXPR)   do { if (SomeCode(EXPR)) SomeMoreCode(); } while (0)   // Correct!
     if (true) IM_ASSERT(1); else IM_ASSERT(0);
 
+    // Check user IM_VEC2_CLASS_EXTRA macro
+    // (IF YOU GET A "ambiguous overload" COMPILE ERROR HERE: does your IM_VEC2_CLASS_EXTRA macro contains an operator=?
+    //    e.g. ImVec2& operator=(const MyPoint & p) { x = p.x; y = p.y; return *this; }
+    //  You should be able to remove it if you have the corresponding constructor:
+    //    e.g. IM_NODEBUGSTEP constexpr inline ImVec2(const MyPoint& f) : x(f.x), y(f.y) {}
+    //  Allowing you to add this extra operator to ImVec2 would prevent our whole codebase from using v = {x,y} assignment style.
+    //  PLEASE GET IN TOUCH IF REMOVING THE operator= IS A PROBLEM TO YOU)
+    ImVec2 v; v = { 1.0f, 2.0f };
+
     // Emscripten backends are often imprecise in their submission of DeltaTime. (#6114, #3644)
     // Ideally the Emscripten app/backend should aim to fix or smooth this value and avoid feeding zero, but we tolerate it.
 #ifdef __EMSCRIPTEN__
@@ -11244,10 +11276,10 @@ static void ImGui::ErrorCheckNewFrameSanityChecks()
     }
 
     // Remap legacy clipboard handlers (OBSOLETED in 1.91.1, August 2024)
-    if (g.IO.GetClipboardTextFn != NULL && (g.PlatformIO.Platform_GetClipboardTextFn == NULL || g.PlatformIO.Platform_GetClipboardTextFn == Platform_GetClipboardTextFn_DefaultImpl))
-        g.PlatformIO.Platform_GetClipboardTextFn = [](ImGuiContext* ctx) { return ctx->IO.GetClipboardTextFn(ctx->IO.ClipboardUserData); };
-    if (g.IO.SetClipboardTextFn != NULL && (g.PlatformIO.Platform_SetClipboardTextFn == NULL || g.PlatformIO.Platform_SetClipboardTextFn == Platform_SetClipboardTextFn_DefaultImpl))
-        g.PlatformIO.Platform_SetClipboardTextFn = [](ImGuiContext* ctx, const char* text) { return ctx->IO.SetClipboardTextFn(ctx->IO.ClipboardUserData, text); };
+    //if (g.IO.GetClipboardTextFn != NULL && (g.PlatformIO.Platform_GetClipboardTextFn == NULL || g.PlatformIO.Platform_GetClipboardTextFn == Platform_GetClipboardTextFn_DefaultImpl))
+    //    g.PlatformIO.Platform_GetClipboardTextFn = [](ImGuiContext* ctx) { return ctx->IO.GetClipboardTextFn(ctx->IO.ClipboardUserData); };
+    //if (g.IO.SetClipboardTextFn != NULL && (g.PlatformIO.Platform_SetClipboardTextFn == NULL || g.PlatformIO.Platform_SetClipboardTextFn == Platform_SetClipboardTextFn_DefaultImpl))
+    //    g.PlatformIO.Platform_SetClipboardTextFn = [](ImGuiContext* ctx, const char* text) { return ctx->IO.SetClipboardTextFn(ctx->IO.ClipboardUserData, text); };
 
     // Remap legacy CurveTessellationTol into CurveTessellationMaxError (OBSOLETED in 1.93.0, August 2026)
     if (g.Style.CurveTessellationTol != 0.0f)
@@ -16737,7 +16769,7 @@ static const char* FormatTextureRefForDebugDisplay(char* buf, int buf_size, ImTe
     char* buf_end = buf + buf_size;
     if (tex_ref._TexData != NULL)
         buf_p += ImFormatString(buf_p, buf_end - buf_p, "#%03d: ", tex_ref._TexData->UniqueID);
-    ImFormatString(buf_p, buf_end - buf_p, "0x%X", ImGui::DebugTextureIDToU64(tex_ref.GetTexID()));
+    ImFormatString(buf_p, buf_end - buf_p, "0x%" IM_PRIX64, ImGui::DebugTextureIDToU64(tex_ref.GetTexID()));
     return buf;
 }
 
