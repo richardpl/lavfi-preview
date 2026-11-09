@@ -3662,28 +3662,28 @@ static void draw_options(void *av_class, bool is_selected)
 
                     switch (type) {
                     case AV_OPT_TYPE_FLOAT:
-                        new_element.u.flt = (max-min)/2;
+                        new_element.u.flt = (max+min)/2;
                         break;
                     case AV_OPT_TYPE_DOUBLE:
-                        new_element.u.dbl = (max-min)/2;
+                        new_element.u.dbl = (max+min)/2;
                         break;
                     case AV_OPT_TYPE_UINT:
-                        new_element.u.u32 = (max-min)/2;
+                        new_element.u.u32 = (max+min)/2;
                         break;
                     case AV_OPT_TYPE_INT:
-                        new_element.u.i32 = (max-min)/2;
+                        new_element.u.i32 = (max+min)/2;
                         break;
                     case AV_OPT_TYPE_INT64:
-                        new_element.u.i64 = (max-min)/2;
+                        new_element.u.i64 = (max+min)/2;
                         break;
                     case AV_OPT_TYPE_UINT64:
-                        new_element.u.u64 = (max-min)/2;
+                        new_element.u.u64 = (max+min)/2;
                         break;
                     case AV_OPT_TYPE_BOOL:
-                        new_element.u.i32 = (max-min)/2;
+                        new_element.u.i32 = (max+min)/2;
                         break;
                     case AV_OPT_TYPE_FLAGS:
-                        new_element.u.u32 = (max-min)/2;
+                        new_element.u.u32 = (max+min)/2;
                         break;
                     case AV_OPT_TYPE_STRING:
                         new_element.u.str = av_strdup("<empty>");
