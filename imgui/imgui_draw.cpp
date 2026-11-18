@@ -62,6 +62,7 @@ Index of this file:
 #pragma clang diagnostic ignored "-Wfloat-equal"                    // warning: comparing floating point with == or != is unsafe // storing and comparing against same constants ok.
 #pragma clang diagnostic ignored "-Wglobal-constructors"            // warning: declaration requires a global destructor         // similar to above, not sure what the exact difference is.
 #pragma clang diagnostic ignored "-Wsign-conversion"                // warning: implicit conversion changes signedness
+#pragma clang diagnostic ignored "-Wunused-function"                // warning: 'xxxx' defined but not used
 #pragma clang diagnostic ignored "-Wzero-as-null-pointer-constant"  // warning: zero as null pointer constant                    // some standard header variations use #define NULL 0
 #pragma clang diagnostic ignored "-Wcomma"                          // warning: possible misuse of comma operator here
 #pragma clang diagnostic ignored "-Wreserved-id-macro"              // warning: macro name is a reserved identifier
@@ -112,7 +113,6 @@ namespace IMGUI_STB_NAMESPACE
 
 #if defined(__clang__)
 #pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-function"        // warning: 'xxxx' defined but not used
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 #pragma clang diagnostic ignored "-Wimplicit-fallthrough"
 #endif
@@ -192,8 +192,8 @@ void ImGui::StyleColorsDark(ImGuiStyle* dst)
     colors[ImGuiCol_Text]                   = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
     colors[ImGuiCol_TextDisabled]           = ImVec4(0.58f, 0.58f, 0.58f, 1.00f);
     colors[ImGuiCol_WindowBg]               = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
-    colors[ImGuiCol_ChildBg]                = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_PopupBg]                = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
+    colors[ImGuiCol_ChildBg]                = ImVec4(0.17f, 0.17f, 0.17f, 0.00f);
+    colors[ImGuiCol_PopupBg]                = ImVec4(0.14f, 0.14f, 0.14f, 0.94f);
     colors[ImGuiCol_Border]                 = ImVec4(0.43f, 0.43f, 0.50f, 0.50f);
     colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     colors[ImGuiCol_FrameBg]                = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
@@ -4363,7 +4363,10 @@ ImFont* ImFontAtlas::AddFont(const ImFontConfig* font_cfg_in)
     ImFontAtlasFontSourceAddToFont(this, font, font_cfg);
 
     if (is_first_font)
+    {
         ImFontAtlasBuildNotifySetFont(this, NULL, font);
+        Builder->LoadedFontDefaultAsVector = -1;
+    }
     return font;
 }
 
@@ -4389,13 +4392,17 @@ const char* ImGui_GetDefaultCompressedFontDataProggyForever(int* out_size);
 #endif
 
 // This duplicates some of the logic in UpdateFontsNewFrame() which is a bit chicken-and-eggy/tricky to extract due to variety of codepaths and possible initialization ordering.
-static float GetExpectedContextFontSize(ImGuiContext* ctx)
+bool ImFontAtlasHeuristicShouldUseDefaultVectorFont(ImFontAtlas* atlas)
 {
+    ImGuiContext* ctx = atlas->OwnerContext;
+    if (ctx == NULL)
+        return true;
     float fb_scale = (ctx->IO.DisplayFramebufferScale.x != 0.0f) ? ctx->IO.DisplayFramebufferScale.x : 1.0f;
     if (ctx->IO.DisplayFramebufferScale.x == 1.0f && ctx->IO.DisplaySize.x <= 0.0f && ctx->IO.ConfigMacOSXBehaviors)
-        fb_scale = 2.0f; // If called before backend had a chance to init DisplayFramebufferScale. default to expecting Retina.
-    float scale = ctx->Style.FontScaleMain * ctx->Style.FontScaleDpi * fb_scale;
-    return ((ctx->Style.FontSizeBase > 0.0f) ? ctx->Style.FontSizeBase : 13.0f) * scale;
+        fb_scale = 2.0f; // If called before backend had a chance to init DisplayFramebufferScale: default to expecting Retina on macOS/iOS.
+    const float scale = ctx->Style.FontScaleMain * ctx->Style.FontScaleDpi * fb_scale;
+    const float expected_font_size = ((ctx->Style.FontSizeBase > 0.0f) ? ctx->Style.FontSizeBase : 13.0f) * scale;
+    return expected_font_size >= 15.0f;
 }
 
 // Legacy function with heuristic to select Pixel or Vector font.
@@ -4403,10 +4410,11 @@ static float GetExpectedContextFontSize(ImGuiContext* ctx)
 // Prefer calling AddFontDefaultVector() or AddFontDefaultBitmap() based on your own logic.
 ImFont* ImFontAtlas::AddFontDefault(const ImFontConfig* font_cfg)
 {
-    if (OwnerContext == NULL || GetExpectedContextFontSize(OwnerContext) >= 15.0f)
-        return AddFontDefaultVector(font_cfg);
-    else
-        return AddFontDefaultBitmap(font_cfg);
+    const bool use_vector_font = ImFontAtlasHeuristicShouldUseDefaultVectorFont(this);
+    ImFont* font = use_vector_font ? AddFontDefaultVector(font_cfg) : AddFontDefaultBitmap(font_cfg);
+    if (Fonts.Size == 1)
+        Builder->LoadedFontDefaultAsVector = use_vector_font ? 1 : 0;
+    return font;
 }
 
 // Load embedded ProggyClean.ttf. Default size 13, disable oversampling.
